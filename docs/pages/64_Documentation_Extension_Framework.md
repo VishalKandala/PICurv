@@ -30,7 +30,7 @@ Pick the smallest scale that fits. Most changes are the first.
 A **canonical** value gets an entry with these eight parts, in this order. Each part
 is a bold run-in label, and `make audit-capability` checks that every one is present.
 
-Worked examples: @ref p44_cap_prescribed_flow (complex, nested input),
+Worked examples: @ref p44_cap_prescribed_velocity (complex, nested input),
 @ref p44_cap_noslip (minimal), @ref p08_cap_newton_krylov (deep, promoted).
 
 1. **Identity** - the full chain from YAML selector through generated token and C

@@ -139,8 +139,10 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `boundary-condition-factory-rejects-unsupported-handler`
   - `deterministic-face-grid-location-matrix`
   - `random-inlet-face-location-matrix`
-  - `inlet-constant-velocity-handler-behavior`
-  - `inlet-parabolic-profile-handler-behavior`
+  - `inlet-normal-source-behavior`
+  - `inlet-parabolic-source-behavior`
+  - `inlet-picslice-source-behavior`
+  - `inlet-source-follows-time-and-bulk-velocity`
   - `outlet-conservation-handler-behavior`
 - `test_periodic_dev.c`:
   - `periodic-geometric-factory-assignment`
@@ -269,7 +271,7 @@ Smoke checks include:
 - restart-equivalence continuity check
 - analytical Brownian branch
 - MPI rank variants and rank-matrix sweeps
-- opt-in stress extensions (`make smoke-stress`) for longer particle cycling, chained restarts, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs
+- opt-in stress extensions (`make smoke-stress`) for longer particle cycling, chained restarts, pulsatile parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs
 - geometric-periodic runtime harness (`make smoke-periodic`), included in the default gate
 
 Environment knobs relevant to C contributors:

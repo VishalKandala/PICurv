@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:c298a6b771615cba1e97ffb660cdcfed0ccf02caed89f61522a10a3fb7ac738c"
+      "attested_digest": "sha256:4461e66b2782067cc0a301859687f193fc077a0eaff83458bcc9c739c0b48b7f"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:050e1a79000869f362bcebf67a8a8cdcad6e6ed6ffa39fae3c2169ffedb5904e"
+      "attested_digest": "sha256:e06cd8b3a22cb519840e0c15fc067296cfd9ec080e92dedd1c75baa0e6798d4a"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:da911cf52cb66357496b961d9fb1ba39d3dd6b09cfc1d00a0bab6fe76aa808b9"
+      "attested_digest": "sha256:020bb5c8c3b1449dc19dc728142517e9f452adb386f5f4c3107bfc44ec96fbf9"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:cc4da52babc3adfa864e15eaae613cb2ffe27d281603223f35439c3f475ee166",
+      "attested_digest": "sha256:2ba7dbc445f26cc3bd46bd6c2567b90452890d477fa37c51b78937b63f73fc8d",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -205,7 +205,7 @@
         "08_Solver_Reference",
         "31_Momentum_Solvers"
       ],
-      "attested_digest": "sha256:bdb91c65e46b6016e827d60c2073505e293599d08cddc15ca314cf4fd8f8c342"
+      "attested_digest": "sha256:44f7be7d8f837cf3583045256522740a2b84c48aba449ca7d7782e130a007b31"
     },
     {
       "id": "momentum.picard",
@@ -358,7 +358,7 @@
       "dependent_pages": [
         "p54_geometric_periodic"
       ],
-      "attested_digest": "sha256:37be80403c9b64457d1511ab7f097b6f9832e42123b35a1788ad2eaad68137d0"
+      "attested_digest": "sha256:1b0130aeb60cf625a89d641fc5de90d19461faeabd40343ca46b562affb9b8b6"
     },
     {
       "id": "pressure.poisson",
@@ -430,7 +430,7 @@
         "13_Code_Architecture",
         "53_Search_Robustness_Metrics_Reference"
       ],
-      "attested_digest": "sha256:05f2513842377a9349011ca24b9d2ad71421e4c69445d7ac97b544e4cf6753b6"
+      "attested_digest": "sha256:52c2137f26477f8e5e92e45234c991f360bfdbc0fbefc4efdea5cefa809d5cb6"
     },
     {
       "id": "grid.generator",

@@ -7,13 +7,10 @@
         "mapping": {
           "conservation": "BC_HANDLER_OUTLET_CONSERVATION",
           "constant_flux": "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
-          "constant_velocity": "BC_HANDLER_INLET_CONSTANT_VELOCITY",
           "free_slip": "BC_HANDLER_WALL_FREE_SLIP",
           "geometric": "BC_HANDLER_PERIODIC_GEOMETRIC",
           "initial_flux": "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
           "noslip": "BC_HANDLER_WALL_NOSLIP",
-          "parabolic": "BC_HANDLER_INLET_PARABOLIC",
-          "prescribed_flow": "BC_HANDLER_INLET_PROFILE_FROM_FILE",
           "prescribed_velocity": "BC_HANDLER_INLET_PRESCRIBED_VELOCITY"
         },
         "source": {
@@ -24,13 +21,10 @@
         "values": [
           "conservation",
           "constant_flux",
-          "constant_velocity",
           "free_slip",
           "geometric",
           "initial_flux",
           "noslip",
-          "parabolic",
-          "prescribed_flow",
           "prescribed_velocity"
         ]
       },
@@ -42,10 +36,7 @@
           "prefix": "BC_HANDLER_"
         },
         "values": [
-          "BC_HANDLER_INLET_CONSTANT_VELOCITY",
-          "BC_HANDLER_INLET_PARABOLIC",
           "BC_HANDLER_INLET_PRESCRIBED_VELOCITY",
-          "BC_HANDLER_INLET_PROFILE_FROM_FILE",
           "BC_HANDLER_OUTLET_CONSERVATION",
           "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
           "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
@@ -75,18 +66,6 @@
         "status": "supported",
         "types": [
           "PERIODIC"
-        ]
-      },
-      "constant_velocity": {
-        "optional_params": [],
-        "required_params": [
-          "vx",
-          "vy",
-          "vz"
-        ],
-        "status": "supported",
-        "types": [
-          "INLET"
         ]
       },
       "free_slip": {
@@ -122,26 +101,6 @@
         "status": "supported",
         "types": [
           "WALL"
-        ]
-      },
-      "parabolic": {
-        "optional_params": [],
-        "required_params": [
-          "v_max"
-        ],
-        "status": "supported",
-        "types": [
-          "INLET"
-        ]
-      },
-      "prescribed_flow": {
-        "optional_params": [],
-        "required_params": [
-          "source"
-        ],
-        "status": "supported",
-        "types": [
-          "INLET"
         ]
       },
       "prescribed_velocity": {

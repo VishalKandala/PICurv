@@ -116,12 +116,13 @@ def test_timestep_and_grid_lengths_use_the_reference_time_and_length(core):
 
 def test_boundary_velocities_and_fluxes_are_converted(core):
     """!
-    @brief BC velocities are divided by U and volume fluxes by U L^2.
+    @brief BC volume fluxes are divided by U L^2; an inlet source stays physical, since the
+           runtime divides what it evaluates by U.
     @param[in] core Loaded conductor core.
     """
     prepared = core.validate_and_prepare_boundary_conditions(scaled_case(core))
-    inlet = next(bc for bc in prepared[0] if bc["handler"] == "constant_velocity")
-    assert inlet["params"]["vz"] == pytest.approx(1.0 / 4.0)
+    inlet = next(bc for bc in prepared[0] if bc["handler"] == "prescribed_velocity")
+    assert inlet["source"]["expressions"] == ["1.0"]
     assert core.quantity_to_solver_units(16.0, core.BC_PARAM_QUANTITIES["target_flux"], SCALES,
                                          "target_flux") == pytest.approx(1.0)
 

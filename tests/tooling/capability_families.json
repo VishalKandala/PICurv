@@ -57,63 +57,22 @@
             ]
           }
         },
-        "constant_velocity": {
-          "status": "supported",
-          "canonical": true,
-          "subsystem": "boundary.conditions",
-          "evidence": {
-            "unit": [
-              "make:unit-boundaries"
-            ],
-            "production": [
-              "example:examples/flat_channel"
-            ],
-            "analytical": [
-              "measurement:duct-inlet-handlers-2026-09-21"
-            ]
-          }
-        },
-        "parabolic": {
-          "status": "supported",
-          "canonical": true,
-          "subsystem": "boundary.conditions",
-          "evidence": {
-            "unit": [
-              "make:unit-boundaries"
-            ],
-            "analytical": [
-              "measurement:duct-inlet-handlers-2026-09-21"
-            ]
-          }
-        },
-        "prescribed_flow": {
-          "status": "supported",
-          "canonical": true,
-          "subsystem": "boundary.conditions",
-          "evidence": {
-            "unit": [
-              "make:unit-boundaries",
-              "file:tests/test_workspace_lifecycle.py"
-            ],
-            "integration": [
-              "file:tests/test_config_regressions.py"
-            ],
-            "analytical": [
-              "measurement:duct-poiseuille-picard-2026-09-18",
-              "measurement:programmatic-inlet-flux-fixed-2026-09-21"
-            ]
-          }
-        },
         "prescribed_velocity": {
           "status": "experimental",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
-              "make:unit-mpi"
+              "make:unit-boundaries",
+              "make:unit-mpi",
+              "file:tests/test_workspace_lifecycle.py"
             ],
             "integration": [
-              "file:tests/test_velocity_sources.py"
+              "file:tests/test_velocity_sources.py",
+              "file:tests/test_config_regressions.py"
+            ],
+            "production": [
+              "example:examples/flat_channel"
             ]
           }
         },
@@ -223,9 +182,6 @@
             ],
             "production": [
               "example:examples/flat_channel"
-            ],
-            "analytical": [
-              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },

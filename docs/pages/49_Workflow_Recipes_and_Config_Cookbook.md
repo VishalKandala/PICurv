@@ -356,14 +356,13 @@ Generated square-duct Poiseuille inlet profile:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: generated
-        generator: square_duct_poiseuille
-        params:
-          bulk_velocity: 1.0
-          n_terms: 101
+    handler: prescribed_velocity
+    source:
+      type: generated
+      generator: square_duct_poiseuille
+      params:
+        bulk_velocity: 1.0
+        n_terms: 101
 ```
 
 `picurv run --solve` writes the dimensional generated profile and
@@ -381,11 +380,10 @@ File-backed prescribed inlet profile:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: file
-        path: profiles/inlet.picslice
+    handler: prescribed_velocity
+    source:
+      type: file
+      path: profiles/inlet.picslice
 ```
 
 For `64 x 64 x 1024` cells, a `-Zeta` or `+Zeta` profile is `64 x 64`.
@@ -397,16 +395,15 @@ Field-sliced prescribed inlet profile from an old run:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: field_slice
-        field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-        grid_file: ../old_run/inputs/grid/grid.run
-        source_case: ../old_run/config/case.yml
-        slice:
-          face: "+Zeta"
-          orientation: opposite
+    handler: prescribed_velocity
+    source:
+      type: field_slice
+      field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
+      grid_file: ../old_run/inputs/grid/grid.run
+      source_case: ../old_run/config/case.yml
+      slice:
+        face: "+Zeta"
+        orientation: opposite
 ```
 
 This extracts Cartesian `Ucat` normal speeds from the old slice, validates the

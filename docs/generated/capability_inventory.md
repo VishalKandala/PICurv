@@ -10,13 +10,10 @@ Selector: `case.yml -> boundary_conditions[].handler`
 |---|---|---|---|
 | `conservation` | `OUTLET` | none | none |
 | `constant_flux` | `PERIODIC` | `target_flux` | `apply_trim`, `enforce_seam_flux` |
-| `constant_velocity` | `INLET` | `vx`, `vy`, `vz` | none |
 | `free_slip` | `WALL` | none | none |
 | `geometric` | `PERIODIC` | none | none |
 | `initial_flux` | `PERIODIC` | none | `apply_trim`, `enforce_seam_flux` |
 | `noslip` | `WALL` | none | none |
-| `parabolic` | `INLET` | `v_max` | none |
-| `prescribed_flow` | `INLET` | `source` | none |
 | `prescribed_velocity` | `INLET` | none | none |
 
 ### Boundary Condition Types

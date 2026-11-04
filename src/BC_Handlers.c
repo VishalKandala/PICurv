@@ -254,139 +254,98 @@ static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx
     PetscFunctionReturn(0);
 }
 
-////////////////////////////////////////////////////////////////////////
-
 //================================================================================
 //
-//          HANDLER IMPLEMENTATION: CONSTANT VELOCITY INLET
-//          (Corresponds to BC_HANDLER_INLET_CONSTANT_VELOCITY)
+//          HANDLER IMPLEMENTATION: PRESCRIBED VELOCITY INLET
+//          (Corresponds to BC_HANDLER_INLET_PRESCRIBED_VELOCITY)
+//
+// The velocity is a configured source (expression.h) evaluated at the centre of every
+// inlet face slot, or a normal speed per slot read from a PICSLICE file, optionally rescaled
+// so the face's mean normal speed follows a target bulk velocity. The slots are gathered at
+// the first boundary pass, once the metrics exist; the velocity is re-evaluated once per
+// step when it depends on t, and the rescaling is recomputed once per step when the source
+// or the target depends on t.
 //
 //================================================================================
 
-// --- FORWARD DECLARATIONS ---
-static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx);
-static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx, 
-                                                     PetscReal *in, PetscReal *out);
-static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx);
-static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
+static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *in, PetscReal *out);
-static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self);
+static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode PostStep_InletFlux(BoundaryCondition *self, BCContext *ctx,
+                                         PetscReal *in, PetscReal *out);
+static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self);
 
 /**
- * @brief Private data structure for the Constant Velocity Inlet handler.
+ * @brief Private data of the prescribed-velocity inlet: a compiled source or a PICSLICE file,
+ *        the values of the source's variables at each face slot this rank owns, and the
+ *        velocity they last gave.
  */
-typedef struct{
-    PetscReal normal_velocity; // Face-normal speed selected from vx, vy, or vz.
-}InletConstantData;
+typedef struct {
+    PicurvVelocitySource source;             /* Normal frame with no expressions for a file. */
+    char                *source_file;        /* Staged PICSLICE of solver-unit normal speeds, or NULL. */
+    PicurvExpression    *bulk;               /* Target mean normal speed [m/s] in t, or NULL. */
+    PetscBool            bulk_time_dependent;
+    PetscInt             slot_lo[2];         /* First tangential indices of the owned slots. */
+    PetscInt             slot_n[2];          /* Owned slots along the two tangential axes. */
+    PetscReal          (*values)[PICURV_SOURCE_VAR_COUNT]; /* Variables per slot; t is refreshed. */
+    Cmpnts             (*edges)[3];          /* Edges of the interior cell behind each slot. */
+    Cmpnts              *velocity;           /* Solver-unit velocity per slot, the speed in x for the normal frame. */
+    PetscReal            factor;             /* Bulk-velocity rescaling of `velocity`. */
+    PetscInt             evaluated_step;     /* Step the cache was last refreshed for. */
+    PetscBool            built;
+} InletPrescribedVelocityData;
+
+/** @brief Tangential axes of a face: the two logical axes other than its normal. */
+static inline void FaceTangentialAxes(BCFace face_id, PetscInt *normal, PetscInt *a, PetscInt *b)
+{
+    *normal = (PetscInt)face_id / 2;
+    *a = (*normal == 0) ? 1 : 0;
+    *b = (*normal == 2) ? 1 : 2;
+}
+
+/** @brief Index of the owned slot (i, j, k) in a prescribed-velocity inlet's per-slot arrays. */
+static inline PetscInt PrescribedSlot(const InletPrescribedVelocityData *data, BCFace face_id,
+                                      PetscInt i, PetscInt j, PetscInt k)
+{
+    const PetscInt idx[3] = {i, j, k};
+    PetscInt normal, a, b;
+    FaceTangentialAxes(face_id, &normal, &a, &b);
+    return (idx[a] - data->slot_lo[0]) + data->slot_n[0] * (idx[b] - data->slot_lo[1]);
+}
 
 /**
- * @brief Implementation of \ref Create_InletConstantVelocity().
+ * @brief Implementation of \ref Create_InletPrescribedVelocity().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/BC_Handlers.h`.
- * @see Create_InletConstantVelocity()
+ * @see Create_InletPrescribedVelocity()
  */
-PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
+PetscErrorCode Create_InletPrescribedVelocity(BoundaryCondition *bc)
 {
-    PetscErrorCode ierr;
+    InletPrescribedVelocityData *data = NULL;
+
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
-
-    InletConstantData *data = NULL;
-    ierr = PetscMalloc1(1, &data); CHKERRQ(ierr);
-    bc->data = (void*)data;
-    
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
+    PetscCall(PetscNew(&data));
+    bc->data       = (void*)data;
     bc->priority   = BC_PRIORITY_INLET;
-    bc->Initialize = Initialize_InletConstantVelocity;
-    bc->PreStep    = PreStep_InletConstantVelocity;
+    bc->Initialize = Initialize_InletPrescribedVelocity;
+    bc->PreStep    = PreStep_InletPrescribedVelocity;
     bc->Apply      = Apply_InletVelocity;
-    bc->PostStep   = PostStep_InletConstantVelocity;
+    bc->PostStep   = PostStep_InletFlux;
     bc->UpdateUbcs = NULL;
-    bc->Destroy    = Destroy_InletConstantVelocity;
-    
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Initialize persistent state for a constant-velocity inlet boundary.
- */
-static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    InletConstantData *data = (InletConstantData*)self->data;
-    PetscBool      found;
-    
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Initialize_InletConstantVelocity: Initializing handler for Face %d. \n", face_id);
-    data->normal_velocity = 0.0;
-    
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X:
-            // For X-faces, read "vx" as normal velocity
-            ierr = GetBCParamReal(user->boundary_faces[face_id].params, "vx", 
-                                 &data->normal_velocity, &found); CHKERRQ(ierr);
-            break;
-            
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y:
-            // For Y-faces, read "vy" as normal velocity
-            ierr = GetBCParamReal(user->boundary_faces[face_id].params, "vy", 
-                                 &data->normal_velocity, &found); CHKERRQ(ierr);
-            break;
-            
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z:
-            // For Z-faces, read "vz" as normal velocity
-            ierr = GetBCParamReal(user->boundary_faces[face_id].params, "vz", 
-                                 &data->normal_velocity, &found); CHKERRQ(ierr);
-            break;
-    }
-    
-    LOG_ALLOW(LOCAL, LOG_INFO, "  Inlet Face %d: normal velocity = %.4f\n",
-              face_id, data->normal_velocity);
-
-    // Set initial boundary state
-    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
-
+    bc->Destroy    = Destroy_InletPrescribedVelocity;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Update constant-inlet data required before the next solver step.
+ * @brief Adds the inlet face's applied flux, the sum of its normal Ucont, to the inflow.
  */
-static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
-                                                     PetscReal *local_inflow_contribution,
-                                                     PetscReal *local_outflow_contribution)
-{
-    // No preparation needed for constant velocity inlet.
-    // The velocity is already stored in self->data from Initialize.
-    // Apply will set ucont, and PostStep will measure the actual flux.
-    
-    (void)self;
-    (void)ctx;
-    (void)local_inflow_contribution;
-    (void)local_outflow_contribution;
-    
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Perform post-step bookkeeping for a constant-velocity inlet boundary.
- */
-static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
-                                                      PetscReal *local_inflow_contribution,
-                                                      PetscReal *local_outflow_contribution)
+static PetscErrorCode PostStep_InletFlux(BoundaryCondition *self, BCContext *ctx,
+                                         PetscReal *local_inflow_contribution,
+                                         PetscReal *local_outflow_contribution)
 {
     PetscErrorCode ierr;
     UserCtx*       user = ctx->user;
@@ -467,334 +426,12 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
 
     *local_inflow_contribution += local_flux;
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletConstantVelocity: Face %d, flux = %.6e\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletFlux: Face %d, flux = %.6e\n",
               face_id, local_flux);
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
-
-
-/**
- * @brief Release resources owned by a constant-velocity inlet boundary.
- */
-static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (self && self->data) {
-        PetscFree(self->data);
-        self->data = NULL;
-    }
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-//================================================================================
-//
-//          HANDLER IMPLEMENTATION: PARABOLIC VELOCITY INLET (POISEUILLE PROFILE)
-//          (Corresponds to BC_HANDLER_INLET_PARABOLIC)
-//
-// This handler enforces a fully-developed parabolic (Poiseuille) velocity profile
-// on a rectangular/square inlet face. The profile shape is:
-//
-//   V(cs1, cs2) = v_max * (1 - cs1_norm^2) * (1 - cs2_norm^2)
-//
-// where cs1 and cs2 are the two cross-stream index directions for the given face,
-// normalized to [-1, +1] across the interior nodes. The profile is zero at the
-// walls and peaks at v_max at the center.
-//
-// Workflow:
-//   Constructor  -> Allocate private data, wire function pointers.
-//   Initialize   -> Parse v_max from params, compute cross-stream geometry, call Apply.
-//   PreStep      -> No-op (profile is static in time).
-//   Apply        -> Set ucont and ubcs on the inlet face using the parabolic profile.
-//   PostStep     -> Measure actual volumetric flux through the face.
-//   Destroy      -> Free private data.
-//
-//================================================================================
-
-// --- FORWARD DECLARATIONS ---
-static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx);
-static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
-                                                     PetscReal *in, PetscReal *out);
-static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
-                                                      PetscReal *in, PetscReal *out);
-static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self);
-
-/**
- * @brief Private data structure for the Parabolic Velocity Inlet handler.
- *
- * Stores the peak velocity and pre-computed cross-stream geometry needed
- * to evaluate the parabolic profile at each boundary node.
- */
-typedef struct {
-    PetscReal v_max;       /**< Peak centerline velocity (from user params). */
-    PetscReal cs1_center;  /**< Center index in cross-stream direction 1. */
-    PetscReal cs2_center;  /**< Center index in cross-stream direction 2. */
-    PetscReal cs1_half;    /**< Half-width (in index space) in cross-stream direction 1. */
-    PetscReal cs2_half;    /**< Half-width (in index space) in cross-stream direction 2. */
-} InletParabolicData;
-
-/**
- * @brief Implementation of \ref Create_InletParabolicProfile().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/BC_Handlers.h`.
- * @see Create_InletParabolicProfile()
- */
-PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
-{
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
-
-    InletParabolicData *data = NULL;
-    ierr = PetscMalloc1(1, &data); CHKERRQ(ierr);
-    bc->data = (void*)data;
-
-    bc->priority   = BC_PRIORITY_INLET;
-    bc->Initialize = Initialize_InletParabolicProfile;
-    bc->PreStep    = PreStep_InletParabolicProfile;
-    bc->Apply      = Apply_InletVelocity;
-    bc->PostStep   = PostStep_InletParabolicProfile;
-    bc->UpdateUbcs = NULL;
-    bc->Destroy    = Destroy_InletParabolicProfile;
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Initialize the geometric data used to evaluate a parabolic inlet profile.
- */
-static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    InletParabolicData *data = (InletParabolicData*)self->data;
-    PetscBool      found;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Initialize_InletParabolicProfile: Initializing handler for Face %d.\n", face_id);
-
-    // --- Parse v_max from boundary condition parameters ---
-    data->v_max = 0.0;
-    ierr = GetBCParamReal(user->boundary_faces[face_id].params, "v_max",
-                          &data->v_max, &found); CHKERRQ(ierr);
-    if (!found) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Initialize_InletParabolicProfile: 'v_max' not found in params for face %d. Defaulting to 0.0.\n", face_id);
-    }
-
-    // --- Determine cross-stream dimensions based on face orientation ---
-    PetscReal cs1_dim, cs2_dim;
-    PetscBool cs1_periodic, cs2_periodic;
-    SimCtx   *simCtx = user->simCtx;
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X:
-            cs1_dim = (PetscReal)user->JM;  // j-direction
-            cs2_dim = (PetscReal)user->KM;  // k-direction
-            cs1_periodic = (PetscBool)(simCtx->j_periodic != 0);
-            cs2_periodic = (PetscBool)(simCtx->k_periodic != 0);
-            break;
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y:
-            cs1_dim = (PetscReal)user->IM;  // i-direction
-            cs2_dim = (PetscReal)user->KM;  // k-direction
-            cs1_periodic = (PetscBool)(simCtx->i_periodic != 0);
-            cs2_periodic = (PetscBool)(simCtx->k_periodic != 0);
-            break;
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z:
-        default:
-            cs1_dim = (PetscReal)user->IM;  // i-direction
-            cs2_dim = (PetscReal)user->JM;  // j-direction
-            cs1_periodic = (PetscBool)(simCtx->i_periodic != 0);
-            cs2_periodic = (PetscBool)(simCtx->j_periodic != 0);
-            break;
-    }
-
-    /* An axis of n nodes carries n-1 cells at indices 1..n-1, cell c centred at c - 1/2
-       in node units, so the walls sit at 1/2 and n - 1/2: the profile is centred at n/2
-       with half-width (n-1)/2 and vanishes on the walls, not at the first cell centres.
-       A periodic cross-stream axis has no walls; an unbounded half-width makes its
-       factor 1, so a spanwise-periodic channel receives the one-dimensional parabola. */
-    data->cs1_center = 0.5 * cs1_dim;
-    data->cs2_center = 0.5 * cs2_dim;
-    data->cs1_half   = cs1_periodic ? PETSC_MAX_REAL : 0.5 * (cs1_dim - 1.0);
-    data->cs2_half   = cs2_periodic ? PETSC_MAX_REAL : 0.5 * (cs2_dim - 1.0);
-
-    LOG_ALLOW(LOCAL, LOG_INFO, "  Inlet Face %d (Parabolic): v_max = %.4f\n", face_id, data->v_max);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 1: center=%.1f, half=%.1f\n", data->cs1_center, data->cs1_half);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 2: center=%.1f, half=%.1f\n", data->cs2_center, data->cs2_half);
-
-    // Set initial boundary state
-    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Refresh parabolic-inlet values required before the solver step.
- */
-static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
-                                                     PetscReal *local_inflow_contribution,
-                                                     PetscReal *local_outflow_contribution)
-{
-    (void)self;
-    (void)ctx;
-    (void)local_inflow_contribution;
-    (void)local_outflow_contribution;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-
-/**
- * @brief Perform post-step bookkeeping for a parabolic inlet boundary.
- */
-static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
-                                                      PetscReal *local_inflow_contribution,
-                                                      PetscReal *local_outflow_contribution)
-{
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    PetscBool      can_service;
-
-    (void)self;
-    (void)local_outflow_contribution;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ucont;
-
-    PetscInt IM_nodes_global, JM_nodes_global, KM_nodes_global;
-
-    IM_nodes_global = user->IM;
-    JM_nodes_global = user->JM;
-    KM_nodes_global = user->KM;
-
-    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global,
-                              face_id, &can_service); CHKERRQ(ierr);
-
-    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
-
-    ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-
-    PetscReal local_flux = 0.0;
-
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
-
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X: {
-            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt j = lys; j < lye; j++) {
-                    local_flux += ucont[k][j][i].x;
-                }
-            }
-        } break;
-
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y: {
-            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    local_flux += ucont[k][j][i].y;
-                }
-            }
-        } break;
-
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z: {
-            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    local_flux += ucont[k][j][i].z;
-                }
-            }
-        } break;
-    }
-
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-
-    *local_inflow_contribution += local_flux;
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletParabolicProfile: Face %d, flux = %.6e\n",
-              face_id, local_flux);
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Release resources owned by a parabolic inlet boundary.
- */
-static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (self && self->data) {
-        PetscFree(self->data);
-        self->data = NULL;
-    }
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-//================================================================================
-//
-//          HANDLER IMPLEMENTATION: PRESCRIBED INLET PROFILE FROM FILE
-//          (Corresponds to BC_HANDLER_INLET_PROFILE_FROM_FILE)
-//
-// This handler reads positive scalar normal speeds from a canonical PICSLICE file.
-// It then applies those speeds through the same face sign and metric conversion
-// used by the constant and parabolic inlet handlers.
-//
-//================================================================================
-
-static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx);
-static PetscErrorCode PreStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
-                                                    PetscReal *in, PetscReal *out);
-static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
-                                                     PetscReal *in, PetscReal *out);
-static PetscErrorCode Destroy_InletProfileFromFile(BoundaryCondition *self);
-
-typedef struct {
-    PetscInt   n1;
-    PetscInt   n2;
-    PetscReal *profile;
-    PetscReal  min_speed;
-    PetscReal  max_speed;
-    char      *source_file;
-} InletProfileFileData;
 
 /**
  * @brief Computes the expected PICSLICE dimensions for an inlet face.
@@ -844,16 +481,19 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
  *
  * @details The file must contain magic token `PICSLICE`, frame count 1, the expected
  *          two-dimensional face shape, and exactly one finite nonnegative scalar speed
- *          value per interior face slot. Values are stored row-major in `data->profile`.
+ *          value per interior face slot, stored row-major.
  *
  * @param source_file Path to the PICSLICE profile file.
  * @param expected_n1 Expected first slice dimension.
  * @param expected_n2 Expected second slice dimension.
- * @param[in,out] data Handler-private storage that receives dimensions, profile values, and min/max speeds.
+ * @param[out] profile Newly allocated `expected_n1 * expected_n2` speeds; the caller frees it.
+ * @param[out] min_speed Smallest speed in the file.
+ * @param[out] max_speed Largest speed in the file.
  * @return PetscErrorCode 0 on success, or a PETSc file/validation error on malformed input.
  */
 static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expected_n1,
-                                          PetscInt expected_n2, InletProfileFileData *data)
+                                          PetscInt expected_n2, PetscReal **profile,
+                                          PetscReal *min_speed, PetscReal *max_speed)
 {
     PetscErrorCode ierr;
     FILE *fd = NULL;
@@ -894,11 +534,9 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
                 source_file, expected_n1, expected_n2, n1, n2);
     }
 
-    data->n1 = n1;
-    data->n2 = n2;
-    ierr = PetscMalloc1(n1 * n2, &data->profile); CHKERRQ(ierr);
-    data->min_speed = PETSC_MAX_REAL;
-    data->max_speed = -PETSC_MAX_REAL;
+    ierr = PetscMalloc1(n1 * n2, profile); CHKERRQ(ierr);
+    *min_speed = PETSC_MAX_REAL;
+    *max_speed = -PETSC_MAX_REAL;
 
     for (PetscInt idx = 0; idx < n1 * n2; idx++) {
         PetscReal value = 0.0;
@@ -914,9 +552,9 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
                     "PICSLICE inlet profile file %s contains invalid speed %.6e at flat index %" PetscInt_FMT ".",
                     source_file, (double)value, idx);
         }
-        data->profile[idx] = value;
-        data->min_speed = PetscMin(data->min_speed, value);
-        data->max_speed = PetscMax(data->max_speed, value);
+        (*profile)[idx] = value;
+        *min_speed = PetscMin(*min_speed, value);
+        *max_speed = PetscMax(*max_speed, value);
     }
 
     char extra[64];
@@ -932,71 +570,9 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
 }
 
 /**
- * @brief Returns one scalar speed from the flattened PICSLICE profile.
- *
- * @param data Handler-private profile storage.
- * @param a First profile index in face-specific storage order.
- * @param b Second profile index in face-specific storage order.
- * @return Scalar normal speed at `(a, b)`.
- */
-/**
- * @brief Private data of the prescribed-velocity inlet: a compiled source, the values of its
- *        variables at each face slot this rank owns, and the velocity they last gave.
- */
-typedef struct {
-    PicurvVelocitySource source;
-    PicurvExpression    *bulk;               /* Target mean normal speed [m/s] in t, or NULL. */
-    PetscBool            bulk_time_dependent;
-    PetscInt             slot_lo[2];         /* First tangential indices of the owned slots. */
-    PetscInt             slot_n[2];          /* Owned slots along the two tangential axes. */
-    PetscReal          (*values)[PICURV_SOURCE_VAR_COUNT]; /* Variables per slot; t is refreshed. */
-    Cmpnts             (*edges)[3];          /* Edges of the interior cell behind each slot. */
-    Cmpnts              *velocity;           /* Solver-unit velocity per slot, the speed in x for the normal frame. */
-    PetscReal            factor;             /* Bulk-velocity rescaling of `velocity`. */
-    PetscInt             evaluated_step;     /* Step the cache was last refreshed for. */
-    PetscBool            built;
-} InletPrescribedVelocityData;
-
-/** @brief Tangential axes of a face: the two logical axes other than its normal. */
-static inline void FaceTangentialAxes(BCFace face_id, PetscInt *normal, PetscInt *a, PetscInt *b)
-{
-    *normal = (PetscInt)face_id / 2;
-    *a = (*normal == 0) ? 1 : 0;
-    *b = (*normal == 2) ? 1 : 2;
-}
-
-/** @brief Index of the owned slot (i, j, k) in a prescribed-velocity inlet's per-slot arrays. */
-static inline PetscInt PrescribedSlot(const InletPrescribedVelocityData *data, BCFace face_id,
-                                      PetscInt i, PetscInt j, PetscInt k)
-{
-    const PetscInt idx[3] = {i, j, k};
-    PetscInt normal, a, b;
-    FaceTangentialAxes(face_id, &normal, &a, &b);
-    return (idx[a] - data->slot_lo[0]) + data->slot_n[0] * (idx[b] - data->slot_lo[1]);
-}
-
-static inline PetscReal ProfileSpeedAt(const InletProfileFileData *data, PetscInt a, PetscInt b)
-{
-    return data->profile[a * data->n2 + b];
-}
-
-/**
- * @brief Evaluates one existing inlet mode as a Cartesian boundary velocity.
- *
- * @details Constant, parabolic, and PICSLICE modes currently supply a scalar normal
- *          speed. This evaluator performs their mode-specific sampling and lifts that
- *          speed onto the signed unit face normal. A future vector-valued mode can
- *          return Cartesian components here without changing the application loop.
- *
- * @param self Inlet handler whose type selects the provider data interpretation.
- * @param face_id Physical inlet face.
- * @param i Logical I index of the staggered face slot.
- * @param j Logical J index of the staggered face slot.
- * @param k Logical K index of the staggered face slot.
- * @param metric Face-area vector in the increasing computational direction.
- * @param sign Positive on a negative-side inlet and negative on a positive-side inlet.
- * @param interior Velocity of the adjacent interior cell; an inlet's profile does not use it.
- * @return Cartesian velocity prescribed at the physical boundary location.
+ * @brief Prescribed velocity at one inlet face slot, as a Cartesian vector.
+ * @details A normal-frame source stores its speed in `.x`; it is lifted onto the signed unit
+ *          face normal. Other frames store the Cartesian velocity. Both carry the bulk factor.
  */
 static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *self,
                                                      BCFace face_id,
@@ -1004,65 +580,21 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
                                                      Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
     (void)interior;
-    PetscReal normal_speed = 0.0;
+    const InletPrescribedVelocityData *data = (const InletPrescribedVelocityData*)self->data;
     Cmpnts velocity = {0.0, 0.0, 0.0};
-
-    switch (self->type) {
-        case BC_HANDLER_INLET_CONSTANT_VELOCITY:
-            normal_speed = ((const InletConstantData*)self->data)->normal_velocity;
-            break;
-        case BC_HANDLER_INLET_PARABOLIC: {
-            const InletParabolicData *data = (const InletParabolicData*)self->data;
-            PetscReal cs1 = 0.0, cs2 = 0.0;
-            if (face_id == BC_FACE_NEG_X || face_id == BC_FACE_POS_X) {
-                cs1 = (PetscReal)j;
-                cs2 = (PetscReal)k;
-            } else if (face_id == BC_FACE_NEG_Y || face_id == BC_FACE_POS_Y) {
-                cs1 = (PetscReal)i;
-                cs2 = (PetscReal)k;
-            } else {
-                cs1 = (PetscReal)i;
-                cs2 = (PetscReal)j;
-            }
-            const PetscReal cs1_norm = (cs1 - data->cs1_center) / data->cs1_half;
-            const PetscReal cs2_norm = (cs2 - data->cs2_center) / data->cs2_half;
-            const PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
-                                    * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
-            normal_speed = data->v_max * profile;
-        } break;
-        case BC_HANDLER_INLET_PROFILE_FROM_FILE: {
-            const InletProfileFileData *data = (const InletProfileFileData*)self->data;
-            if (face_id == BC_FACE_NEG_X || face_id == BC_FACE_POS_X)
-                normal_speed = ProfileSpeedAt(data, k - 1, j - 1);
-            else if (face_id == BC_FACE_NEG_Y || face_id == BC_FACE_POS_Y)
-                normal_speed = ProfileSpeedAt(data, k - 1, i - 1);
-            else
-                normal_speed = ProfileSpeedAt(data, j - 1, i - 1);
-        } break;
-        case BC_HANDLER_INLET_PRESCRIBED_VELOCITY: {
-            const InletPrescribedVelocityData *data = (const InletPrescribedVelocityData*)self->data;
-            if (!data->built) return velocity;
-            const Cmpnts v = data->velocity[PrescribedSlot(data, face_id, i, j, k)];
-            if (data->source.frame == PICURV_SOURCE_FRAME_NORMAL) {
-                normal_speed = data->factor * v.x;
-                break;
-            }
-            velocity.x = data->factor * v.x;
-            velocity.y = data->factor * v.y;
-            velocity.z = data->factor * v.z;
-            return velocity;
-        }
-        default:
-            break;
+    if (!data->built) return velocity;
+    const Cmpnts v = data->velocity[PrescribedSlot(data, face_id, i, j, k)];
+    if (data->source.frame != PICURV_SOURCE_FRAME_NORMAL) {
+        velocity.x = data->factor * v.x;
+        velocity.y = data->factor * v.y;
+        velocity.z = data->factor * v.z;
+        return velocity;
     }
-
     const PetscReal area = sqrt(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
-    /* Initialize applies the inlet before the grid metrics exist; a face without area has
-       no normal to align with, so it receives no velocity until the first boundary pass. */
     if (area <= 0.0) return velocity;
-    velocity.x = sign * normal_speed * metric.x / area;
-    velocity.y = sign * normal_speed * metric.y / area;
-    velocity.z = sign * normal_speed * metric.z / area;
+    velocity.x = sign * data->factor * v.x * metric.x / area;
+    velocity.y = sign * data->factor * v.x * metric.y / area;
+    velocity.z = sign * data->factor * v.x * metric.z / area;
     return velocity;
 }
 
@@ -1184,290 +716,32 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
 }
 
 /**
- * @brief Applies a Cartesian inlet velocity through the common face-layout path.
+ * @brief Applies the prescribed inlet velocity through the common face-layout path.
  *
- * @details The provider evaluation is mode-specific; ownership clipping, immersed-cell
- *          exclusion, metric projection, `Ubcs` placement, and the normal staggered
- *          `Ucont` write are `ApplyFaceBoundaryVelocity()`'s, shared with the walls.
+ * @details Ownership clipping, immersed-cell exclusion, metric projection, `Ubcs` placement,
+ *          and the normal staggered `Ucont` write are `ApplyFaceBoundaryVelocity()`'s, shared
+ *          with the walls.
  */
 static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx)
 {
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    PetscCheck(self->type == BC_HANDLER_INLET_CONSTANT_VELOCITY ||
-               self->type == BC_HANDLER_INLET_PARABOLIC ||
-               self->type == BC_HANDLER_INLET_PROFILE_FROM_FILE ||
-               self->type == BC_HANDLER_INLET_PRESCRIBED_VELOCITY,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Common inlet application cannot service handler type %d.", self->type);
     PetscCall(ApplyFaceBoundaryVelocity(self, ctx, EvaluateInletCartesianVelocity));
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Implementation of \ref Create_InletProfileFromFile().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/BC_Handlers.h`.
- * @see Create_InletProfileFromFile()
+ * @brief Compile the source named by the face's `source_id` parameter, or record the PICSLICE
+ *        file named by its `source_file` parameter, and the source's bulk velocity, if any.
  */
-PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc)
-{
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
-
-    InletProfileFileData *data = NULL;
-    ierr = PetscMalloc1(1, &data); CHKERRQ(ierr);
-    data->n1 = 0;
-    data->n2 = 0;
-    data->profile = NULL;
-    data->min_speed = 0.0;
-    data->max_speed = 0.0;
-    data->source_file = NULL;
-    bc->data = (void*)data;
-
-    bc->priority   = BC_PRIORITY_INLET;
-    bc->Initialize = Initialize_InletProfileFromFile;
-    bc->PreStep    = PreStep_InletProfileFromFile;
-    bc->Apply      = Apply_InletVelocity;
-    bc->PostStep   = PostStep_InletProfileFromFile;
-    bc->UpdateUbcs = NULL;
-    bc->Destroy    = Destroy_InletProfileFromFile;
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Initializes a file-prescribed inlet profile handler for one boundary face.
- *
- * @details Reads the `source_file` BC parameter, validates the target face dimensions,
- *          loads the PICSLICE scalar speed profile, and records summary statistics for logging.
- *
- * @param self BoundaryCondition object configured by Create_InletProfileFromFile().
- * @param ctx Runtime boundary context containing the UserCtx and face id.
- * @return PetscErrorCode 0 on success, or a PETSc error for missing parameters or malformed files.
- */
-static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx *user = ctx->user;
-    BCFace face_id = ctx->face_id;
-    InletProfileFileData *data = (InletProfileFileData*)self->data;
-    PetscBool found = PETSC_FALSE;
-    const char *source_file = NULL;
-    PetscInt expected_n1 = 0, expected_n2 = 0;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    ierr = GetBCParamString(user->boundary_faces[face_id].params, "source_file",
-                            &source_file, &found); CHKERRQ(ierr);
-    if (!found || !source_file || source_file[0] == '\0') {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-                "InletProfileFromFile requires source_file parameter for face %d.", face_id);
-    }
-
-    ierr = PetscStrallocpy(source_file, &data->source_file); CHKERRQ(ierr);
-    ierr = GetProfileFileExpectedDims(user, face_id, &expected_n1, &expected_n2); CHKERRQ(ierr);
-    ierr = ReadPicSliceProfile(source_file, expected_n1, expected_n2, data); CHKERRQ(ierr);
-
-    LOG_ALLOW(LOCAL, LOG_INFO,
-              "  Inlet Face %d (Prescribed Flow): source=%s dims=(%" PetscInt_FMT ",%" PetscInt_FMT ") speed[min,max]=[%.6e, %.6e]\n",
-              face_id, data->source_file, data->n1, data->n2,
-              (double)data->min_speed, (double)data->max_speed);
-
-    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Pre-step hook for the static file-prescribed inlet profile handler.
- *
- * @details Static profiles require no per-step preparation. The hook is implemented
- *          so future time-varying profile support can reuse the same handler lifecycle.
- *
- * @param self BoundaryCondition object for this inlet handler.
- * @param ctx Runtime boundary context.
- * @param local_inflow_contribution Inflow accumulator, intentionally unchanged.
- * @param local_outflow_contribution Outflow accumulator, intentionally unchanged.
- * @return PetscErrorCode 0 on success.
- */
-static PetscErrorCode PreStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
-                                                    PetscReal *local_inflow_contribution,
-                                                    PetscReal *local_outflow_contribution)
-{
-    (void)self;
-    (void)ctx;
-    (void)local_inflow_contribution;
-    (void)local_outflow_contribution;
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Accumulates the applied inlet flux for a file-prescribed profile.
- *
- * @details Sums the face-normal Ucont component over the same interior face slots
- *          populated by the common inlet application hook.
- *
- * @param self BoundaryCondition object for this inlet handler.
- * @param ctx Runtime boundary context containing the UserCtx and face id.
- * @param local_inflow_contribution Accumulator incremented by the measured inlet flux.
- * @param local_outflow_contribution Outflow accumulator, intentionally unchanged.
- * @return PetscErrorCode 0 on success, or a PETSc error from DMDA array access.
- */
-static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
-                                                     PetscReal *local_inflow_contribution,
-                                                     PetscReal *local_outflow_contribution)
-{
-    PetscErrorCode ierr;
-    UserCtx *user = ctx->user;
-    BCFace face_id = ctx->face_id;
-    PetscBool can_service;
-
-    (void)self;
-    (void)local_outflow_contribution;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ucont;
-
-    ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
-    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
-
-    ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-    PetscReal local_flux = 0.0;
-
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
-
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X: {
-            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-            for (PetscInt k = lzs; k < lze; k++)
-                for (PetscInt j = lys; j < lye; j++)
-                    local_flux += ucont[k][j][i].x;
-        } break;
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y: {
-            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-            for (PetscInt k = lzs; k < lze; k++)
-                for (PetscInt i = lxs; i < lxe; i++)
-                    local_flux += ucont[k][j][i].y;
-        } break;
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z: {
-            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-            for (PetscInt j = lys; j < lye; j++)
-                for (PetscInt i = lxs; i < lxe; i++)
-                    local_flux += ucont[k][j][i].z;
-        } break;
-    }
-
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-    *local_inflow_contribution += local_flux;
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletProfileFromFile: Face %d, flux = %.6e\n",
-              face_id, local_flux);
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Releases private storage owned by a file-prescribed inlet profile handler.
- *
- * @param self BoundaryCondition object whose `data` field stores InletProfileFileData.
- * @return PetscErrorCode 0 on success.
- */
-static PetscErrorCode Destroy_InletProfileFromFile(BoundaryCondition *self)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (self && self->data) {
-        InletProfileFileData *data = (InletProfileFileData*)self->data;
-        PetscFree(data->profile);
-        PetscFree(data->source_file);
-        PetscFree(self->data);
-        self->data = NULL;
-    }
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-//================================================================================
-//
-//          HANDLER IMPLEMENTATION: PRESCRIBED VELOCITY INLET
-//          (Corresponds to BC_HANDLER_INLET_PRESCRIBED_VELOCITY)
-//
-// The velocity is a configured source (expression.h) evaluated at the centre of every
-// inlet face slot, optionally rescaled so the face's mean normal speed follows a target
-// bulk velocity. The source's variables are gathered at the first boundary pass, once the
-// metrics exist; the velocity is re-evaluated once per step when it depends on t, and the
-// rescaling is recomputed once per step when the source or the target depends on t.
-//
-//================================================================================
-
-static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx);
-static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx,
-                                                      PetscReal *in, PetscReal *out);
-static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self);
-static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
-                                                      PetscReal *in, PetscReal *out);
-
-/**
- * @brief Implementation of \ref Create_InletPrescribedVelocity().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/BC_Handlers.h`.
- * @see Create_InletPrescribedVelocity()
- */
-PetscErrorCode Create_InletPrescribedVelocity(BoundaryCondition *bc)
-{
-    InletPrescribedVelocityData *data = NULL;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
-    PetscCall(PetscNew(&data));
-    bc->data       = (void*)data;
-    bc->priority   = BC_PRIORITY_INLET;
-    bc->Initialize = Initialize_InletPrescribedVelocity;
-    bc->PreStep    = PreStep_InletPrescribedVelocity;
-    bc->Apply      = Apply_InletVelocity;
-    /* The flux it measures is the face's applied Ucont, the same for every inlet. */
-    bc->PostStep   = PostStep_InletConstantVelocity;
-    bc->UpdateUbcs = NULL;
-    bc->Destroy    = Destroy_InletPrescribedVelocity;
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/** @brief Compile the source named by the face's `source_id` parameter. */
 static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx)
 {
     InletPrescribedVelocityData *data = (InletPrescribedVelocityData*)self->data;
     UserCtx   *user = ctx->user;
     PetscReal  id = -1.0;
     PetscBool  found = PETSC_FALSE;
+    const char *source_file = NULL;
     char       option[96], text[4096];
     static const char *const kTime[] = {"t"};
 
@@ -1476,7 +750,13 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     PetscCall(GetBCParamReal(user->boundary_faces[ctx->face_id].params, "source_id", &id, &found));
     PetscCheck(found && id >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
                "Face %s: the prescribed_velocity inlet needs a source_id parameter.", BCFaceToString(ctx->face_id));
-    PetscCall(PicurvVelocitySourceCreate(PICURV_SOURCE_TARGET_INLET, (PetscInt)id, &data->source));
+    PetscCall(GetBCParamString(user->boundary_faces[ctx->face_id].params, "source_file", &source_file, &found));
+    if (found && source_file && source_file[0] != '\0') {
+        PetscCall(PetscStrallocpy(source_file, &data->source_file));
+        data->source.frame = PICURV_SOURCE_FRAME_NORMAL;
+    } else {
+        PetscCall(PicurvVelocitySourceCreate(PICURV_SOURCE_TARGET_INLET, (PetscInt)id, &data->source));
+    }
     PetscCall(PetscSNPrintf(option, sizeof(option), "-inlet_source_%d_bulk_velocity", (int)id));
     PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
     if (found) {
@@ -1485,11 +765,16 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     }
     data->factor = 1.0;
     data->evaluated_step = -1;
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from -inlet_source_%d (%s frame%s%s).\n",
-              BCFaceToString(ctx->face_id), (int)id,
-              data->source.frame == PICURV_SOURCE_FRAME_NORMAL ? "normal" :
-              data->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR ? "curvilinear" : "cartesian",
-              data->source.time_dependent ? ", time-dependent" : "", data->bulk ? ", bulk velocity" : "");
+    if (data->source_file) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed normal speed from %s%s.\n",
+                  BCFaceToString(ctx->face_id), data->source_file, data->bulk ? ", bulk velocity" : "");
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from -inlet_source_%d (%s frame%s%s).\n",
+                  BCFaceToString(ctx->face_id), (int)id,
+                  data->source.frame == PICURV_SOURCE_FRAME_NORMAL ? "normal" :
+                  data->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR ? "curvilinear" : "cartesian",
+                  data->source.time_dependent ? ", time-dependent" : "", data->bulk ? ", bulk velocity" : "");
+    }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1642,6 +927,33 @@ static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, Us
 }
 
 /**
+ * @brief Fill each owned slot's normal speed from the face's PICSLICE file. Every rank reads
+ *        the file, so a malformed one fails on all of them.
+ */
+static PetscErrorCode LoadPrescribedProfile(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
+{
+    PetscReal *profile = NULL, min_speed = 0.0, max_speed = 0.0;
+    PetscInt   n1 = 0, n2 = 0, normal, a, b;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    FaceTangentialAxes(face_id, &normal, &a, &b);
+    PetscCall(GetProfileFileExpectedDims(user, face_id, &n1, &n2));
+    PetscCall(ReadPicSliceProfile(data->source_file, n1, n2, &profile, &min_speed, &max_speed));
+    /* A PICSLICE row runs along the face's first tangential axis; rows step along the second. */
+    for (PetscInt q = 0; q < data->slot_n[1]; ++q)
+    for (PetscInt p = 0; p < data->slot_n[0]; ++p) {
+        const Cmpnts v = {profile[(data->slot_lo[1] + q - 1) * n2 + (data->slot_lo[0] + p - 1)], 0.0, 0.0};
+        data->velocity[p + data->slot_n[0] * q] = v;
+    }
+    PetscCall(PetscFree(profile));
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: PICSLICE %s, %" PetscInt_FMT " x %" PetscInt_FMT ", speed [%.6e, %.6e].\n",
+              BCFaceToString(face_id), data->source_file, n1, n2, (double)min_speed, (double)max_speed);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Refresh the inlet velocity once per step: gather the slots on the first call, then
  *        re-evaluate and rescale only what depends on t.
  */
@@ -1665,7 +977,9 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
     const PetscBool rescale = (PetscBool)(data->bulk && (evaluate || data->bulk_time_dependent));
     if (!data->built) PetscCall(BuildPrescribedSlots(data, user, ctx->face_id));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
-    if (evaluate) {
+    if (evaluate && data->source_file) {
+        PetscCall(LoadPrescribedProfile(data, user, ctx->face_id));
+    } else if (evaluate) {
         const PetscReal U_ref = simCtx->scaling.U_ref;
         for (PetscInt s = 0; s < data->slot_n[0] * data->slot_n[1]; ++s) {
             Cmpnts v;
@@ -1691,6 +1005,7 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
     if (self && self->data) {
         InletPrescribedVelocityData *data = (InletPrescribedVelocityData*)self->data;
         PetscCall(PicurvVelocitySourceDestroy(&data->source));
+        PetscCall(PetscFree(data->source_file));
         PetscCall(PicurvExpressionDestroy(&data->bulk));
         PetscCall(PetscFree3(data->values, data->edges, data->velocity));
         PetscCall(PetscFree(self->data));

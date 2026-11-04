@@ -59,7 +59,7 @@ Each physical input is converted at one site, recorded beside its dimension:
 | `c` | the runtime divides it, because the input reaches C with no staging step | `programmatic_settings` domain bounds (`ReadGridGenerationInputs()` in `src/io.c`) |
 | `staging` | a file payload is divided as it is staged under `<run.inputs>` | `.picgrid` grids, `grid.gen` output, inlet-profile PICSLICEs, a `mode: file` initial condition |
 | `provider` | a generator is handed the reference scales and writes solver units | `ic_gen` expressions (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) |
-| `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values, velocity sources |
+| `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values, velocity sources (a data source on an inlet is staged instead) |
 | `reference` | the input defines a scale | `length_ref`, `velocity_ref`, `density`, `viscosity`, the provenance scales of a file payload |
 | `passthrough` | raw solver flags, in solver units by definition | `solver_parameters`, `petsc_passthrough_options` |
 
@@ -77,12 +77,7 @@ particle `fields`.
 
 | Input | Dimension | Converted by | Scale |
 |---|---|---|---|
-| `case.yml: boundary_conditions[].params.source` | VELOCITY | staging | U |
 | `case.yml: boundary_conditions[].params.target_flux` | VOLUME_FLUX | cli | U L^2 |
-| `case.yml: boundary_conditions[].params.v_max` | VELOCITY | cli | U |
-| `case.yml: boundary_conditions[].params.vx` | VELOCITY | cli | U |
-| `case.yml: boundary_conditions[].params.vy` | VELOCITY | cli | U |
-| `case.yml: boundary_conditions[].params.vz` | VELOCITY | cli | U |
 | `case.yml: boundary_conditions.[].constraints` | VELOCITY | evaluator | U |
 | `case.yml: boundary_conditions.[].source` | VELOCITY | evaluator | U |
 | `case.yml: boundary_conditions.[].[].constraints` | VELOCITY | evaluator | U |

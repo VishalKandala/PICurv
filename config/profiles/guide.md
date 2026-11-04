@@ -1,7 +1,7 @@
 # Profile Generation Guide
 
-This directory documents reusable inlet-profile patterns for `prescribed_flow`
-boundary conditions. The actual profile choice lives in `case.yml` because the
+This directory documents reusable inlet-profile patterns for the data sources of a
+`prescribed_velocity` inlet. The actual profile choice lives in `case.yml` because the
 BC face and grid dimensions determine the required `PICSLICE` shape.
 
 ## Supported Patterns
@@ -12,11 +12,10 @@ File-backed profile:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: file
-        path: profiles/inlet.picslice
+    handler: prescribed_velocity
+    source:
+      type: file
+      path: profiles/inlet.picslice
 ```
 
 Generated square-duct Poiseuille profile:
@@ -25,14 +24,13 @@ Generated square-duct Poiseuille profile:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: generated
-        generator: square_duct_poiseuille
-        params:
-          bulk_velocity: 1.0
-          n_terms: 101
+    handler: prescribed_velocity
+    source:
+      type: generated
+      generator: square_duct_poiseuille
+      params:
+        bulk_velocity: 1.0
+        n_terms: 101
 ```
 
 Field-sliced profile from an old PICurv `ufield*.dat`:
@@ -41,16 +39,15 @@ Field-sliced profile from an old PICurv `ufield*.dat`:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: field_slice
-        field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-        grid_file: ../old_run/inputs/grid/grid.run
-        source_case: ../old_run/config/case.yml
-        slice:
-          face: "+Zeta"
-          orientation: opposite
+    handler: prescribed_velocity
+    source:
+      type: field_slice
+      field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
+      grid_file: ../old_run/inputs/grid/grid.run
+      source_case: ../old_run/config/case.yml
+      slice:
+        face: "+Zeta"
+        orientation: opposite
 ```
 
 `field_slice` reads Cartesian `Ucat`, computes geometry normals from the old
@@ -109,5 +106,6 @@ solver through the same path.
 grid/profile artifacts before a solve, and `picurv run --solve` performs the
 same materialization automatically when generator-style sources are selected.
 Future canonical profiles or derived-profile sources should extend
-`profile.gen` first, then be exposed through `prescribed_flow.params.source`
-using the same artifact pipeline.
+`profile.gen` first, then be exposed as a `prescribed_velocity` data source
+using the same artifact pipeline. A profile with a closed form needs neither: write it as
+an expression source.

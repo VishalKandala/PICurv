@@ -881,9 +881,9 @@ static PetscErrorCode TestBoundaryConditionStringParsers(void)
     PetscCall(StringToBCHandlerType("constant_flux", &handler));
     PetscCall(PicurvAssertIntEqual(BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX, handler,
                                    "StringToBCHandlerType should parse constant_flux"));
-    PetscCall(StringToBCHandlerType("prescribed_flow", &handler));
-    PetscCall(PicurvAssertIntEqual(BC_HANDLER_INLET_PROFILE_FROM_FILE, handler,
-                                   "StringToBCHandlerType should parse prescribed_flow"));
+    PetscCall(StringToBCHandlerType("prescribed_velocity", &handler));
+    PetscCall(PicurvAssertIntEqual(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, handler,
+                                   "StringToBCHandlerType should parse prescribed_velocity"));
     PetscFunctionReturn(0);
 }
 /**
@@ -897,8 +897,8 @@ static PetscErrorCode TestValidateBCHandlerForBCType(void)
                                "WALL + noslip should be a valid combination"));
     PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(PERIODIC, BC_HANDLER_PERIODIC_GEOMETRIC) == 0),
                                "PERIODIC + geometric should be a valid combination"));
-    PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(INLET, BC_HANDLER_INLET_PROFILE_FROM_FILE) == 0),
-                               "INLET + prescribed_flow should be a valid combination"));
+    PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(INLET, BC_HANDLER_INLET_PRESCRIBED_VELOCITY) == 0),
+                               "INLET + prescribed_velocity should be a valid combination"));
     PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(INLET, BC_HANDLER_WALL_NOSLIP) != 0),
                                "INLET + noslip should be rejected"));
     PetscFunctionReturn(0);

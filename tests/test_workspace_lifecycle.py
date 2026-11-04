@@ -368,12 +368,12 @@ def test_generated_profile_on_a_programmatic_grid_is_normalized_on_its_faces(tmp
     inlet = next(bc for bc in case["boundary_conditions"] if bc["face"] == "-Zeta")
     inlet.update({
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {"source": {
+        "handler": "prescribed_velocity",
+        "source": {
             "type": "generated",
             "generator": "square_duct_poiseuille",
             "params": {"bulk_velocity": 1.0, "n_terms": 31},
-        }},
+        },
     })
     case_path = workspace / "config" / "case.yml"
     core.write_yaml_file(str(case_path), case)

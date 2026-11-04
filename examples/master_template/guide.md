@@ -47,8 +47,8 @@ Launcher-related note:
 Profile-generation note:
 
 - `master_case.yml` includes commented examples for file-backed, generated
-  square-duct Poiseuille, and old-field-sliced `prescribed_flow` PICSLICE
-  profiles. A field slice needs a `file` or `grid_gen` target grid; bring the old
+  square-duct Poiseuille, and old-field-sliced PICSLICE data sources of the
+  `prescribed_velocity` inlet, beside its expression sources. A field slice needs a `file` or `grid_gen` target grid; bring the old
   run's field and grid in with `picurv inputs import`.
 - `picurv run --solve` generates configured profile artifacts automatically,
   under `<run.inputs>/inlet_profiles/`; `source.output_file` is refused.

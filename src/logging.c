@@ -918,9 +918,6 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
         case BC_HANDLER_WALL_FREE_SLIP:          PROFILE_FUNCTION_END; return "free_slip";
 
         // Inlet Handlers
-        case BC_HANDLER_INLET_CONSTANT_VELOCITY: PROFILE_FUNCTION_END; return "constant_velocity";
-        case BC_HANDLER_INLET_PARABOLIC:         PROFILE_FUNCTION_END; return "parabolic";
-        case BC_HANDLER_INLET_PROFILE_FROM_FILE: PROFILE_FUNCTION_END; return "prescribed_flow";
         case BC_HANDLER_INLET_PRESCRIBED_VELOCITY: PROFILE_FUNCTION_END; return "prescribed_velocity";
 
         // Outlet Handlers

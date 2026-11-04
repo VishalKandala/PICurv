@@ -64,7 +64,9 @@ For detailed startup behavior of field initialization modes, see **@subpage 33_I
 
 Practical contract notes:
 
-- `initial_conditions.mode` is `generated` or `file`.
+- `initial_conditions.mode` is `generated` or `file`; `initial_conditions.source` replaces
+  both with a velocity source evaluated at every cell centre (@ref p33_source), optionally
+  with `constraints: {scale}`.
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
 - `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
 - channel/duct spectral providers require no-slip wall pairs, periodic remaining axes,
@@ -1222,14 +1224,17 @@ Supported face names:
 - `-Xi`, `+Xi`, `-Eta`, `+Eta`, `-Zeta`, `+Zeta`
 
 Supported type/handler combinations:
-- `INLET` + `constant_velocity` (`vx/vy/vz`)
-- `INLET` + `parabolic` (`v_max`)
-- `INLET` + `prescribed_flow`:
-  - file-backed: `params.source.type: file`, `params.source.path`
-  - generated: `params.source.type: generated`, `params.source.generator: square_duct_poiseuille`
-  - field-sliced: `params.source.type: field_slice`, `params.source.field_file`, `params.source.grid_file`, `params.source.slice`
+- `INLET` + `prescribed_velocity`, with `source` and optional `constraints` (`scale`,
+  `bulk_velocity`) on the entry rather than under `params`:
+  - expression: `source.expression` with `components: normal | cartesian | curvilinear`
+    and optional `constants`
+  - file-backed: `source.type: file`, `source.path`
+  - generated: `source.type: generated`, `source.generator: square_duct_poiseuille`
+  - field-sliced: `source.type: field_slice`, `source.field_file`, `source.grid_file`, `source.slice`
   - generated and field-sliced sources default to `generators/profile.gen`; optional
-    `params.source.script` selects a compatible override
+    `source.script` selects a compatible override
+  - `source` may instead name an entry of the top-level `sources:` mapping, which an
+    initial condition can share
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `WALL` + `free_slip` (also a plane of symmetry; the former `symmetry` type is retired)
@@ -1245,19 +1250,28 @@ crossing that face becomes. The default comes from the handler: both wall handle
 inlet and outlet handlers remove, the periodic handlers wrap. `wrap` is accepted on
 `PERIODIC` faces only, and they accept nothing else. See @ref p44_ppol_sec.
 
+Pulsatile expression example:
+
+```yaml
+- face: "-Zeta"
+  type: INLET
+  handler: prescribed_velocity
+  source: {components: normal, expression: "16*xi*(1-xi)*eta*(1-eta)"}
+  constraints: {bulk_velocity: "1.0*(1 + 0.3*sin(2*pi*t))"}
+```
+
 Generated profile example:
 
 ```yaml
 - face: "-Zeta"
   type: INLET
-  handler: prescribed_flow
-  params:
-    source:
-      type: generated
-      generator: square_duct_poiseuille
-      params:
-        bulk_velocity: 1.0
-        n_terms: 101
+  handler: prescribed_velocity
+  source:
+    type: generated
+    generator: square_duct_poiseuille
+    params:
+      bulk_velocity: 1.0
+      n_terms: 101
 ```
 
 `picurv run --solve` generates the dimensional `.picslice`, writes
@@ -1270,16 +1284,15 @@ Field-sliced profile example:
 ```yaml
 - face: "-Zeta"
   type: INLET
-  handler: prescribed_flow
-  params:
-    source:
-      type: field_slice
-      field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-      grid_file: ../old_run/inputs/grid/grid.run
-      source_case: ../old_run/config/case.yml
-      slice:
-        face: "+Zeta"
-        orientation: opposite
+  handler: prescribed_velocity
+  source:
+    type: field_slice
+    field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
+    grid_file: ../old_run/inputs/grid/grid.run
+    source_case: ../old_run/config/case.yml
+    slice:
+      face: "+Zeta"
+      orientation: opposite
 ```
 
 `field_slice` uses Python preprocessing to write a normal dimensional PICSLICE;

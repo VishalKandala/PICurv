@@ -83,10 +83,10 @@
       "classification": "cli_inventory_sufficient",
       "reason": "'fields' and 'spectra' are the values of `picurv run --only`. The generated CLI reference lists the flag and its choices, and page 10 explains when to run spectra alone. A Tier-2 entry per stage would restate the stage documentation that already exists next to each pipeline."
     },
-    "picurv_cli.core::PRESCRIBED_FLOW_SOURCE_TYPES": {
+    "picurv_cli.core::PROFILE_SOURCE_TYPES": {
       "classification": "parameter_of_entry",
-      "reason": "`source.type` for the prescribed_flow inlet handler: file, generated, or field_slice. All three are enumerated in that handler's entry with their required keys and a use-when column, which is the documentation a family would carry.",
-      "owner": "boundary.handler::prescribed_flow"
+      "reason": "`source.type` for a data source of the prescribed_velocity inlet handler: file, generated, or field_slice. All three are enumerated in that handler's entry with their required keys and a use-when column, which is the documentation a family would carry.",
+      "owner": "boundary.handler::prescribed_velocity"
     },
     "picurv_cli.core::PROFILING_TIMESTEP_MODES": {
       "classification": "parameter_of_entry",
@@ -95,8 +95,8 @@
     },
     "picurv_cli.core::PROJECTION_OPERATORS": {
       "classification": "parameter_of_entry",
-      "reason": "Discrete operator used by the solenoidal projection when preparing a prescribed field. It parameterises that projection rather than selecting between user-facing behaviours, and is documented with the prescribed_flow source it serves.",
-      "owner": "boundary.handler::prescribed_flow"
+      "reason": "Discrete operator used by the solenoidal projection when preparing a prescribed field. It parameterises that projection rather than selecting between user-facing behaviours, and is documented with the prescribed_velocity data source it serves.",
+      "owner": "boundary.handler::prescribed_velocity"
     },
     "picurv_cli.core::RESERVED_RUN_DIRECTORY_NAMES": {
       "classification": "not_public",
@@ -121,6 +121,11 @@
     "picurv_cli.core::SOLVER_MONITORING_POISSON_FLAG_MAP": {
       "classification": "not_public",
       "reason": "Maps the boolean monitoring switches under solver_monitoring.poisson to their PETSc flags. The booleans are the user surface and are documented as such on the monitor reference page; this mapping is the wiring behind them, not a menu."
+    },
+    "picurv_cli.core::SOURCE_EXPRESSION_NAMES": {
+      "classification": "parameter_of_entry",
+      "reason": "The variables a velocity source's expressions may use: x, y, z, t, the arc-length fractions xi, eta, zeta and the line lengths L_xi, L_eta, L_zeta. They are the names of one expression language, not selectable behaviours, and are listed with their units in the prescribed_velocity entry and the source initial-condition section.",
+      "owner": "boundary.handler::prescribed_velocity"
     },
     "picurv_cli.core::STATISTICS_MOMENT_NAMES": {
       "classification": "not_public",

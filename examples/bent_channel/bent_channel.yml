@@ -60,11 +60,8 @@ boundary_conditions:
     handler: noslip
   - face: "-Zeta"
     type: INLET
-    handler: constant_velocity
-    params:
-      vx: 0.0 # Physical velocity [m/s]
-      vy: 0.0
-      vz: 1.0
+    handler: prescribed_velocity
+    source: {components: normal, expression: 1.0}  # Speed into the domain [m/s]
   - face: "+Zeta"
     type: OUTLET
     handler: conservation

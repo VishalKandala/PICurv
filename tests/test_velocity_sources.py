@@ -5,7 +5,8 @@
 
 The CLI resolves a source (inline or named), inlines its constants, applies the target's
 constraints, and passes it to the runtime as quoted `-inlet_source_<id>_*` or `-ic_source_*`
-options; `src/expression.c` compiles and evaluates it. The language itself is covered by
+options; `src/expression.c` compiles and evaluates it. A data source on an inlet is staged as
+a PICSLICE instead, which the bcs file names. The language itself is covered by
 `test_expression_language.py`.
 """
 
@@ -134,8 +135,13 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
 @pytest.mark.parametrize("sources, inlet, initial_conditions, message", [
     (None, {"handler": "prescribed_velocity", "source": "missing"}, None, "no source named 'missing'"),
     (None, {"handler": "prescribed_velocity"}, None, "needs a 'source'"),
-    (None, {"handler": "constant_velocity", "params": {"vx": 0, "vy": 0, "vz": 1}, "source": DUCT}, None,
+    (None, {"handler": "constant_velocity", "params": {"vx": 0, "vy": 0, "vz": 1}}, None,
+     "is retired: use handler 'prescribed_velocity' with source: {components: normal"),
+    (None, {"type": "WALL", "handler": "noslip", "source": DUCT}, None,
      "only read by the 'prescribed_velocity' handler"),
+    (None, None, {"source": {"type": "file", "path": "inlet.picslice"}}, "only an inlet reads it"),
+    (None, {"handler": "prescribed_velocity", "source": {"type": "file", "path": "inlet.picslice"},
+            "constraints": {"scale": -1.0}}, None, "must be positive"),
     (None, {"handler": "prescribed_velocity", "source": {"expression": {"u_xi": "1"}}}, None,
      "not cartesian components"),
     (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "q*2"}}, None,
@@ -167,3 +173,36 @@ def test_invalid_sources_are_refused(sources, inlet, initial_conditions, message
                                               named_sources=case.get("sources"))
     text = capsys.readouterr().err + str(caught.value)
     assert message in text
+
+
+def test_a_data_source_is_staged_and_scaled(tmp_path):
+    """!
+    @brief A named file source is staged in solver units, scaled, and named in the bcs file;
+           only its bulk target reaches the control file.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    profile = tmp_path / "inlet.picslice"
+    case, _, _ = load_configs(
+        sources={"measured": {"type": "file", "path": str(profile)}},
+        inlet={"handler": "prescribed_velocity", "source": "measured",
+               "constraints": {"scale": 2.0, "bulk_velocity": "1 + 0.5*t"}})
+    jm, im = (case["grid"]["programmatic_settings"][key] for key in ("jm", "im"))
+    speeds = [0.25 * (n % 4) for n in range(jm * im)]
+    profile.write_text("PICSLICE\n1\n%d %d\n%s\n" % (jm, im, "\n".join(map(str, speeds))), encoding="utf-8")
+    inlet = CORE.validate_and_prepare_boundary_conditions(case)[0][4]
+    assert CORE.profile_data_source(inlet)["type"] == "file"
+    assert CORE.velocity_source_control_lines("-inlet_source_0", inlet["source"], "src") == [
+        '-inlet_source_0_bulk_velocity "1 + 0.5*t"']
+
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    generated = CORE.generate_multi_block_bcs(
+        str(run_dir), "unit", case, {"Case": str(tmp_path / "case.yml"), "Solver": "solver.yml",
+                                     "Monitor": "monitor.yml"})
+    line = next(text for text in Path(generated[0]).read_text(encoding="utf-8").splitlines()
+                if text.startswith("-Zeta"))
+    assert "prescribed_velocity" in line and "source_id=0" in line
+    staged = Path(line.split("source_file=")[1].split()[0])
+    values = [float(token) for token in staged.read_text(encoding="utf-8").split()[4:]]
+    velocity_ref = CORE.resolve_reference_scales(case)["velocity_ref"]
+    assert values == pytest.approx([2.0 * speed / velocity_ref for speed in speeds])

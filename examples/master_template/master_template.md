@@ -40,10 +40,10 @@ For shared site MPI quirks across login-node and batch runs, `picurv init` now c
 
 - Keep reusable solver/monitor/post profiles in `config/solvers`, `config/monitors`, and `config/postprocessors`.
 - Keep geometry-specific and study-specific physics choices in case-local files.
-- For inlet profiles, use `prescribed_flow.source.type: file` for inspected
-  PICSLICE artifacts, `source.type: generated` for conductor-managed analytical
-  profile generation, or `source.type: field_slice` to reuse an old `ufield`
-  slice.
+- For inlets, write a closed-form or time-dependent profile as a `prescribed_velocity`
+  expression source. For profile data, use a data source: `type: file` for inspected
+  PICSLICE artifacts, `type: generated` for conductor-managed analytical profile
+  generation, or `type: field_slice` to reuse an old `ufield` slice.
 - Use `picurv precompute --case ...` when you want to generate and inspect
   grid/profile/initial-condition artifacts before launching the solver.
 - Prefer explicit schema keys over passthrough flags when both exist.

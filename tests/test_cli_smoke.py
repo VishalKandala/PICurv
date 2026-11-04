@@ -461,26 +461,22 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
         },
         "boundary_conditions": [
             {
-                "handler": "prescribed_flow",
-                "params": {
-                    "source": {
+                "handler": "prescribed_velocity",
+                "source": {
                         "type": "generated",
                         "generator": "square_duct_poiseuille",
                         "script": "tools/profile.py",
-                    }
-                },
+                    },
             },
             {
-                "handler": "prescribed_flow",
-                "params": {
-                    "source": {
+                "handler": "prescribed_velocity",
+                "source": {
                         "type": "field_slice",
                         "script": "tools/profile.py",
                         "field_file": "old/ufield.dat",
                         "grid_file": "old/grid.run",
                         "source_case": "old/case.yml",
-                    }
-                },
+                    },
             },
         ],
     }
@@ -489,8 +485,8 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
 
     source_dir = case_path.parent
     ic = case_cfg["properties"]["initial_conditions"]["params"]
-    generated = case_cfg["boundary_conditions"][0]["params"]["source"]
-    field_slice = case_cfg["boundary_conditions"][1]["params"]["source"]
+    generated = case_cfg["boundary_conditions"][0]["source"]
+    field_slice = case_cfg["boundary_conditions"][1]["source"]
     assert ic["script"] == str(source_dir / "tools" / "ic.py")
     assert ic["config_file"] == str(source_dir / "config" / "ic.yml")
     assert generated["script"] == str(source_dir / "tools" / "profile.py")
@@ -732,6 +728,9 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
         workspace / "config" / "initial_conditions" / "generator_input.dat", [1.0, 2.0, 3.0]
     )
     write_fake_ic_generator(tmp_path / "ic.gen")
+    # The fake replaces the generator run; the inlet's expressions still need the real language.
+    language = picurv.load_ic_generator_module()
+    monkeypatch.setattr(picurv, "load_ic_generator_module", lambda: language)
     monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
     write_canonical_picgrid(workspace / "inputs" / "grids" / "grid.picgrid")
     case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
@@ -1912,7 +1911,7 @@ def test_prescribed_profile_sources_accept_script_override():
     @brief Test generated and field-sliced profile sources retain optional script overrides.
     """
     picurv = load_picurv_module()
-    generated = picurv._normalize_prescribed_flow_source(
+    generated = picurv._normalize_profile_source(
         {
             "type": "generated",
             "generator": "square_duct_poiseuille",
@@ -1920,7 +1919,7 @@ def test_prescribed_profile_sources_accept_script_override():
         },
         "source",
     )
-    field_slice = picurv._normalize_prescribed_flow_source(
+    field_slice = picurv._normalize_profile_source(
         {
             "type": "field_slice",
             "script": "tools/custom_profile.py",
@@ -2284,9 +2283,9 @@ def test_profile_gen_field_slice_rejects_bad_orientation_sign(tmp_path):
     assert "negative normal speeds" in result.stderr
 
 
-def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
+def test_inlet_profile_bcs_generation_stages_source_file(tmp_path):
     """!
-    @brief Test prescribed_flow uses existing bcs.run generation with staged source_file.
+    @brief Test a prescribed_velocity profile source uses existing bcs.run generation with staged source_file.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -2296,8 +2295,8 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {"source": {"type": "file", "path": str(profile)}},
+        "handler": "prescribed_velocity",
+        "source": {"type": "file", "path": str(profile)},
     }
     run_dir = tmp_path / "run"
     config_dir = run_dir / "config"
@@ -2311,7 +2310,7 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
 
     assert len(generated) == 1
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
-    assert "prescribed_flow" in bcs_text
+    assert "prescribed_velocity" in bcs_text
     assert "source_file=" in bcs_text
     staged = run_dir / "inputs" / "inlet_profiles" / "inlet_profile_block0_negZeta.picslice"
     assert staged.is_file()
@@ -2320,9 +2319,9 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     assert staged_lines[3] == "2.00000000e+00"
 
 
-def test_prescribed_flow_profile_dims_match_cell_counts():
+def test_inlet_profile_profile_dims_match_cell_counts():
     """!
-    @brief Test prescribed_flow profile dimensions use face cell counts, not trimmed interior counts.
+    @brief Test a prescribed_velocity profile source profile dimensions use face cell counts, not trimmed interior counts.
     """
     picurv = load_picurv_module()
 
@@ -2331,9 +2330,9 @@ def test_prescribed_flow_profile_dims_match_cell_counts():
     assert picurv._bc_profile_expected_dims("-Eta", (65, 65, 1025)) == (1024, 64)
 
 
-def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
+def test_inlet_profile_bcs_generation_materializes_generated_source(tmp_path):
     """!
-    @brief Test generated prescribed_flow profiles are materialized and staged for bcs.run.
+    @brief Test generated inlet profiles are materialized and staged for bcs.run.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -2342,14 +2341,12 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "generated",
                 "generator": "square_duct_poiseuille",
                 "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            }
-        },
+            },
     }
     run_dir = tmp_path / "run"
     config_dir = run_dir / "config"
@@ -2362,7 +2359,7 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     )
 
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
-    assert "prescribed_flow" in bcs_text
+    assert "prescribed_velocity" in bcs_text
     assert "source_file=" in bcs_text
     profile_dir = run_dir / "inputs" / "inlet_profiles"
     dimensional = profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice"
@@ -2374,9 +2371,9 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
 
 
-def test_prescribed_flow_generated_source_uses_target_grid_geometry(tmp_path):
+def test_inlet_profile_generated_source_uses_target_grid_geometry(tmp_path):
     """!
-    @brief Test generated prescribed_flow profiles use target PICGRID geometry when available.
+    @brief Test generated inlet profiles use target PICGRID geometry when available.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -2387,14 +2384,12 @@ def test_prescribed_flow_generated_source_uses_target_grid_geometry(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "generated",
                 "generator": "square_duct_poiseuille",
                 "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            }
-        },
+            },
     }
     run_dir = tmp_path / "run"
     config_dir = run_dir / "config"
@@ -2416,9 +2411,9 @@ def test_prescribed_flow_generated_source_uses_target_grid_geometry(tmp_path):
     assert "area_weighted_mean_after_normalization" in info_text
 
 
-def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path):
+def test_inlet_profile_bcs_generation_materializes_field_slice_source(tmp_path):
     """!
-    @brief Test field_slice prescribed_flow profiles are sliced and staged for bcs.run.
+    @brief Test field_slice inlet profiles are sliced and staged for bcs.run.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -2436,16 +2431,14 @@ def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "field_slice",
                 "field_file": str(field),
                 "grid_file": str(grid),
                 "velocity_scale": 0.5,
                 "slice": {"face": "+Zeta", "orientation": "opposite"},
-            }
-        },
+            },
     }
     run_dir = tmp_path / "run"
     config_dir = run_dir / "config"
@@ -2458,7 +2451,7 @@ def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path
     )
 
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
-    assert "prescribed_flow" in bcs_text
+    assert "prescribed_velocity" in bcs_text
     assert "source_file=" in bcs_text
     profile_dir = run_dir / "inputs" / "inlet_profiles"
     sliced = profile_dir / "inlet_profile_block0_negZeta.sliced.dimensional.picslice"
@@ -2473,9 +2466,9 @@ def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path
     assert float(staged_lines[3]) == pytest.approx(3.0)
 
 
-def test_prescribed_flow_rejects_unsupported_source_type():
+def test_inlet_profile_rejects_unsupported_source_type():
     """!
-    @brief Test prescribed_flow rejects unknown source types during validation.
+    @brief Test a prescribed_velocity profile source rejects unknown source types during validation.
     """
     picurv = load_picurv_module()
     valid = FIXTURES / "valid"
@@ -2483,8 +2476,8 @@ def test_prescribed_flow_rejects_unsupported_source_type():
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {"source": {"type": "unknown", "path": "old.dat"}},
+        "handler": "prescribed_velocity",
+        "source": {"type": "unknown", "path": "old.dat"},
     }
 
     with pytest.raises(ValueError, match="type must be 'file', 'generated', or 'field_slice'"):
@@ -2867,7 +2860,7 @@ def test_validate_constant_curvilinear_periodic_requires_flow_direction(tmp_path
         '    mode: generated\n    generator: streamwise_constant\n    params:\n      velocity_physical: 1.0\n',
     )
     case_text = case_text.replace(
-        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: prescribed_velocity\n    source: {components: normal, expression: 1.0}\n",
         "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
     )
     case_text = case_text.replace(
@@ -2899,7 +2892,7 @@ def test_validate_constant_curvilinear_periodic_with_flow_direction_passes(tmp_p
         '    mode: generated\n    generator: streamwise_constant\n    params:\n      velocity_physical: 1.0\n      flow_direction: "+Zeta"\n',
     )
     case_text = case_text.replace(
-        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: prescribed_velocity\n    source: {components: normal, expression: 1.0}\n",
         "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
     )
     case_text = case_text.replace(
@@ -2979,7 +2972,7 @@ def test_validate_poiseuille_with_flow_direction_no_inlet_passes(tmp_path):
         '    mode: generated\n    generator: poiseuille\n    params:\n      peak_velocity_physical: 1.0\n      flow_direction: "+Zeta"\n',
     )
     case_text = case_text.replace(
-        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: prescribed_velocity\n    source: {components: normal, expression: 1.0}\n",
         "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
     )
     case_text = case_text.replace(
@@ -3445,14 +3438,12 @@ def test_dry_run_generated_profile_lists_planned_artifacts(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "generated",
                 "generator": "square_duct_poiseuille",
                 "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            }
-        },
+            },
     }
     case_path = tmp_path / "case_generated_profile.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -3539,7 +3530,7 @@ def test_local_no_submit_solve_stages_grid_gen_without_executing(tmp_path):
 
 def test_precompute_generates_profile_artifacts_from_case(tmp_path):
     """!
-    @brief Test precompute materializes generated prescribed_flow profiles.
+    @brief Test precompute materializes generated inlet profiles.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -3547,14 +3538,12 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "generated",
                 "generator": "square_duct_poiseuille",
                 "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            }
-        },
+            },
     }
     workspace = make_workspace(tmp_path)
     case_path = workspace / "config" / "case.yml"
@@ -3576,7 +3565,7 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
 
 def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
     """!
-    @brief Test precompute materializes field_slice prescribed_flow profiles.
+    @brief Test precompute materializes field_slice inlet profiles.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -3601,16 +3590,14 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "field_slice",
                 "field_file": "inputs/reference_fields/ufield00010_0.dat",
                 "grid_file": "inputs/grids/grid.picgrid",
                 "source_case": "config/inlet_profiles/old_case.yml",
                 "slice": {"face": "+Zeta", "orientation": "opposite"},
-            }
-        },
+            },
     }
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -3651,14 +3638,12 @@ def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "generated",
                 "generator": "square_duct_poiseuille",
                 "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            }
-        },
+            },
     }
     case_path = tmp_path / "case_grid_profile.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -3708,16 +3693,14 @@ def test_local_no_submit_materializes_field_slice_profile(tmp_path):
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
-        "handler": "prescribed_flow",
-        "params": {
-            "source": {
+        "handler": "prescribed_velocity",
+        "source": {
                 "type": "field_slice",
                 "field_file": str(field),
                 "grid_file": str(grid),
                 "velocity_scale": 1.0,
                 "slice": {"face": "+Zeta", "orientation": "opposite"},
-            }
-        },
+            },
     }
     case_path = tmp_path / "case_field_slice.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")

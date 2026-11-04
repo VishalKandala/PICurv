@@ -228,7 +228,7 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "+Xi WALL noslip\n"
         "-Eta WALL noslip\n"
         "+Eta WALL noslip\n"
-        "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.5\n"
+        "-Zeta INLET prescribed_velocity source_id=0\n"
         "+Zeta OUTLET conservation\n";
 
     PetscFunctionBeginUser;
@@ -276,6 +276,9 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "-ucont_y 0.0\n"
         "-ucont_z 1.5\n"
         "-bcs_files %s\n"
+        /* Inlet sources a bcs file may name: a uniform speed and a parabola. */
+        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
+        "-inlet_source_1_frame normal\n-inlet_source_1_expr_0 \"16*1.5*xi*(1-xi)*eta*(1-eta)\"\n"
         "-profiling_timestep_mode off\n"
         "-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"
@@ -380,6 +383,11 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->initialConditionField = IC_FIELD_UCAT;
     PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, "/tmp", sizeof(simCtx->initialConditionDirectory)));
     simCtx->icVelocityPhysical = 0.0;
+    /* Unit scales: the fixture is already non-dimensional, as a run without scaling is. */
+    simCtx->scaling.L_ref = 1.0;
+    simCtx->scaling.U_ref = 1.0;
+    simCtx->scaling.rho_ref = 1.0;
+    simCtx->scaling.P_ref = 1.0;
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));
     PetscCall(PetscStrncpy(simCtx->restart_dir, "/tmp", sizeof(simCtx->restart_dir)));
     PetscCall(PetscStrncpy(simCtx->log_dir, "/tmp", sizeof(simCtx->log_dir)));
@@ -841,7 +849,7 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "+Xi WALL noslip\n"
         "-Eta WALL noslip\n"
         "+Eta WALL noslip\n"
-        "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=0.1\n"
+        "-Zeta INLET prescribed_velocity source_id=0\n"
         "+Zeta OUTLET conservation\n";
 
     PetscFunctionBeginUser;
@@ -868,6 +876,7 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "-finit 1\n"
         "-ucont_x 0.0\n-ucont_y 0.0\n-ucont_z 0.1\n"
         "-bcs_files %s\n"
+        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 0.1\n"
         "-profiling_timestep_mode off\n-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"
         /* PICurv's programmatic grid counts include the leading physical node;

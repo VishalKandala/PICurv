@@ -62,8 +62,8 @@ models:
 boundary_conditions:
   - face: "-Xi"
     type: INLET
-    handler: constant_velocity
-    params: {vx: 0.5, vy: 0.0, vz: 0.0}
+    handler: prescribed_velocity
+    source: {components: normal, expression: 0.5}  # Speed into the domain [m/s]
   - face: "+Xi"
     type: OUTLET
     handler: conservation

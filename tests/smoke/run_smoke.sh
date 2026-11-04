@@ -1483,7 +1483,10 @@ case_cfg["boundary_conditions"] = [
     {"face": "+Xi", "type": "WALL", "handler": "noslip"},
     {"face": "-Eta", "type": "WALL", "handler": "noslip"},
     {"face": "+Eta", "type": "WALL", "handler": "noslip"},
-    {"face": "-Zeta", "type": "INLET", "handler": "parabolic", "params": {"v_max": 1.5}},
+    # A parabola in the arc-length fractions, pulsing through its bulk velocity.
+    {"face": "-Zeta", "type": "INLET", "handler": "prescribed_velocity",
+     "source": {"components": "normal", "expression": "16*1.5*xi*(1-xi)*eta*(1-eta)"},
+     "constraints": {"bulk_velocity": "0.6*(1 + 0.2*sin(2*pi*50*t))"}},
     {"face": "+Zeta", "type": "OUTLET", "handler": "conservation"},
 ]
 

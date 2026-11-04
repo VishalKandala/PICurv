@@ -76,14 +76,14 @@ Verification:
 
 @section p11_bc_sec 2. Boundary Conditions
 
-@subsection p11_bc_simple_ssec 2.1 Set a Constant-Velocity Inlet and Walls
+@subsection p11_bc_simple_ssec 2.1 Set a Uniform Inlet and Walls
 
 ```yaml
 boundary_conditions:
   - face: "-Zeta"
     type: "INLET"
-    handler: "constant_velocity"
-    params: {vx: 0.0, vy: 0.0, vz: 1.5}
+    handler: "prescribed_velocity"
+    source: {components: normal, expression: 1.5}   # speed into the domain [m/s]
   - face: "-Eta"
     type: "WALL"
     handler: "noslip"

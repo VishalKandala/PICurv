@@ -59,42 +59,15 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
 PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc);
 
 /**
- * @brief Configures a BoundaryCondition object to behave as a constant velocity inlet.
- *
- * @param[in,out] bc Boundary object configured with the constant-velocity inlet callbacks.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc);
-
-/**
- * @brief Configures a BoundaryCondition object for a parabolic inlet profile.
- *
- * The constructed handler computes inlet velocity as a profile function of
- * transverse coordinates, typically used for laminar channel/pipe initialization.
- *
- * @param bc A pointer to the generic BoundaryCondition object to be configured.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
-
-/**
- * @brief Configures a BoundaryCondition object for a file-prescribed inlet profile.
- *
- * The constructed handler reads a canonical PICSLICE scalar normal-speed profile
- * and applies it through the existing inlet metric/sign convention.
- *
- * @param bc A pointer to the generic BoundaryCondition object to be configured.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc);
-
-/**
  * @brief Configures a BoundaryCondition object as an inlet whose velocity is a configured
  *        source: expressions over position, time and grid-line fractions, in the Cartesian,
- *        curvilinear or face-normal frame, optionally rescaled to a bulk velocity.
+ *        curvilinear or face-normal frame, or a PICSLICE file of normal speeds, optionally
+ *        rescaled to a bulk velocity.
  *
  * The face's `source_id` parameter names the options `-inlet_source_<id>_*` that hold the
- * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` target.
+ * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` target. A
+ * `source_file` parameter replaces the expressions with a staged PICSLICE file of solver-unit
+ * normal speeds, one per interior face slot.
  *
  * @param bc A pointer to the generic BoundaryCondition object to be configured.
  * @return PetscErrorCode 0 on success.

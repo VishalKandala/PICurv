@@ -58,7 +58,7 @@ does not produce a divergence-free field.
 @section p68_bc_sec 3. Boundary and Periodicity Terms
 
 **Type versus handler** — `type` says what kind of boundary a face is (`wall`,
-`inlet`, …); `handler` says how it is computed (`noslip`, `parabolic`, …). Not every
+`inlet`, …); `handler` says how it is computed (`noslip`, `prescribed_velocity`, …). Not every
 handler is legal for every type. See @ref p44_types_sec.
 
 **Driven periodic** — a periodic pair plus a body force sustaining the flow against
@@ -159,7 +159,7 @@ retired name that should be migrated away from (`Dual Time Picard RK4`).
 | `Dual Time Picard RK4` | `Dual Time Picard Jameson RK` | Deprecated alias; still parses |
 | `rk4_residual_noise_allowance_factor` | `jameson_residual_noise_allowance_factor` | Rename only |
 | `apply_trim` | `enforce_seam_flux` | The new name says what it holds on target |
-| `params.vector`, `params.velocity` | `vx`, `vy`, `vz` | Rejected, not silently accepted |
+| `constant_velocity`, `parabolic`, `prescribed_flow` | `prescribed_velocity` | Rejected with the equivalent `source` named |
 | `58_Turbulence_Statistics_Pipeline_Specification` | `58_Field_Statistics` | Page renamed |
 | `/picurv-docs/<page>.html` | `/docs/picurv/<page>.html` | Old page URLs do not resolve |
 

@@ -264,9 +264,9 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
             case BC_HANDLER_WALL_FREE_SLIP:
                 supported = (PetscBool)(cfg->mathematical_type == WALL);
                 break;
-            case BC_HANDLER_INLET_CONSTANT_VELOCITY:
-            case BC_HANDLER_INLET_PARABOLIC:
-            case BC_HANDLER_INLET_PROFILE_FROM_FILE:
+            /* The inlet's velocity is refreshed once per step in PreStep, so every
+             * residual evaluation within the step sees the same boundary value. */
+            case BC_HANDLER_INLET_PRESCRIBED_VELOCITY:
                 supported = (PetscBool)(cfg->mathematical_type == INLET);
                 break;
             case BC_HANDLER_OUTLET_CONSERVATION:

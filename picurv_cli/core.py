@@ -3634,7 +3634,7 @@ POISSON_PRECONDITIONER_SPELLINGS = {"mg": "multigrid", "pcmg": "multigrid"}
 # imports storage, so declaring them here would be a cycle.
 
 #: How a prescribed Eulerian field is supplied.
-PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
+PROFILE_SOURCE_TYPES = ("file", "generated", "field_slice")
 
 #: Analytic scalar profiles the verification source may generate.
 VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
@@ -7006,30 +7006,24 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                     value = params.get(key)
                     if isinstance(value, str):
                         params[key] = resolve_path(case_anchor_path, value)
-    boundary_conditions = case_cfg.get("boundary_conditions", [])
-    blocks = boundary_conditions if boundary_conditions and isinstance(boundary_conditions[0], list) else [boundary_conditions]
-    for block in blocks:
-        if not isinstance(block, list):
+    resolved_sources = set()
+    for _, _, source in raw_inlet_data_sources(case_cfg):
+        if id(source) in resolved_sources:
             continue
-        for bc in block:
-            if not isinstance(bc, dict) or str(bc.get("handler", "")).strip().lower() != "prescribed_flow":
-                continue
-            source = ((bc.get("params") or {}).get("source") or {})
-            if not isinstance(source, dict):
-                continue
-            source_type = str(source.get("type", "")).strip().lower()
-            if source_type == "file":
-                keys = ("path",)
-            elif source_type == "generated":
-                keys = ("script",)
-            elif source_type == "field_slice":
-                keys = ("script", "field_file", "grid_file", "source_case")
-            else:
-                keys = ()
-            for key in keys:
-                value = source.get(key)
-                if isinstance(value, str):
-                    source[key] = resolve_path(case_anchor_path, value)
+        resolved_sources.add(id(source))
+        source_type = str(source.get("type", "")).strip().lower()
+        if source_type == "file":
+            keys = ("path",)
+        elif source_type == "generated":
+            keys = ("script",)
+        elif source_type == "field_slice":
+            keys = ("script", "field_file", "grid_file", "source_case")
+        else:
+            keys = ()
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str):
+                source[key] = resolve_path(case_anchor_path, value)
 
 
 def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
@@ -7487,7 +7481,7 @@ GENERATED_PROFILE_GENERATORS = {"square_duct_poiseuille"}
 
 def _normalize_field_slice_source(source, field_name: str) -> dict:
     """!
-    @brief Validate a prescribed_flow field_slice source block.
+    @brief Validate a field_slice inlet profile source.
     @param[in] source Source mapping from case.yml.
     @param[in] field_name Human-readable YAML path for diagnostics.
     @return Normalized source mapping.
@@ -8099,28 +8093,10 @@ BC_HANDLER_SPECS = {
         "required_params": set(),
         "optional_params": set(),
     },
-    "constant_velocity": {
-        "types": {"INLET"},
-        "particle_policy": "remove",
-        "required_params": {"vx", "vy", "vz"},
-        "optional_params": set(),
-    },
     "conservation": {
         "types": {"OUTLET"},
         "particle_policy": "remove",
         "required_params": set(),
-        "optional_params": set(),
-    },
-    "parabolic": {
-        "types": {"INLET"},
-        "particle_policy": "remove",
-        "required_params": {"v_max"},
-        "optional_params": set(),
-    },
-    "prescribed_flow": {
-        "types": {"INLET"},
-        "particle_policy": "remove",
-        "required_params": {"source"},
         "optional_params": set(),
     },
     # Takes a velocity source and constraints on the entry itself, not params.
@@ -8151,7 +8127,15 @@ BC_HANDLER_SPECS = {
     },
 }
 
-_NUMERIC_BC_PARAMS = {"vx", "vy", "vz", "v_max", "target_flux"}
+_NUMERIC_BC_PARAMS = {"target_flux"}
+
+#: Inlet handlers that prescribed_velocity replaced, with the source that reproduces each.
+_RETIRED_INLET_HANDLERS = {
+    "constant_velocity": "source: {components: normal, expression: <speed>}",
+    "parabolic": "source: {components: normal, expression: \"16*<v_max>*xi*(1-xi)*eta*(1-eta)\"} "
+                 "(the two fractions tangential to the face; one factor 4*f*(1-f) per wall-bounded axis)",
+    "prescribed_flow": "its params.source moved to the entry's source",
+}
 _BOOL_BC_PARAMS = {"enforce_seam_flux", "apply_trim"}
 
 # Deprecated BC param spellings -> canonical name. `apply_trim` said that
@@ -8160,9 +8144,9 @@ _BOOL_BC_PARAMS = {"enforce_seam_flux", "apply_trim"}
 # name, and the C side also falls back to the old spelling for archived files.
 _DEPRECATED_BC_PARAM_ALIASES = {"apply_trim": "enforce_seam_flux"}
 
-def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
+def _normalize_profile_source(source, field_name: str) -> dict:
     """!
-    @brief Validate the structured source block for prescribed_flow BCs.
+    @brief Validate a profile data source of a prescribed_velocity inlet.
     @param[in] source Source mapping from case.yml.
     @param[in] field_name Human-readable YAML path for diagnostics.
     @return Normalized source mapping.
@@ -8212,6 +8196,45 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
 
     raise ValueError(f"{field_name}.type must be 'file', 'generated', or 'field_slice'.")
 
+def profile_data_source(bc: dict):
+    """!
+    @brief The profile data source of a prepared boundary entry, or None.
+    @details A `prescribed_velocity` inlet whose source is data (file, generated, field_slice)
+             carries the normalized source in `params.source` until staging replaces it with
+             the staged PICSLICE's `source_file`.
+    @param[in] bc Prepared boundary entry.
+    @return Normalized profile source, or None.
+    """
+    if bc.get("handler") != "prescribed_velocity":
+        return None
+    source = (bc.get("params") or {}).get("source")
+    return source if isinstance(source, dict) else None
+
+
+def raw_inlet_data_sources(case_cfg: dict) -> list:
+    """!
+    @brief The profile data sources named by a case's unprepared prescribed_velocity inlets.
+    @details A source given by name resolves to its shared mapping under `sources:`, so
+             in-place edits reach every inlet that names it.
+    @param[in] case_cfg Parsed case.yml.
+    @return `(block_index, entry, source_mapping)` per inlet whose source has a `type`.
+    """
+    named = case_cfg.get("sources") if isinstance(case_cfg.get("sources"), dict) else {}
+    raw_blocks = case_cfg.get("boundary_conditions") or []
+    if raw_blocks and isinstance(raw_blocks[0], dict):
+        raw_blocks = [raw_blocks]
+    found = []
+    for block_index, block in enumerate(raw_blocks):
+        for entry in block if isinstance(block, list) else []:
+            if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_velocity":
+                continue
+            source = entry.get("source")
+            source = named.get(source) if isinstance(source, str) else source
+            if isinstance(source, dict) and "type" in source:
+                found.append((block_index, entry, source))
+    return found
+
+
 def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
     """!
     @brief Return expected PICSLICE dimensions for a face and block node dimensions.
@@ -8230,7 +8253,7 @@ def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
         return (km - 1, im - 1)
     if face in {"-Zeta", "+Zeta"}:
         return (jm - 1, im - 1)
-    raise ValueError(f"Unsupported face '{face}' for prescribed_flow profile dimensions.")
+    raise ValueError(f"Unsupported face '{face}' for inlet profile dimensions.")
 
 def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, run_dir: str = None) -> list:
     """!
@@ -8252,7 +8275,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         for key in ("im", "jm", "km"):
             raw = settings.get(key)
             if raw is None:
-                raise ValueError(f"grid.programmatic_settings.{key} is required for prescribed_flow profiles.")
+                raise ValueError(f"grid.programmatic_settings.{key} is required for inlet profiles.")
             if isinstance(raw, list):
                 if len(raw) != num_blocks:
                     raise ValueError(
@@ -8273,7 +8296,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
     if grid_mode == "file":
         source_grid = grid_cfg.get("source_file")
         if not isinstance(source_grid, str) or not source_grid.strip():
-            raise ValueError("grid.source_file is required for file-grid prescribed_flow profile validation.")
+            raise ValueError("grid.source_file is required for file-grid inlet profile validation.")
         source_grid = _resolve_case_relative_path(source_grid, case_dir)
         return read_picgrid_header_dimensions(source_grid, expected_nblk=num_blocks)
 
@@ -8286,16 +8309,16 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
             if os.path.isfile(candidate):
                 return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
         raise ValueError(
-            "prescribed_flow profile dimension validation for grid.mode='grid_gen' requires an existing generated "
+            "inlet profile dimension validation for grid.mode='grid_gen' requires an existing generated "
             "PICGRID output. Run or stage the grid first, or use grid.mode='file' with the generated .picgrid."
         )
 
-    raise ValueError(f"Unsupported grid.mode '{grid_mode}' for prescribed_flow profile validation.")
+    raise ValueError(f"Unsupported grid.mode '{grid_mode}' for inlet profile validation.")
 
-def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict, case_path: str,
+def materialize_generated_inlet_profiles(run_dir: str, case_cfg: dict, case_path: str,
                                                    profile_grid_dims: list = None) -> list:
     """!
-    @brief Generate dimensional PICSLICE artifacts for generated/field_slice prescribed_flow sources.
+    @brief Generate dimensional PICSLICE artifacts for generated/field_slice inlet profile sources.
     @param[in] run_dir Run/precompute directory root.
     @param[in] case_cfg Parsed case.yml.
     @param[in] case_path Path to case.yml for relative grid/source resolution.
@@ -8304,8 +8327,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
     """
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     if not any(
-        bc.get("handler") == "prescribed_flow"
-        and ((bc.get("params") or {}).get("source") or {}).get("type") in PRESCRIBED_FLOW_SOURCE_TYPES[1:]
+        (profile_data_source(bc) or {}).get("type") in PROFILE_SOURCE_TYPES[1:]
         for block in prepared_blocks for bc in block
     ):
         return []
@@ -8318,10 +8340,8 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
     summaries = []
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
-            if bc.get("handler") != "prescribed_flow":
-                continue
-            source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") not in PRESCRIBED_FLOW_SOURCE_TYPES[1:]:
+            source = profile_data_source(bc) or {}
+            if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
                 continue
             face = bc["face"]
             dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
@@ -8361,7 +8381,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
             summary.update({"block": block_idx, "face": face})
             summaries.append(summary)
             print(
-                f"[SUCCESS] Materialized prescribed_flow profile for block {block_idx}, face {face}: "
+                f"[SUCCESS] Materialized inlet profile for block {block_idx}, face {face}: "
                 f"{os.path.relpath(output_path)} dims={summary['dims']}"
             )
 
@@ -8783,6 +8803,12 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 )
 
             handler = str(bc["handler"]).strip().lower()
+            if handler in _RETIRED_INLET_HANDLERS:
+                raise ValueError(
+                    f"BC handler '{handler}' for face {face} in block {bi} is retired: use handler "
+                    f"'prescribed_velocity' with {_RETIRED_INLET_HANDLERS[handler]}. "
+                    "See docs/pages/44_Boundary_Conditions_Guide.md."
+                )
             handler_spec = BC_HANDLER_SPECS.get(handler)
             if handler_spec is None:
                 raise ValueError(
@@ -8799,13 +8825,6 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 params = {}
             if not isinstance(params, dict):
                 raise ValueError(f"'params' for block {bi}, face {face} must be a mapping.")
-
-            # Reject unsupported older structured keys explicitly.
-            if "vector" in params or "velocity" in params:
-                raise ValueError(
-                    f"Unsupported older params key ('vector'/'velocity') found on block {bi}, face {face}. "
-                    "Use scalar keys 'vx', 'vy', 'vz'."
-                )
 
             required = handler_spec["required_params"]
             optional = handler_spec["optional_params"]
@@ -8846,10 +8865,6 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                         )
                     converted_params[canonical] = _to_bool(
                         value, f"boundary_conditions[{bi}][{idx}].params.{key}")
-                elif handler == "prescribed_flow" and key == "source":
-                    converted_params[key] = _normalize_prescribed_flow_source(
-                        value, f"boundary_conditions[{bi}][{idx}].params.source"
-                    )
                 else:
                     # Defensive fallback; should not happen due unknown-key gate above.
                     converted_params[key] = value
@@ -8880,6 +8895,9 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 source = resolve_velocity_source(bc["source"], case_cfg, f"{where}.source", allow_normal=True)
                 prepared_entry["source"] = apply_source_constraints(
                     source, bc.get("constraints"), f"{where}.constraints", allowed={"scale", "bulk_velocity"})
+                if source["data"] is not None:
+                    # Staged into a PICSLICE whose path the bcs file carries; see profile_data_source().
+                    converted_params["source"] = source["data"]
                 converted_params["source_id"] = inlet_sources
                 inlet_sources += 1
             else:
@@ -9531,16 +9549,9 @@ INPUT_QUANTITIES = {
 
 #: Boundary-condition handler parameters (the free-form `params` mapping of a face).
 BC_PARAM_QUANTITIES = {
-    "vx": (VELOCITY, "cli"),
-    "vy": (VELOCITY, "cli"),
-    "vz": (VELOCITY, "cli"),
-    "v_max": (VELOCITY, "cli"),
     "target_flux": (VOLUME_FLUX, "cli"),
     "enforce_seam_flux": NOT_A_QUANTITY,
     "apply_trim": NOT_A_QUANTITY,
-    # Every profile source stages a velocity PICSLICE: a file or generated profile is
-    # physical, and a field_slice declares the scales it was written in.
-    "source": (VELOCITY, "staging"),
 }
 
 #: Initial-condition generator parameters (`properties.initial_conditions.params`), by
@@ -10420,8 +10431,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             except (TypeError, ValueError):
                 pass
     generated_profile = any(
-        bc.get("handler") == "prescribed_flow"
-        and ((bc.get("params") or {}).get("source") or {}).get("type") == "generated"
+        (profile_data_source(bc) or {}).get("type") == "generated"
         for block in (prepared_blocks or []) for bc in block
     )
     if grid_mode == 'programmatic_c' and (
@@ -13365,10 +13375,11 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     case_path = source_files.get("Case") if source_files else None
     profile_grid_dims = None
-    # Every profile source stages a physical velocity PICSLICE.
-    profile_velocity_scale = reference_scale(BC_PARAM_QUANTITIES["source"][0], resolve_reference_scales(case_cfg))
+    # Every profile data source stages a velocity PICSLICE: a file or generated profile is
+    # physical, and a field_slice declares the scales it was written in.
+    profile_velocity_scale = reference_scale(VELOCITY, resolve_reference_scales(case_cfg))
 
-    if any(bc.get("handler") == "prescribed_flow" for block in prepared_blocks for bc in block):
+    if any(profile_data_source(bc) for block in prepared_blocks for bc in block):
         profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
 
     generated_files = []
@@ -13383,8 +13394,9 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
         for bc in block_bcs_list:
             face, bc_type, handler = bc['face'], bc['type'], bc['handler']
             params = dict(bc.get('params') or {})
-            if handler == "prescribed_flow":
+            if profile_data_source(bc):
                 source = params.pop("source")
+                velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
                 staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
                 staged_path = os.path.join(profile_dir, staged_name)
@@ -13403,7 +13415,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                             f"expected {tuple(expected_dims)}."
                         )
                     print(
-                        f"[INFO] Reusing locked prescribed_flow profile for block {i}, "
+                        f"[INFO] Reusing locked inlet profile for block {i}, "
                         f"face {face}: {os.path.relpath(staged_path)}"
                     )
                     params["source_file"] = os.path.abspath(staged_path)
@@ -13461,11 +13473,11 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     summary.update({"block": i, "face": face})
                     generated_profile_summaries.append(summary)
                 elif source is not None:
-                    raise ValueError(f"Unsupported prescribed_flow source type '{source.get('type')}'.")
+                    raise ValueError(f"Unsupported inlet profile source type '{source.get('type')}'.")
                 if source is not None:
-                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, profile_velocity_scale, expected_dims)
+                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, velocity_scale, expected_dims)
                     print(
-                        f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
+                        f"[SUCCESS] Staged inlet profile for block {i}, face {face}: "
                         f"{os.path.relpath(staged_path)} dims={summary['dims']}"
                     )
                     params["source_file"] = os.path.abspath(staged_path)
@@ -14594,12 +14606,15 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     @brief Resolve a velocity source, given inline or by its name under the case's `sources:`.
     @details A source is an `expression` in one frame (`components`: cartesian, curvilinear,
              or, on a face, normal), with optional named `constants` inlined into its text.
-             Every value is physical; the runtime nondimensionalizes them.
+             Every value is physical; the runtime nondimensionalizes them. On a face, a
+             source may instead be data: a `type` of file, generated, or field_slice names a
+             normal-speed profile that is staged as a PICSLICE.
     @param[in] spec Inline mapping, or the name of an entry of `sources:`.
     @param[in] case_cfg Case configuration holding `sources:`.
     @param[in] where Configuration path of the reference.
     @param[in] allow_normal Whether the target is a face, where the normal frame is meaningful.
-    @return `{"frame", "expressions", "constants"}`.
+    @return `{"frame", "expressions", "constants", "data"}`; `data` is the normalized profile
+            source, or None for expressions.
     """
     ic_gen = load_ic_generator_module()
     named = case_cfg.get("sources") or {}
@@ -14611,6 +14626,12 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         where, spec = f"sources.{spec}", named[spec]
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources.")
+    if "type" in spec:
+        if not allow_normal:
+            raise ValueError(f"{where}: a '{spec['type']}' data source is a face's normal-speed profile, "
+                             "so only an inlet reads it.")
+        return {"frame": "normal", "expressions": [], "constants": {},
+                "data": _normalize_profile_source(spec, where)}
     unknown = sorted(set(spec) - _SOURCE_KEYS)
     if unknown:
         raise ValueError(f"{where}: unknown keys {unknown}; a source takes {sorted(_SOURCE_KEYS)}.")
@@ -14643,13 +14664,14 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
             raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
         texts = [_source_text(expression.get(name, 0), constants, SOURCE_EXPRESSION_NAMES,
                               f"{where}.expression.{name}", ic_gen) for name in components]
-    return {"frame": frame, "expressions": texts, "constants": dict(constants)}
+    return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None}
 
 
 def apply_source_constraints(source: dict, constraints, where: str, allowed: set) -> dict:
     """!
     @brief Apply a target's `constraints` to a resolved source.
-    @details `scale` multiplies every value. `bulk_velocity`, on a face, is the target mean
+    @details `scale` multiplies every value; a data source's profile is multiplied as it is
+             staged, and so must stay a nonnegative speed. `bulk_velocity`, on a face, is the target mean
              normal speed [m/s], a number or an expression in `t` that may use the source's
              constants; the runtime rescales the face to it each step it changes.
     @param[in] source Resolved source from resolve_velocity_source().
@@ -14670,6 +14692,10 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
         scale = constraints["scale"]
         if isinstance(scale, bool) or not isinstance(scale, (int, float)):
             raise ValueError(f"{where}.scale must be a number.")
+        if resolved["data"] is not None:
+            if scale <= 0:
+                raise ValueError(f"{where}.scale must be positive for a profile of speeds.")
+            resolved["data_scale"] = float(scale)
         resolved["expressions"] = [f"({text})*({float(scale)!r})" for text in resolved["expressions"]]
     if "bulk_velocity" in constraints:
         resolved["bulk_velocity"] = _source_text(constraints["bulk_velocity"], source["constants"], {"t"},
@@ -14685,7 +14711,8 @@ def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list
     @param[in] where Configuration path, for the newline guard.
     @return Control lines.
     """
-    lines = [f"{prefix}_frame {source['frame']}"]
+    # A data source reaches the runtime as the bcs file's source_file; only its target travels here.
+    lines = [] if source.get("data") is not None else [f"{prefix}_frame {source['frame']}"]
     for component, text in enumerate(source["expressions"]):
         lines.append(f"{prefix}_expr_{component} \"{control_value(text, where)}\"")
     if source.get("bulk_velocity"):
@@ -19370,7 +19397,7 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
 
 def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
     """!
-    @brief Add generated prescribed-flow profile artifacts to a dry-run plan.
+    @brief Add generated inlet profile artifacts to a dry-run plan.
     @param[in,out] plan Dry-run plan to update.
     @param[in] case_cfg Parsed case configuration.
     @param[in] run_dir Preview run directory.
@@ -19383,10 +19410,8 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
     has_generated = False
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
-            if bc.get("handler") != "prescribed_flow":
-                continue
-            source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") not in PRESCRIBED_FLOW_SOURCE_TYPES[1:]:
+            source = profile_data_source(bc) or {}
+            if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
                 continue
             has_generated = True
             face_token = _face_artifact_token(bc["face"])
@@ -19801,20 +19826,14 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
     providers.append(initial_provider)
 
     inlet_specs = []
-    raw_blocks = case_cfg.get("boundary_conditions") or []
-    if raw_blocks and isinstance(raw_blocks[0], dict):
-        raw_blocks = [raw_blocks]
-    for block_index, block in enumerate(raw_blocks):
-        for entry in block or []:
-            if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_flow":
-                continue
-            source = copy.deepcopy(((entry.get("params") or {}).get("source") or {}))
-            inlet_specs.append({"block": block_index, "face": entry.get("face"), "source": source})
+    for block_index, entry, source in raw_inlet_data_sources(case_cfg):
+        inlet_specs.append({"block": block_index, "face": entry.get("face"), "source": copy.deepcopy(source),
+                            "constraints": copy.deepcopy(entry.get("constraints"))})
     if inlet_specs:
         field_slice = any((item.get("source") or {}).get("type") == "field_slice" for item in inlet_specs)
         providers.append({
             "kind": "inlet-profiles",
-            "provider": "prescribed-flow",
+            "provider": "inlet-profile",
             "execution": "precomputable",
             "dependencies": ["grid"] if field_slice or grid_mode in _FILE_BACKED_GRID_VALUES else [],
             "spec": inlet_specs,

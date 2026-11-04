@@ -68,8 +68,7 @@ compatibility check, but no public handler exposes it.
 **Identity.** `type: inlet` -> `INLET` -> priority `BC_PRIORITY_INLET`.
 
 **What it does.** Marks a face where flow enters with a prescribed condition. Legal
-handlers: @ref p44_cap_constant_velocity "constant_velocity", @ref p44_cap_parabolic "parabolic",
-@ref p44_cap_prescribed_flow "prescribed_flow", @ref p44_cap_prescribed_velocity "prescribed_velocity".
+handler: @ref p44_cap_prescribed_velocity "prescribed_velocity".
 
 **When to choose it.** Any face where you specify what enters the domain.
 
@@ -82,9 +81,9 @@ domain with an inlet needs an outlet to conserve against.
 values per face.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
+`examples/flat_channel`.
 
-**Limitations.** Time-varying inlet types exist in the C enum but are not exposed.
+**Limitations.** None of its own; see the handler.
 
 @subsection p44_type_outlet_sub outlet
 
@@ -153,7 +152,6 @@ cannot drift from the validator.
 
 Rules that apply across all handlers:
 
-- Legacy `params.vector` and `params.velocity` are rejected; use scalar `vx`/`vy`/`vz`.
 - Unknown parameters are rejected per handler rather than ignored.
 - A driven handler (`constant_flux` or `initial_flux`) must be configured, with the
   **same** handler, on both faces of the periodic pair.
@@ -255,134 +253,6 @@ on the bent channel a free-slip wall carries round-off normal flux.
 mirrored along the metric of the cell it mirrors, which is exact only where the grid
 is orthogonal to the wall there.
 
-@subsection p44_cap_constant_velocity_sub constant_velocity
-
-@anchor p44_cap_constant_velocity
-
-**Identity.** `handler: constant_velocity` on an `INLET` face ->
-`BC_HANDLER_INLET_CONSTANT_VELOCITY` -> @ref Create_InletConstantVelocity.
-
-**What it does.** Imposes a uniform, time-constant normal speed across the whole
-inlet face. The C handler selects the component normal to the logical face (`vx`,
-`vy`, or `vz`) and aligns it with the local metric normal.
-
-**When to choose it.** The simplest inlet, and the right one for a uniform
-free-stream or a plug-flow entry. Choose `parabolic` instead when you want a
-developed profile without supplying data, or `prescribed_flow` when you have real
-profile data.
-
-**Parameters it owns.** `vx`, `vy`, `vz` - all three required by the shared input
-schema, in m/s. Only the component normal to the selected face is currently
-applied; the legacy `vector`/`velocity` spellings are rejected.
-
-**Interactions.** Inlet has the highest boundary priority, so it wins over wall
-and outlet at shared edges. The outlet must be able to pass the mass this inlet
-introduces; pair it with `conservation`.
-
-**Diagnostics.** The startup banner prints the **configured** vector for the face as
-`[vx,vy,vz]`. It does not report a derived or integrated flux; runtime flux reporting
-is separate from the banner.
-
-**Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`. Analytically verified - `duct-inlet-handlers-2026-09-21`: the
-inlet delivers bulk velocity 1.00000 and the duct develops to Poiseuille flow at order
-1.87.
-
-**Limitations.** Uniform in space and constant in time.
-
-@subsection p44_cap_parabolic_sub parabolic
-
-@anchor p44_cap_parabolic
-
-**Identity.** `handler: parabolic` on an `INLET` face -> `BC_HANDLER_INLET_PARABOLIC`
--> @ref Create_InletParabolicProfile.
-
-**What it does.** Imposes an analytic parabolic profile across the inlet face,
-scaled so the centreline reaches `v_max` and the velocity falls to zero at the
-bounding walls.
-
-**When to choose it.** When you want a developed-looking channel or pipe inlet
-without generating profile data. It is an analytic approximation, not a solution
-of the flow you are about to run, so it is a starting condition rather than a
-validated developed profile. For a genuinely developed inlet, use
-`prescribed_flow` with a slice from a precursor run.
-
-**Parameters it owns.** `v_max` - required, in m/s, the centreline speed.
-
-**Interactions.** Same inlet priority and outlet-pairing considerations as
-`constant_velocity`.
-
-**Diagnostics.** The startup banner prints the **configured** `v_max` for the face,
-not an integrated flux. If the face is not bounded by walls on the axes the profile
-assumes, the profile will not vanish at the edges - inspect the inlet plane.
-
-**Evidence.** Unit verified - `make unit-boundaries`. Analytically verified -
-`duct-inlet-handlers-2026-09-21`: the delivered bulk velocity matches the sampled
-product parabola on `n` cells per side, `v_max ((2n^2 + 1) / (3n^2))^2`, which tends to
-`(4/9) v_max`, to five digits, and the duct
-develops to Poiseuille flow at order 1.86. Before the 2026-09-21 fix the profile vanished
-at the wall-adjacent cell centres and delivered 27% and 13% too little.
-
-**Limitations.** The profile is a product of logical-space parabolas, one per wall-bounded
-axis, not the duct solution; it is uniform along a periodic axis. On a graded or curved
-face it is not a physical parabola.
-
-@subsection p44_cap_prescribed_flow_sub prescribed_flow
-
-@anchor p44_cap_prescribed_flow
-
-**Identity.** `handler: prescribed_flow` on an `INLET` face ->
-`BC_HANDLER_INLET_PROFILE_FROM_FILE` -> @ref Create_InletProfileFromFile.
-
-**What it does.** Reads a per-face velocity profile and imposes it on the inlet.
-The profile is supplied as a PICSLICE-format field whose dimensions must match the
-inlet face's cell counts.
-
-**When to choose it.** When the inlet profile matters and an analytic shape will
-not do: matching a reference DNS inlet, carrying a developed field in from a
-precursor run, or driving a duct with a computed Poiseuille solution. This is the
-only handler that accepts external data.
-
-**Parameters it owns.** `source` - required, a mapping whose `type` selects one of
-three acquisition routes:
-
-| `source.type` | Required keys | Optional keys | Use when |
-|---|---|---|---|
-| `file` | `path` | - | You already have a PICSLICE profile file |
-| `generated` | `generator` | `script`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
-| `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `slice` | You are extracting a plane from an existing solution |
-
-Unknown keys inside `source` are rejected with the allowed set named, rather than
-silently dropped. `output_file` is refused for both `generated` and `field_slice`:
-`picurv` writes generated profiles under `<run.inputs>/inlet_profiles/`.
-
-**Interactions.** Profile dimensions are validated against the resolved grid block
-node counts before the run starts: a `-Xi`/`+Xi` face expects `(KM-1, JM-1)`,
-`-Eta`/`+Eta` expects `(KM-1, IM-1)`, and `-Zeta`/`+Zeta` expects `(JM-1, IM-1)`.
-A mismatch is a validation error, not a runtime surprise. `field_slice` needs
-either `source_case` (to inherit that case's scaling) or an explicit
-`velocity_scale`, because a raw field carries no units of its own.
-
-**Diagnostics.** The startup banner prints the resolved `source_file` for the face.
-Validation reports expected versus actual profile dimensions on mismatch, and the
-resolved profile file is written into the run's config directory, so what was
-actually imposed is recoverable after the fact.
-
-**Evidence.** Unit verified - `make unit-boundaries` covers the handler in
-`tests/c/test_boundaries.c`. Integration verified - `tests/test_config_regressions.py`
-exercises all three source types and the face-dimension validation. It is offered by
-`examples/master_template`; no shipped runnable example currently selects it, so
-there is no production-exercised facet. Analytically verified - `duct-poiseuille-picard-2026-09-18`: a generated square-duct profile on a grid_gen grid delivered the requested flux to 1e-9 and was held downstream; `programmatic-inlet-flux-2026-09-18` measured the flux excess on `programmatic_c` grids that the 2026-09-21 fix below removed, and `programmatic-inlet-flux-fixed-2026-09-21` measured the fixed inlet delivering the requested flux to 1e-9 on uniform and stretched `programmatic_c` grids of 8 and 16 cells across. Unit verified - `tests/test_workspace_lifecycle.py` checks that a generated profile on a stretched `programmatic_c` grid is normalized on its face areas and re-identifies when the grid settings change.
-
-**Limitations.** The profile is steady: the same values are reapplied on every boundary
-pass, with no time variation. A generated profile is sampled at the target grid's face
-centres and normalized by face area on every grid mode. On `programmatic_c`, which the
-simulator builds itself, the target is the single-block bridge grid written with the
-solver's own node formula, so a multi-block `programmatic_c` case with a generated profile
-is refused at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at
-uniform logical points and normalized to its continuous mean, and the inlet delivered
-roughly `2/n` too much flux for `n` cells across - 12% at 16 cells.
-
 @subsection p44_cap_prescribed_velocity_sub prescribed_velocity
 
 @anchor p44_cap_prescribed_velocity
@@ -392,16 +262,18 @@ optional `constraints` on the entry -> bcs parameter `source_id` and control opt
 `-inlet_source_<id>_frame`, `-inlet_source_<id>_expr_<c>`, `-inlet_source_<id>_bulk_velocity`
 -> `BC_HANDLER_INLET_PRESCRIBED_VELOCITY` -> @ref Create_InletPrescribedVelocity.
 
-**What it does.** Imposes a velocity written as expressions in the shared expression
-language, in physical units, over `x y z` [m], `t` [s], the arc-length fractions
-`xi eta zeta` (0 at a line's negative face, 1 at its positive face, proportional to
-distance along the grid line) and the line lengths `L_xi L_eta L_zeta` [m]. The values
-are read in one of three frames: `cartesian` (`u v w`), `curvilinear` (`u_xi u_eta u_zeta`
-along the unit grid-line directions; omitted components are zero) or `normal` (one
-speed into the domain). Each face slot is evaluated at its face centre, with the
-fractions and directions of the interior cell behind it. A source without `t` is
+**What it does.** Imposes the velocity of a source. An expression source is written in
+the shared expression language, in physical units, over `x y z` [m], `t` [s], the
+arc-length fractions `xi eta zeta` (0 at a line's negative face, 1 at its positive face,
+proportional to distance along the grid line) and the line lengths `L_xi L_eta L_zeta`
+[m]. Its values are read in one of three frames: `cartesian` (`u v w`), `curvilinear`
+(`u_xi u_eta u_zeta` along the unit grid-line directions; omitted components are zero) or
+`normal` (one speed into the domain). Each face slot is evaluated at its face centre, with
+the fractions and directions of the interior cell behind it. A source without `t` is
 evaluated once; with `t`, once per step at the step's end time, not on every boundary
-pass.
+pass. A data source is a normal-speed profile staged as a PICSLICE file
+(@ref p44_picslice_ssec): read from a file, generated, or sliced from an earlier
+solution.
 
 ```yaml
 sources:
@@ -419,39 +291,71 @@ boundary_conditions:
       bulk_velocity: "U*(1 + 0.3*sin(2*pi*0.5*t))"
 ```
 
-**When to choose it.** For any profile with a closed form, and for every time-dependent
-inlet. Unlike `parabolic`, the profile is written in arc-length fractions, so it is the
-physical profile on a stretched grid; unlike `prescribed_flow`, it needs no staged file
-and may vary in time.
+A uniform plug is `source: {components: normal, expression: 1.5}`; a parabola across two
+wall-bounded tangential directions is
+`source: {components: normal, expression: "16*1.5*xi*(1-xi)*eta*(1-eta)"}`, peaking at
+1.5 m/s.
+
+**When to choose it.** Every inlet. Choose an expression for any profile with a closed
+form and for every time-dependent profile; written in arc-length fractions it is the
+physical profile on a stretched or curved grid. Choose a data source for the exact
+square-duct solution (`generated`), a measured profile (`file`), or a developed plane
+from a precursor run (`field_slice`).
 
 **Parameters it owns.** `source` - required: the name of an entry of the case's top-level
-`sources:`, or a mapping with `expression` (required), `components` (default
-`cartesian`) and `constants` (named numbers inlined into the expressions and the
-constraints). `constraints` - optional: `scale` multiplies every value; `bulk_velocity`
-[m/s], a number or an expression in `t`, rescales the face each step it changes so the
-area-weighted mean normal speed equals it.
+`sources:`, or a mapping. An expression source takes `expression` (required),
+`components` (default `cartesian`) and `constants` (named numbers inlined into the
+expressions and the constraints). A data source takes `type` and that type's keys:
 
-**Interactions.** The same named source can set the initial condition
+| `type` | Required keys | Optional keys | Use when |
+|---|---|---|---|
+| `file` | `path` | - | You already have a PICSLICE profile file |
+| `generated` | `generator` | `script`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
+| `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `slice` | You are extracting a plane from an existing solution |
+
+Unknown keys are rejected with the allowed set named. `output_file` is refused for
+`generated` and `field_slice`: `picurv` writes generated profiles under
+`<run.inputs>/inlet_profiles/`.
+
+`constraints` - optional, applied in order: `scale` multiplies every value (for a data
+source the profile is multiplied as it is staged, so `scale` must be positive);
+`bulk_velocity` [m/s], a number or an expression in `t`, rescales the face each step it
+changes so the area-weighted mean normal speed equals it.
+
+**Interactions.** The same named expression source can set the initial condition
 (@ref p33_source "source initial condition"), so the interior and the inlet agree at
 the first step. `bulk_velocity` sums over the whole face, a collective once per step it
 is recomputed. A shared shape with the time dependence only in `bulk_velocity` is
-evaluated once; only the rescaling runs each step.
+evaluated once; only the rescaling runs each step. A data source's dimensions are
+validated against the grid before the run starts (@ref p44_picslice_ssec), and
+`field_slice` needs `source_case` or `velocity_scale` because a raw field carries no
+units of its own. Newton-Krylov momentum accepts the inlet: the velocity is fixed within
+a step, so every residual evaluation sees the same boundary value.
 
-**Diagnostics.** The startup banner names the face's `-inlet_source_<id>` options. With
-debug logging the handler logs the target, the source mean and the factor each time it
-rescales. The applied flux is the inlet's entry in `Continuity_Metrics.csv` (`flux_in`).
-A value that is not finite stops the run naming the position and time; a source whose
-mean normal speed is zero cannot be rescaled and is refused.
+**Diagnostics.** The startup banner names the face's `-inlet_source_<id>` options, or
+its staged `source_file`. A data source logs its file, dimensions and speed range when
+first applied. With debug logging the handler logs the target, the source mean and the
+factor each time it rescales. The applied flux is the inlet's entry in
+`Continuity_Metrics.csv` (`flux_in`). A value that is not finite stops the run naming the
+position and time; a source whose mean normal speed is zero cannot be rescaled and is
+refused.
 
-**Evidence.** Unit verified - `make unit-mpi` (`grid-line-fractions-follow-arc-length`)
+**Evidence.** Unit verified - `make unit-boundaries` covers a uniform and a parabolic
+source on every face, a PICSLICE file, a source in `t` evaluated once per step, and
+`bulk_velocity` rescaling; `make unit-mpi` (`grid-line-fractions-follow-arc-length`)
 checks the fractions and lengths against arc length on a stretched grid across ranks.
 Integration verified - `tests/test_velocity_sources.py` covers resolution, the emitted
-options and the refusals. Implemented only for production use: no shipped example
-selects it yet.
+options, data-source staging and scaling, and the refusals; `tests/test_config_regressions.py`
+and `tests/test_cli_smoke.py` exercise the three data-source types and the
+face-dimension validation, and `tests/test_workspace_lifecycle.py` checks that a
+generated profile on a stretched `programmatic_c` grid is normalized on its face areas.
+Production exercised in `examples/flat_channel`.
 
-**Limitations.** Expressions only: a profile from data still needs `prescribed_flow`.
-Random draws are not available. On a multi-block case the fractions run from 0 to 1
-within each block.
+**Limitations.** Random draws are not available in a source. On a multi-block case the
+fractions run from 0 to 1 within each block. A data source is steady; only its
+`bulk_velocity` may vary in time. A generated profile on `programmatic_c` is sampled on
+the single-block bridge grid, so a multi-block `programmatic_c` case with a generated
+profile is refused at validation.
 
 @subsection p44_cap_conservation_sub conservation
 
@@ -751,19 +655,20 @@ Q^* = \frac{Q}{U_{ref} L_{ref}^{2}}.
 
 Specifically:
 
-- `vx/vy/vz/v_max` are divided by `properties.scaling.velocity_ref`,
-- `prescribed_flow` PICSLICE scalar speeds are divided by `properties.scaling.velocity_ref`
-  while staging the solver-side `.picslice`,
+- a data source's PICSLICE speeds are divided by `properties.scaling.velocity_ref`
+  (and multiplied by its `scale`) while staging the solver-side `.picslice`,
 - `target_flux` is divided by `velocity_ref * length_ref^2`.
+
+An expression source reaches C in physical units: the runtime evaluates it at physical
+coordinates and time and divides the velocity by `velocity_ref`.
 
 @subsection p44_picslice_ssec 6.1 Prescribed Inlet Profile Files
 
-`prescribed_flow` uses a face-scoped canonical `PICSLICE` file. It can be
-supplied directly with `source.type: file`, generated analytically with
-`source.type: generated`, or sliced from an old `ufield*.dat` with
-`source.type: field_slice`. The Python conductor resolves the face/grid context
+A data source of `prescribed_velocity` uses a face-scoped canonical `PICSLICE` file. It
+can be supplied directly with `type: file`, generated analytically with
+`type: generated`, or sliced from an old `ufield*.dat` with `type: field_slice`. The Python conductor resolves the face/grid context
 and delegates dimensional profile writes to `generators/profile.gen`. Generated and
-field-sliced sources may set optional `source.script` to a compatible case-relative
+field-sliced sources may set optional `script` to a compatible case-relative
 or absolute override:
 
 ```text
@@ -778,8 +683,8 @@ PICSLICE
 The second line is the frame count. Static prescribed profiles require `1`.
 Values are positive scalar speed magnitudes normal to the inlet surface, not
 Cartesian velocity components and not contravariant fluxes. The C handler uses
-the existing inlet face sign and metric conversion to populate `Ucont` and
-`Ubcs`.
+the inlet face sign and metric conversion of a normal-frame source to populate `Ucont`
+and `Ubcs`.
 
 Expected dimensions follow the existing inlet face loop order:
 
@@ -797,11 +702,10 @@ Copy-paste file-backed inlet example:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: file
-        path: profiles/inlet.picslice
+    handler: prescribed_velocity
+    source:
+      type: file
+      path: profiles/inlet.picslice
 ```
 
 Each face can reference its own `.picslice`; `picurv` stages one solver-scale file
@@ -813,15 +717,14 @@ Generated profiles currently support analytical square-duct Poiseuille flow:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: generated
-        generator: square_duct_poiseuille
-        # script: tools/custom_profile.py  # optional
-        params:
-          bulk_velocity: 1.0
-          n_terms: 101
+    handler: prescribed_velocity
+    source:
+      type: generated
+      generator: square_duct_poiseuille
+      # script: tools/custom_profile.py  # optional
+      params:
+        bulk_velocity: 1.0
+        n_terms: 101
 ```
 
 The face selects the two transverse dimensions automatically:
@@ -855,17 +758,16 @@ Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
-    handler: prescribed_flow
-    params:
-      source:
-        type: field_slice
-        field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-        grid_file: ../old_run/inputs/grid/grid.run
-        source_case: ../old_run/config/case.yml
-        slice:
-          face: "+Zeta"
-          orientation: opposite
-          normal_tolerance: 0.99
+    handler: prescribed_velocity
+    source:
+      type: field_slice
+      field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
+      grid_file: ../old_run/inputs/grid/grid.run
+      source_case: ../old_run/config/case.yml
+      slice:
+        face: "+Zeta"
+        orientation: opposite
+        normal_tolerance: 0.99
 ```
 
 `field_slice` reads old `Ucat`, computes source and target face normals from
@@ -945,9 +847,7 @@ Current factory-wired handlers include:
 
 - wall no-slip,
 - wall free-slip,
-- inlet constant velocity,
-- inlet parabolic,
-- inlet prescribed flow from file,
+- inlet prescribed velocity (expression or PICSLICE source),
 - outlet conservation,
 - periodic geometric,
 - periodic driven constant flux,
@@ -959,7 +859,7 @@ Important contributor note:
 
 - C enums include additional BC categories and handlers (moving walls, far field, characteristic),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
-- `source.type: field_slice` is Python-side preprocessing only: it creates the
+- a `field_slice` data source is Python-side preprocessing only: it creates the
   same staged `source_file` contract used by file-backed and generated profiles.
 
 If you add a new BC mode, update all three layers in one change:
@@ -970,14 +870,14 @@ If you add a new BC mode, update all three layers in one change:
 
 @section p44_examples_sec 10. Authoring Examples
 
-Constant-velocity inlet + outlet conservation:
+Uniform inlet + outlet conservation:
 
 ```yaml
 boundary_conditions:
   - face: "-Xi"
     type: INLET
-    handler: constant_velocity
-    params: { vx: 1.5, vy: 0.0, vz: 0.0 }
+    handler: prescribed_velocity
+    source: {components: normal, expression: 1.5}
   - face: "+Xi"
     type: OUTLET
     handler: conservation

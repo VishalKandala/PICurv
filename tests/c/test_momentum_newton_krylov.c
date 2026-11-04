@@ -22,7 +22,7 @@ static const char *geometric_periodic_bcs =
     "+Xi PERIODIC geometric\n"
     "-Eta WALL noslip\n"
     "+Eta WALL noslip\n"
-    "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.5\n"
+    "-Zeta INLET prescribed_velocity source_id=0\n"
     "+Zeta OUTLET conservation\n";
 
 /* Two free-slip walls facing two no-slip ones: the free-slip boundary value is read
@@ -48,7 +48,7 @@ static const char *parabolic_bcs =
     "+Xi WALL noslip\n"
     "-Eta WALL noslip\n"
     "+Eta WALL noslip\n"
-    "-Zeta INLET parabolic v_max=1.5\n"
+    "-Zeta INLET prescribed_velocity source_id=1\n"
     "+Zeta OUTLET conservation\n";
 
 static const char *periodic_x_bcs =
@@ -392,7 +392,7 @@ static PetscErrorCode TestResidualRepeatabilityAndInputIntegrity(void)
     PetscCall(WriteNewtonPicSlice(profile_path));
     PetscCall(PetscSNPrintf(file_bcs, sizeof(file_bcs),
         "-Xi WALL noslip\n+Xi WALL noslip\n-Eta WALL noslip\n+Eta WALL noslip\n"
-        "-Zeta INLET prescribed_flow source_file=%s\n+Zeta OUTLET conservation\n", profile_path));
+        "-Zeta INLET prescribed_velocity source_id=2 source_file=%s\n+Zeta OUTLET conservation\n", profile_path));
     PetscCall(CheckResidualRepeatabilityForBC(file_bcs, "file inlet/conservation outlet"));
     PetscCall(PicurvRemoveTempDir(profile_dir));
     PetscFunctionReturn(PETSC_SUCCESS);

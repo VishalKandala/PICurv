@@ -13,9 +13,10 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Configurable particle initial values (`models.physics.particles.fields`: numbers, expressions, or regions), and IEM micromixing of the particle scalar `Psi`
 - Runtime search/migration observability via `<run.analysis.metrics>/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
-- Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
-  boundary conditions, including square-duct Poiseuille generation via
-  `generators/profile.gen`
+- Inlet and initial velocities written as expressions over position, time, and grid-line
+  arc-length fractions (`prescribed_velocity`, `sources:`), and generated, field-sliced,
+  and file-backed inlet `PICSLICE` profiles, including square-duct Poiseuille generation
+  via `generators/profile.gen`
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `<run.analysis.metrics>/scatter_metrics.csv`
 - YAML-driven orchestration through the source-tree entrypoint (`picurv_cli/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)

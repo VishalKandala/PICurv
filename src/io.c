@@ -800,10 +800,7 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     PROFILE_FUNCTION_BEGIN;
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
     else if (strcasecmp(str, "free_slip")           == 0) *handler_out = BC_HANDLER_WALL_FREE_SLIP;
-    else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
-    else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
-    else if (strcasecmp(str, "prescribed_flow")     == 0) *handler_out = BC_HANDLER_INLET_PROFILE_FROM_FILE;
     else if (strcasecmp(str, "prescribed_velocity") == 0) *handler_out = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
     else if (strcasecmp(str,"geometric")            == 0) *handler_out = BC_HANDLER_PERIODIC_GEOMETRIC;
     else if (strcasecmp(str,"constant_flux")        == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
@@ -829,10 +826,7 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
                 handler != BC_HANDLER_WALL_MOVING) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
             break;
         case INLET:
-            if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY &&
-                handler != BC_HANDLER_INLET_PARABOLIC &&
-                handler != BC_HANDLER_INLET_PROFILE_FROM_FILE &&
-                handler != BC_HANDLER_INLET_PRESCRIBED_VELOCITY) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
+            if (handler != BC_HANDLER_INLET_PRESCRIBED_VELOCITY) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
             break;
         case PERIODIC:
             if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
@@ -2776,33 +2770,19 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);
                 const char* bc_handler_type_str = BCHandlerTypeToString(user->boundary_faces[current_face].handler_type);
                 if(user->boundary_faces[current_face].mathematical_type == INLET){
-                    if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY){
-                        Cmpnts inlet_velocity = {0.0,0.0,0.0};
-                        PetscBool found;
-                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vx",&inlet_velocity.x,&found); CHKERRQ(ierr);
-                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vy",&inlet_velocity.y,&found); CHKERRQ(ierr);
-                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vz",&inlet_velocity.z,&found); CHKERRQ(ierr);
-                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f,%.4f,%.4f]\n", 
-                        face_name_width, face_str, bc_type_str, bc_handler_type_str,inlet_velocity.x,inlet_velocity.y,inlet_velocity.z); CHKERRQ(ierr);
-                        } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PARABOLIC){
-                        PetscReal v_max = 0.0;
-                        PetscBool found;
-                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"v_max",&v_max,&found); CHKERRQ(ierr);
-                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - v_max=%.4f\n",
-                        face_name_width, face_str, bc_type_str, bc_handler_type_str, v_max); CHKERRQ(ierr);
-                        } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PROFILE_FROM_FILE){
+                    if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PRESCRIBED_VELOCITY){
+                        PetscReal source_id = -1.0;
                         const char *source_file = NULL;
-                        PetscBool found;
-                        ierr = GetBCParamString(user->boundary_faces[current_face].params,"source_file",&source_file,&found); CHKERRQ(ierr);
-                        if (!source_file) source_file = "(missing)";
+                        PetscBool found, found_file;
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"source_id",&source_id,&found); CHKERRQ(ierr);
+                        ierr = GetBCParamString(user->boundary_faces[current_face].params,"source_file",&source_file,&found_file); CHKERRQ(ierr);
+                        if (found_file && source_file) {
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source_file=%s\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, source_file); CHKERRQ(ierr);
-                        } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PRESCRIBED_VELOCITY){
-                        PetscReal source_id = -1.0;
-                        PetscBool found;
-                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"source_id",&source_id,&found); CHKERRQ(ierr);
+                        } else {
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source -inlet_source_%d\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, (int)source_id); CHKERRQ(ierr);
+                        }
                         }
                     } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX){
                         PetscBool trimflag,foundtrimflag;

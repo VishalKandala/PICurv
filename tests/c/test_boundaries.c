@@ -100,22 +100,19 @@ static PetscReal GetFaceOrientationSign(BCFace face)
 }
 
 /**
- * @brief Maps an inlet face to the matching configuration key used by the handler parser.
+ * @brief Configures @p face as a prescribed-velocity inlet with source 0 in the normal frame.
+ * @details The source's options live in the global database, so each call replaces the last.
  */
-static const char *GetInletParamKey(BCFace face)
+static PetscErrorCode ConfigureNormalSourceInlet(UserCtx *user, BCFace face, const char *speed)
 {
-    switch (face) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X:
-            return "vx";
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y:
-            return "vy";
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z:
-            return "vz";
-    }
-    return "";
+    PetscFunctionBeginUser;
+    user->boundary_faces[face].face_id = face;
+    user->boundary_faces[face].mathematical_type = INLET;
+    user->boundary_faces[face].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
+    PetscCall(AppendBCParam(&user->boundary_faces[face].params, "source_id", "0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_frame", "normal"));
+    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_expr_0", speed));
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -320,8 +317,6 @@ static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
 {
     BoundaryCondition *wall = NULL;
     BoundaryCondition *inlet = NULL;
-    BoundaryCondition *parabolic = NULL;
-    BoundaryCondition *profile = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(BoundaryCondition_Create(BC_HANDLER_WALL_NOSLIP, &wall));
@@ -331,20 +326,13 @@ static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
     PetscCall(PicurvAssertBool((PetscBool)(wall->Destroy == NULL), "wall handler should not require destroy hook"));
     PetscCall(DestroyBoundaryHandler(&wall));
 
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_CONSTANT_VELOCITY, &inlet));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &inlet));
     PetscCall(PicurvAssertBool((PetscBool)(inlet != NULL), "factory should return inlet handler"));
     PetscCall(PicurvAssertIntEqual(BC_PRIORITY_INLET, inlet->priority, "inlet handler priority"));
     PetscCall(PicurvAssertBool((PetscBool)(inlet->Initialize != NULL), "inlet handler should expose Initialize"));
     PetscCall(PicurvAssertBool((PetscBool)(inlet->Apply != NULL), "inlet handler should expose Apply"));
     PetscCall(PicurvAssertBool((PetscBool)(inlet->Destroy != NULL), "inlet handler should expose its destroy hook"));
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PARABOLIC, &parabolic));
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PROFILE_FROM_FILE, &profile));
-    PetscCall(PicurvAssertBool((PetscBool)(inlet->Apply == parabolic->Apply &&
-                                           inlet->Apply == profile->Apply),
-                               "all profile-producing inlet modes should share one application hook"));
     PetscCall(DestroyBoundaryHandler(&inlet));
-    PetscCall(DestroyBoundaryHandler(&parabolic));
-    PetscCall(DestroyBoundaryHandler(&profile));
 
     PetscFunctionReturn(0);
 }
@@ -381,9 +369,7 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
     const struct HandlerExpectation expectations[] = {
         {BC_HANDLER_WALL_NOSLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
         {BC_HANDLER_WALL_FREE_SLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
-        {BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
-        {BC_HANDLER_INLET_PARABOLIC, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
-        {BC_HANDLER_INLET_PROFILE_FROM_FILE, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
+        {BC_HANDLER_INLET_PRESCRIBED_VELOCITY, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
         {BC_HANDLER_OUTLET_CONSERVATION, BC_PRIORITY_OUTLET, PETSC_TRUE, PETSC_FALSE},
     };
 
@@ -424,9 +410,9 @@ static PetscErrorCode WritePicSliceForTests(const char *path, PetscInt n1, Petsc
 }
 
 /**
- * @brief Tests prescribed-flow inlet handler loading and applying one Z-face profile.
+ * @brief Tests a prescribed-velocity inlet loading and applying one Z-face PICSLICE profile.
  */
-static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
+static PetscErrorCode TestInletPicSliceSourceBehavior(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -448,7 +434,8 @@ static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
 
     user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
     user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PROFILE_FROM_FILE;
+    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_id", "0"));
     PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", profile_path));
 
     PetscCall(VecSet(user->Ucont, 0.0));
@@ -456,10 +443,7 @@ static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
 
     ctx.user = user;
     ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PROFILE_FROM_FILE, &bc));
-    PetscCall(bc->PreStep(bc, &ctx, &local_inflow, &local_outflow));
-    PetscCall(PicurvAssertRealNear(0.0, local_inflow, 1.0e-12, "profile inlet PreStep should leave inflow unchanged"));
-    PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "profile inlet PreStep should leave outflow unchanged"));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
     PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
     PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
@@ -504,10 +488,10 @@ static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests constant inlet handler initialization and face writes on a Z inlet.
+ * @brief Tests a constant normal-speed source's face writes and flux on a Z inlet.
  */
 
-static PetscErrorCode TestInletConstantVelocityHandlerBehavior(void)
+static PetscErrorCode TestInletNormalSourceBehavior(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -526,14 +510,11 @@ static PetscErrorCode TestInletConstantVelocityHandlerBehavior(void)
     PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_CONSTANT_VELOCITY;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "vz", "2.5"));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "2.5"));
 
     ctx.user = user;
     ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_CONSTANT_VELOCITY, &bc));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
     PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
     PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
@@ -577,15 +558,12 @@ static PetscErrorCode TestInletCommonApplicationCurvilinearMetric(void)
     zet[0][3][3].z = 4.0;
     PetscCall(DMDAVecRestoreArray(user->fda, user->lZet, &zet));
 
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_CONSTANT_VELOCITY;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "vz", "2.0"));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "2.0"));
     ctx.user = user;
     ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_CONSTANT_VELOCITY, &bc));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
-    PetscCall(bc->Apply(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
@@ -805,7 +783,7 @@ static PetscErrorCode TestFreeSlipWallExertsNoShear(void)
     user->boundary_faces[BC_FACE_POS_X].mathematical_type = WALL;
     user->boundary_faces[BC_FACE_POS_X].handler_type = BC_HANDLER_WALL_FREE_SLIP;
     user->boundary_faces[BC_FACE_NEG_Y].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Y].handler_type = BC_HANDLER_INLET_CONSTANT_VELOCITY;
+    user->boundary_faces[BC_FACE_NEG_Y].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
     PetscCall(PicurvAssertBool(BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_X]),
                                "a no-slip wall exerts shear"));
     PetscCall(PicurvAssertBool((PetscBool)!BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_X]),
@@ -836,9 +814,9 @@ static PetscErrorCode TestFreeSlipWallExertsNoShear(void)
 }
 
 /**
- * @brief Tests constant-inlet initialization, flux accounting, and face writes across all faces.
+ * @brief Tests a constant normal-speed source's flux accounting and face writes across all faces.
  */
-static PetscErrorCode TestInletConstantVelocityHandlerFaceMatrix(void)
+static PetscErrorCode TestInletNormalSourceFaceMatrix(void)
 {
     struct ConstantInletCase {
         BCFace face;
@@ -876,20 +854,15 @@ static PetscErrorCode TestInletConstantVelocityHandlerFaceMatrix(void)
         PetscCall(VecSet(user->Ucont, 0.0));
         PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
         ResetBoundaryFaceConfig(&user->boundary_faces[test_case->face]);
-        user->boundary_faces[test_case->face].face_id = test_case->face;
-        user->boundary_faces[test_case->face].mathematical_type = INLET;
-        user->boundary_faces[test_case->face].handler_type = BC_HANDLER_INLET_CONSTANT_VELOCITY;
-        PetscCall(AppendBCParam(&user->boundary_faces[test_case->face].params,
-                                GetInletParamKey(test_case->face),
-                                test_case->value_text));
+        PetscCall(ConfigureNormalSourceInlet(user, test_case->face, test_case->value_text));
 
         ctx.user = user;
         ctx.face_id = test_case->face;
-        PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_CONSTANT_VELOCITY, &bc));
+        PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+        PetscCall(bc->Initialize(bc, &ctx));
         PetscCall(bc->PreStep(bc, &ctx, &local_inflow, &local_outflow));
         PetscCall(PicurvAssertRealNear(0.0, local_inflow, 1.0e-12, "constant inlet PreStep should leave inflow unchanged"));
         PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "constant inlet PreStep should leave outflow unchanged"));
-        PetscCall(bc->Initialize(bc, &ctx));
         PetscCall(bc->Apply(bc, &ctx));
         PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
 
@@ -914,10 +887,10 @@ static PetscErrorCode TestInletConstantVelocityHandlerFaceMatrix(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests parabolic inlet handler shape on a tiny Z-face.
+ * @brief Tests a parabola written in the arc-length fractions on a tiny Z-face.
  */
 
-static PetscErrorCode TestInletParabolicProfileHandlerBehavior(void)
+static PetscErrorCode TestInletParabolicSourceBehavior(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -930,20 +903,17 @@ static PetscErrorCode TestInletParabolicProfileHandlerBehavior(void)
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PARABOLIC;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "v_max", "4.0"));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "16*4.0*xi*(1-xi)*eta*(1-eta)"));
 
     ctx.user = user;
     ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PARABOLIC, &bc));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
     PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(4.0, ucont[0][3][3].z, 1.0e-12, "parabolic inlet should peak at the face centerline"));
-    /* Five cells per axis: the wall-adjacent centre sits at s = -0.8, so each factor is 0.36. */
+    /* Five cells per axis: the wall-adjacent centre sits at xi = 0.1, so each factor is 0.36. */
     PetscCall(PicurvAssertRealNear(4.0 * 0.36 * 0.36, ucont[0][1][1].z, 1.0e-12,
                                    "parabolic inlet should vanish on the wall, not at the wall-adjacent centre"));
     PetscCall(PicurvAssertBool((PetscBool)(ucont[0][3][3].z > ucont[0][2][2].z), "parabolic inlet centerline should exceed off-center velocity"));
@@ -957,11 +927,10 @@ static PetscErrorCode TestInletParabolicProfileHandlerBehavior(void)
 }
 
 /**
- * @brief Tests that the parabolic inlet is uniform along a periodic cross-stream axis.
- * @details A channel periodic in i has walls only in j, so its inlet is the exact
- *          one-dimensional parabola in j.
+ * @brief Tests that a profile in one fraction is uniform along the other tangential axis.
+ * @details A channel periodic in i has walls only in j, so its inlet is the parabola in eta.
  */
-static PetscErrorCode TestInletParabolicProfileUniformAlongPeriodicAxis(void)
+static PetscErrorCode TestInletOneAxisSourceIsUniformAlongTheOther(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -973,20 +942,16 @@ static PetscErrorCode TestInletParabolicProfileUniformAlongPeriodicAxis(void)
     PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     PetscCall(PicurvPopulateIdentityMetrics(user));
-    simCtx->i_periodic = 1;
-
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PARABOLIC;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "v_max", "4.0"));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "4*4.0*eta*(1-eta)"));
     ctx.user = user;
     ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PARABOLIC, &bc));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
-    PetscCall(PicurvAssertRealNear(4.0, ucont[0][3][1].z, 1.0e-12, "periodic axis carries no parabola factor"));
-    PetscCall(PicurvAssertRealNear(ucont[0][3][1].z, ucont[0][3][4].z, 1.0e-12, "profile is uniform along the periodic axis"));
+    PetscCall(PicurvAssertRealNear(4.0, ucont[0][3][1].z, 1.0e-12, "the xi axis carries no parabola factor"));
+    PetscCall(PicurvAssertRealNear(ucont[0][3][1].z, ucont[0][3][4].z, 1.0e-12, "profile is uniform along xi"));
     PetscCall(PicurvAssertRealNear(4.0 * 0.36, ucont[0][1][3].z, 1.0e-12, "wall-bounded axis keeps its parabola"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
@@ -998,9 +963,10 @@ static PetscErrorCode TestInletParabolicProfileUniformAlongPeriodicAxis(void)
 }
 
 /**
- * @brief Tests parabolic-inlet centerline, wall, and flux behavior across all faces.
+ * @brief Tests a parabola in each face's two tangential fractions across all faces: its
+ *        centreline, wall-adjacent value, and flux.
  */
-static PetscErrorCode TestInletParabolicProfileHandlerFaceMatrix(void)
+static PetscErrorCode TestInletParabolicSourceFaceMatrix(void)
 {
     const BCFace faces[] = {
         BC_FACE_NEG_X, BC_FACE_POS_X,
@@ -1032,18 +998,18 @@ static PetscErrorCode TestInletParabolicProfileHandlerFaceMatrix(void)
         PetscCall(VecSet(user->Ucont, 0.0));
         PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
         ResetBoundaryFaceConfig(&user->boundary_faces[face]);
-        user->boundary_faces[face].face_id = face;
-        user->boundary_faces[face].mathematical_type = INLET;
-        user->boundary_faces[face].handler_type = BC_HANDLER_INLET_PARABOLIC;
-        PetscCall(AppendBCParam(&user->boundary_faces[face].params, "v_max", "4.0"));
+        const char *profile = (face == BC_FACE_NEG_X || face == BC_FACE_POS_X) ? "16*4.0*eta*(1-eta)*zeta*(1-zeta)"
+                            : (face == BC_FACE_NEG_Y || face == BC_FACE_POS_Y) ? "16*4.0*xi*(1-xi)*zeta*(1-zeta)"
+                            : "16*4.0*xi*(1-xi)*eta*(1-eta)";
+        PetscCall(ConfigureNormalSourceInlet(user, face, profile));
 
         ctx.user = user;
         ctx.face_id = face;
-        PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PARABOLIC, &bc));
+        PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+        PetscCall(bc->Initialize(bc, &ctx));
         PetscCall(bc->PreStep(bc, &ctx, &local_inflow, &local_outflow));
         PetscCall(PicurvAssertRealNear(0.0, local_inflow, 1.0e-12, "parabolic inlet PreStep should leave inflow unchanged"));
         PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "parabolic inlet PreStep should leave outflow unchanged"));
-        PetscCall(bc->Initialize(bc, &ctx));
         PetscCall(bc->Apply(bc, &ctx));
         PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
 
@@ -1075,6 +1041,62 @@ static PetscErrorCode TestInletParabolicProfileHandlerFaceMatrix(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Tests that a source in t is re-evaluated once per step, and that a bulk velocity
+ *        rescales the face to its target mean normal speed each step.
+ */
+static PetscErrorCode TestInletSourceFollowsTimeAndBulkVelocity(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL;
+    PetscReal local_inflow = 0.0, local_outflow = 0.0, physical_time = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "1 + 10*t"));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+    /* A second pass in the same step, at a later stage time, keeps the step's value. */
+    simCtx->ti += 0.05;
+    PetscCall(bc->PreStep(bc, &ctx, &local_inflow, &local_outflow));
+    PetscCall(bc->Apply(bc, &ctx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear((1.0 + 10.0 * physical_time) / simCtx->scaling.U_ref, ucont[0][3][3].z, 1.0e-12,
+                                   "a source in t takes the value at the step's time"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DestroyBoundaryHandler(&bc));
+
+    /* A shape in xi rescaled to a bulk velocity of 3: on a uniform face the mean of xi is 1/2. */
+    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_expr_0", "xi"));
+    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_bulk_velocity", "3.0"));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    local_inflow = 0.0;
+    PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
+    PetscCall(PicurvAssertRealNear(3.0 / simCtx->scaling.U_ref * GetFaceInteriorPointCount(user, BC_FACE_NEG_Z),
+                                   local_inflow, 1.0e-10, "the face flux is the bulk velocity times the open area"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(2.0 * 3.0 * 0.1 / simCtx->scaling.U_ref, ucont[0][3][1].z, 1.0e-12,
+                                   "the shape keeps its form: twice the bulk times xi"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_bulk_velocity"));
+
+    PetscCall(DestroyBoundaryHandler(&bc));
+    ResetBoundaryFaceConfig(&user->boundary_faces[BC_FACE_NEG_Z]);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Tests outlet conservation handler correction and post-step flux accounting.
  */
@@ -1909,13 +1931,14 @@ int main(int argc, char **argv)
         {"wall-free-slip-curvilinear-normal", TestWallFreeSlipCurvilinearNormal},
         {"free-slip-wall-exerts-no-shear", TestFreeSlipWallExertsNoShear},
         {"dummy-cells-follow-each-fields-boundary-rule", TestDummyCellsFollowEachFieldsBoundaryRule},
-        {"inlet-constant-velocity-handler-behavior", TestInletConstantVelocityHandlerBehavior},
+        {"inlet-normal-source-behavior", TestInletNormalSourceBehavior},
         {"inlet-common-application-curvilinear-metric", TestInletCommonApplicationCurvilinearMetric},
-        {"inlet-constant-velocity-handler-face-matrix", TestInletConstantVelocityHandlerFaceMatrix},
-        {"inlet-parabolic-profile-handler-behavior", TestInletParabolicProfileHandlerBehavior},
-        {"inlet-parabolic-profile-handler-face-matrix", TestInletParabolicProfileHandlerFaceMatrix},
-        {"inlet-parabolic-profile-uniform-along-periodic-axis", TestInletParabolicProfileUniformAlongPeriodicAxis},
-        {"inlet-profile-from-file-handler-behavior", TestInletProfileFromFileHandlerBehavior},
+        {"inlet-normal-source-face-matrix", TestInletNormalSourceFaceMatrix},
+        {"inlet-parabolic-source-behavior", TestInletParabolicSourceBehavior},
+        {"inlet-parabolic-source-face-matrix", TestInletParabolicSourceFaceMatrix},
+        {"inlet-one-axis-source-uniform-along-the-other", TestInletOneAxisSourceIsUniformAlongTheOther},
+        {"inlet-picslice-source-behavior", TestInletPicSliceSourceBehavior},
+        {"inlet-source-follows-time-and-bulk-velocity", TestInletSourceFollowsTimeAndBulkVelocity},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},
         {"finalize-post-projection-cell-fields-non-periodic", TestFinalizePostProjectionCellFieldsNonPeriodic},

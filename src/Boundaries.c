@@ -389,11 +389,6 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             ierr = Create_WallFreeSlip(bc); CHKERRQ(ierr);
             break;
 
-        case BC_HANDLER_INLET_CONSTANT_VELOCITY:
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletConstantVelocity().\n");
-	          ierr = Create_InletConstantVelocity(bc); CHKERRQ(ierr);
-            break;
-
         case BC_HANDLER_PERIODIC_GEOMETRIC:
             LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicGeometric().\n");
             ierr = Create_PeriodicGeometric(bc);
@@ -409,16 +404,6 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             ierr = Create_PeriodicDrivenInitial(bc);
             break;
                 
-        case BC_HANDLER_INLET_PARABOLIC:
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
-            ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
-            break;
-
-        case BC_HANDLER_INLET_PROFILE_FROM_FILE:
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletProfileFromFile().\n");
-            ierr = Create_InletProfileFromFile(bc); CHKERRQ(ierr);
-            break;
-
         case BC_HANDLER_INLET_PRESCRIBED_VELOCITY:
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletPrescribedVelocity().\n");
             ierr = Create_InletPrescribedVelocity(bc); CHKERRQ(ierr);

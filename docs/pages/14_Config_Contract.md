@@ -58,10 +58,12 @@ For each run, `picurv` generates:
 - Generated initial conditions reject `output_file`, `summary_json`, and `spectrum_csv` in `properties.initial_conditions.params`, and generated or `field_slice` inlet profiles reject `source.output_file`, for the same reason.
 - `grid.generator.cli_args` is a raw token list passed through to `grid.gen`, but closed-choice values inside it (a `--cross-section` value, or the segment kinds inside `--wall-j-lo`/`--path`/`--transforms`/etc.) are checked at validation time against the same sets `grid.gen` itself enforces, so a misspelled selector fails before the run rather than partway into it. See @ref p48_grammar_ssec.
 - `boundary_conditions` is a list of six face entries.
-- `INLET` + `prescribed_flow` supports `source.type: file`, `source.type: generated`,
-  and `source.type: field_slice`. Generated square-duct Poiseuille profiles and
-  old-field slices are produced by Python, written under `<run.config>/`, summarized
-  in `profile.info`, then converted to the existing C-side `source_file` contract.
+- `INLET` takes `prescribed_velocity`, whose `source` is an expression or data:
+  `type: file`, `type: generated`, or `type: field_slice`. Generated square-duct Poiseuille
+  profiles and old-field slices are produced by Python, written under `<run.inputs>/`,
+  summarized in `profile.info`, then staged into the C-side `source_file` contract. An
+  expression source and its `bulk_velocity` reach C as quoted `-inlet_source_<id>_*`
+  control options.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is `generated` or `file`.
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`; their
@@ -71,7 +73,7 @@ For each run, `picurv` generates:
   The repository generator evaluates `[expression]` configs in physical units - coordinates are the staged
   single-block PICGRID times `length_ref`, values are physical velocities or fluxes - and writes solver units;
   `programmatic_c` cases materialize this bridge grid from scalar `programmatic_settings`.
-- generated and field-sliced `prescribed_flow` sources default to `generators/profile.gen`
+- generated and field-sliced inlet data sources default to `generators/profile.gen`
   and accept optional `source.script`.
 - `mode: file` requires `field: Ucat|Ucont` and `source_file`. The payload is physical unless it
   names `source_case`, or `velocity_scale` (and `length_scale` for `Ucont`), for a field an earlier

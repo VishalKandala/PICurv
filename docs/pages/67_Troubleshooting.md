@@ -204,9 +204,9 @@ A `log_law` run started from a plug or laminar field often sits below 30 at firs
 **`u_tau_mean` collapses toward zero within a few steps**, with `nu_wall_over_nu_mean`
 falling to zero beside it. The flow has stopped, and the wall model is reporting it
 rather than causing it. Check that the inflow actually
-delivers flux: `constant_velocity` takes the face-normal speed from the component named
-after the face's own axis (`vz` on a `-Zeta` inlet), whatever the Cartesian direction of
-the inlet, and a speed given in another component is ignored.
+delivers flux: the inlet's `flux_in` in `Continuity_Metrics.csv` should match its bulk
+velocity times the face area. A `cartesian` source's velocity is applied as given, so a
+velocity tangent to the face delivers none; a `normal` source is the speed into the domain.
 
 **`u_tau` disagrees with the stress the flow carries.** In a stationary channel the
 viscous, resolved and subgrid shear together must fall linearly from the wall stress. A

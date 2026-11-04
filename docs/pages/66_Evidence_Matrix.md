@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 42 families, 141 canonical values.
+capability family the census recognises - 42 families, 139 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -78,8 +78,8 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  125 values cite `measurement:` records - 42 distinct ones, taken between 2026-09-18 and
-  2026-10-10 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  130 values cite `measurement:` records - 54 distinct ones, taken between 2026-09-18 and
+  2026-10-29 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
@@ -91,17 +91,22 @@ likely to matter:
   levels, offload policies, and retention components against a Google Drive remote, the
   three study types run as Slurm arrays, the import of an external periodic velocity
   field, and the LES models and options against the HOM02 benchmark.
-  Each record states what it does not establish, and none is gated in CI. Twelve records
-  are cited by no value: six `not-met` ones (the Q-criterion output placement and the
-  generated inlet flux on `programmatic_c` grids, both since fixed and re-measured,
+  Each record states what it does not establish, and none is gated in CI. Thirty-six
+  records are cited by no value. Ten are `not-met`: the Q-criterion output placement and
+  the generated inlet flux on `programmatic_c` grids, both since fixed and re-measured;
   asset reuse for identical inputs, fixed and since confirmed on the cluster by
-  `asset-lifecycle-grace-2026-10-01`, `hom02-les-accuracy-2026-10-09`, cited in the
-  LES entries' limitations, and the `cabot` channel run and the second `werner` window,
-  cited in those wall functions' entries), the
-  superseded `inconclusive` drift measurement, the 2026-09-22 wall-seed measurement
-  taken on the former `sin(pi t)^4` envelope (superseded by
-  `wall-spectral-ic-2026-09-24`), and the paired drift, scalar-scatter, pending-job cancellation, and IEM
-  variance-decay measurements, which verify subsystems with no selector value to cite them.
+  `asset-lifecycle-grace-2026-10-01`; `hom02-les-accuracy-2026-10-09`, cited in the LES
+  entries' limitations; the `cabot` channel run and the second `werner` window, cited in
+  those wall functions' entries; and four checks of the 2026-10-11 verification series
+  (`defense-t1-a6`, `-f4`, `-f4b`, `-v4`). One is the superseded `inconclusive` drift
+  measurement. The other twenty-five are `met` and verify behaviour no selector value
+  names: the rest of that verification series, the paired drift, scalar-scatter,
+  pending-job cancellation, and IEM variance-decay measurements, particle swarm removal,
+  keyed Brownian continuation and weak scaling, decomposition-independent statistics
+  ensembles, the 2D Newton--Krylov mixing layer, the 2026-09-22 wall-seed measurement
+  taken on the former `sin(pi t)^4` envelope (superseded by `wall-spectral-ic-2026-09-24`),
+  and `programmatic-inlet-flux-fixed-2026-09-21`, whose generated profile is now a data
+  source of `prescribed_velocity` and has not been re-measured through it.
   The three `reference` records are all the wall-modelled Re_tau = 1000 channel against
   Lee & Moser (2015), judged against criteria fixed before the runs, on one grid:
   `wmles-channel-retau1000-werner-2026-10-09` backs `werner` and the dynamic-Smagorinsky

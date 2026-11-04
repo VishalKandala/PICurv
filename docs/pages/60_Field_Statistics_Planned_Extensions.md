@@ -275,7 +275,7 @@ and follows the flow out at an outlet.
 | --- | --- | --- |
 | `PERIODIC` (`geometric`, `constant_flux`) | wrap (**implemented**) | wrap (**implemented**) |
 | `WALL` (`noslip`) | per field class below | mirror |
-| `INLET` (`constant_velocity`, `parabolic`, `prescribed_flow`) | the inlet value | mirror |
+| `INLET` (`prescribed_velocity`) | the inlet value | mirror |
 | `OUTLET` (`conservation`) | zero-gradient | zero-gradient |
 
 First moments at a wall need to know whether the field vanishes there:
@@ -312,9 +312,10 @@ however many fields it accumulates.
 
 "Mean at the boundary equals the boundary value" and "fluctuations vanish at a Dirichlet
 boundary" both hold **only if that boundary is steady over the window**. True for
-`noslip`, `constant_velocity`, and `parabolic`. Not guaranteed for `prescribed_flow`,
-which reads a profile that could in principle vary in time. Treating `prescribed_flow`
-as steady is a documented assumption rather than a checked one.
+`noslip`, and for a `prescribed_velocity` inlet whose source does not use `t` and whose
+`bulk_velocity`, if any, is constant. False for a time-dependent inlet, whose rule would
+have to be the window mean of its values; the inlet knows whether it is time-dependent, so
+the rule can refuse that case rather than assume it steady.
 
 Note also that the rule must be applied to the *statistics* field, never copied as a
 value from the source field. At a wall the source's ghost is a function of the

@@ -70,7 +70,7 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "+Xi WALL noslip\n"
         "-Eta WALL noslip\n"
         "+Eta WALL noslip\n"
-        "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.5\n"
+        "-Zeta INLET prescribed_velocity source_id=0\n"
         "+Zeta OUTLET conservation\n"));
     PetscCall(WriteContextOnlyFile(
         post_path,
@@ -90,6 +90,7 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-ucont_y 0.0\n"
         "-ucont_z 1.5\n"
         "-bcs_files %s\n"
+        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
         "-profiling_timestep_mode off\n"
         "-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"

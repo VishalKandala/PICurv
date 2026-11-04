@@ -25,7 +25,7 @@ Version one is deliberately narrow and validates its inputs up front
   solved restart step uses BDF1 because only the checkpoint state is available;
 - solid cells are permitted: a masked row carries no unknown and is constrained like
   any other such row;
-- boundary handlers limited to no-slip and free-slip walls, the constant/parabolic/file inlets,
+- boundary handlers limited to no-slip and free-slip walls, the `prescribed_velocity` inlet,
   the conservation outlet, and periodic faces (with paired periodic axes) using
   the `geometric`, `constant_flux`, or `initial_flux` handler.
 

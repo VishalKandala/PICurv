@@ -1843,11 +1843,11 @@ def test_generator_destination_keys_are_refused_rather_than_ignored():
     generated = {"type": "generated", "generator": "square_duct_poiseuille",
                  "output_file": "x.picslice", "params": {"bulk_velocity": 1.0}}
     with pytest.raises(ValueError, match="is no longer accepted"):
-        picurv._normalize_prescribed_flow_source(generated, "source")
+        picurv._normalize_profile_source(generated, "source")
     sliced = {"type": "field_slice", "field_file": "u.dat", "grid_file": "g.run",
               "velocity_scale": 1.0, "output_file": "x.picslice"}
     with pytest.raises(ValueError, match="is no longer accepted"):
-        picurv._normalize_prescribed_flow_source(sliced, "source")
+        picurv._normalize_profile_source(sliced, "source")
 
 
 def test_spectra_on_a_programmatic_grid_are_refused_at_validation():

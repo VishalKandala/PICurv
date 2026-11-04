@@ -270,7 +270,7 @@ Opt-in stress smoke (`make smoke-stress`) additionally verifies:
 
 - longer particle-cycle runtime sequences
 - chained restart workflows over more than one split point
-- BC-focused runtime variants for the stable path (parabolic inlet) plus periodic constant-flux validate/dry-run coverage
+- BC-focused runtime variants for the stable path (a pulsatile parabolic `prescribed_velocity` inlet) plus periodic constant-flux validate/dry-run coverage
 - an extra-rank MPI particle runtime stress case
 
 Geometric-periodic smoke (`make smoke-periodic`) is part of the standard `check` gate:

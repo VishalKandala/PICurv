@@ -367,7 +367,7 @@ The current smoke runner verifies:
 - multi-rank tiny solve + post runs for flat and bent channels (`make smoke-mpi`)
 - multi-rank flat particle runtime + restart (`load`/`init`) runs (`make smoke-mpi`)
 - rank-matrix MPI runtime sweep across flat+bent+flat-particle-restart (`make smoke-mpi-matrix`)
-- opt-in stress extensions for longer particle cycling, chained restarts, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs (`make smoke-stress`)
+- opt-in stress extensions for longer particle cycling, chained restarts, pulsatile parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs (`make smoke-stress`)
 - geometric-periodic real runtime harness (`make smoke-periodic`, included in `check`)
 
 These checks are intentionally tiny but execute real solver/postprocessor runtime paths.
