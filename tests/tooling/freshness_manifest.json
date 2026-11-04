@@ -292,7 +292,7 @@
       "dependent_pages": [
         "45_Particle_Initialization_and_Restart"
       ],
-      "attested_digest": "unattested"
+      "attested_digest": "sha256:1f353e9750918176bb9da08750728a4afd55051b67fd1436a69afbfb3db88365"
     },
     {
       "id": "post.field_statistics",
@@ -358,7 +358,7 @@
       "dependent_pages": [
         "p54_geometric_periodic"
       ],
-      "attested_digest": "sha256:1b0130aeb60cf625a89d641fc5de90d19461faeabd40343ca46b562affb9b8b6"
+      "attested_digest": "sha256:220372d130f5903283cf732ae5274ce59f9f042f9484920fdc2f94b79743f477"
     },
     {
       "id": "pressure.poisson",
@@ -396,7 +396,7 @@
         "32_Analytical_Solutions",
         "45_Particle_Initialization_and_Restart"
       ],
-      "attested_digest": "sha256:ddad233932f1e00d52eaf0c3c9a8e0844020460d6d063a12f4bfb82ea8f448b6"
+      "attested_digest": "sha256:8b55c94d7e1e32731b24f491dead3bed530eabaec05ce154728ded5ace978764"
     },
     {
       "id": "verification.sources",

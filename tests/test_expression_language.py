@@ -76,6 +76,9 @@ def test_logical_operators_act_elementwise_on_arrays():
 @pytest.mark.parametrize("expression", [
     "0x1F", "1_000", "1j", "x // 2", "True", "'a'", "abs", "abs(1, 2)", "where(x, 1)",
     "foo", "sin(x=1)", "uniform()", "x\n+1", "lambda: 1", "[x]",
+    "sum(n, 0, 1.5, n)", "sum(n, 0, x, n)", "sum(x, 0, 2, x)", "sum(n, 0, 2)",
+    "sum(n, 0, 2, sum(n, 0, 1, n))", "sum(n, 0, 2, sum(m, 0, n, m))", "sum(n, 0, 2, n) + n",
+    "sum(n, 0, 2000000, n)", "sum(pi, 0, 2, 1)", "besselj(1)", "ber(1, 2)",
 ])
 def test_constructs_outside_the_language_are_refused(expression):
     """!
@@ -155,3 +158,54 @@ def test_malformed_structured_values_are_refused(spec):
     """
     with pytest.raises(ValueError):
         IC_GEN.lower_value(spec, names={"x", "y", "z"})
+
+
+def test_bessel_and_kelvin_functions_are_validated_but_left_to_the_solver():
+    """!
+    @brief `besselj`, `bessely`, `ber` and `bei` pass validation, and picurv refuses to
+           evaluate them itself, since only the runtime has them.
+    """
+    expression = "besselj(0, x) + bessely(1, x) + ber(x) + bei(x)"
+    IC_GEN.validate_expression(expression, {"x"})
+    with pytest.raises(ValueError, match="evaluated only by the solver"):
+        IC_GEN.evaluate_values(expression, {"x": 1.0})
+
+
+def test_a_series_acts_elementwise_on_arrays():
+    """!
+    @brief A series evaluates over a grid of points, each term broadcast like any expression.
+    """
+    x = np.array([0.0, 0.5, 1.0])
+    assert list(IC_GEN.evaluate_values("sum(n, 0, 2, x**n)", {"x": x})) == [1.0, 1.75, 3.0]
+
+
+#: The rectangular-duct Poiseuille source documented on page 33, in the arc-length fractions of a
+#: section of aspect ratio `beta` = height (eta) / width (xi), normalized to bulk velocity U. The
+#: ratio cosh(a)/cosh(b) is written so that it cannot overflow.
+DUCT_POISEUILLE = (
+    "U*sum(k, 0, 99, (-1)**k/(2*k+1)**3*(1 - (exp(abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2)"
+    " + exp(-abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2))/(1 + exp(-(2*k+1)*pi*beta)))"
+    "*cos((2*k+1)*pi*(xi - 0.5))) / sum(k, 0, 99, 2/(pi*(2*k+1)**4)*(1 - 2*tanh((2*k+1)*pi*beta/2)"
+    "/((2*k+1)*pi*beta)))")
+
+
+def test_the_documented_duct_series_is_the_duct_solution():
+    """!
+    @brief On a square section the cosh-cosine series equals `profile.gen`'s double sine series,
+           both at unit bulk velocity, and its own normalization gives a unit area mean.
+    """
+    loader = importlib.machinery.SourceFileLoader("picurv_profile_generator",
+                                                  str(REPO_ROOT / "generators" / "profile.gen"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    profile = importlib.util.module_from_spec(spec)
+    loader.exec_module(profile)
+    xi, eta = np.meshgrid((np.arange(64) + 0.5) / 64, (np.arange(64) + 0.5) / 64)
+    expression = IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": 1.0})
+    IC_GEN.validate_expression(expression, {"xi", "eta"})
+    series = IC_GEN.evaluate_values(expression, {"xi": xi, "eta": eta})
+    shape, mean = profile._evaluate_square_duct_poiseuille_shape(xi, eta, 601)
+    assert np.max(np.abs(series - shape / mean)) < 1e-5
+    for beta in (0.25, 8.0):  # wide and tall sections: finite, with the requested mean
+        other = IC_GEN.evaluate_values(IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": beta}),
+                                       {"xi": xi, "eta": eta})
+        assert np.all(np.isfinite(other)) and float(np.mean(other)) == pytest.approx(1.0, abs=5e-3)

@@ -156,6 +156,57 @@ convergence record is overwritten by the first step's. Without `project`, the fi
 projection makes the field divergence-free instead, after one momentum step on the field as
 given.
 
+@subsection p33_closed_form_ssec Closed-form profiles: series and special functions
+
+A source's expressions, like particle values, may use a series and four special functions,
+which the solver evaluates:
+
+| Construct | Meaning |
+|---|---|
+| `sum(k, lo, hi, body)` | `body` summed for the integers `k = lo, ..., hi`, with `k` in scope only in `body`. The bounds are integer numbers (a constant inlines to one); at most 1000000 terms; series nest up to four deep, each with its own index |
+| `besselj(n, x)`, `bessely(n, x)` | Bessel functions of the first and second kind, of integer order `n` (another order gives a value that is not finite, which stops the run) |
+| `ber(x)`, `bei(x)` | Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i/4})`, from their power series, which lose about `|x|/5` of sixteen digits to cancellation |
+
+`picurv` validates these before launch but does not evaluate the special functions itself, so
+`ic_gen` expressions, which `picurv` evaluates, cannot use them. Two exact laminar profiles,
+in the form `tests/test_expression_language.py` and `make unit-particles` check:
+
+```yaml
+sources:
+  duct_poiseuille:
+    components: normal
+    constants: {U: 1.0, beta: 1.0}
+    expression: >-
+      U*sum(k, 0, 99, (-1)**k/(2*k+1)**3
+      *(1 - (exp(abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2)
+      + exp(-abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2))/(1 + exp(-(2*k+1)*pi*beta)))
+      *cos((2*k+1)*pi*(xi - 0.5)))
+      / sum(k, 0, 99, 2/(pi*(2*k+1)**4)*(1 - 2*tanh((2*k+1)*pi*beta/2)/((2*k+1)*pi*beta)))
+  womersley:
+    components: normal
+    constants: {U: 1.0, K: 1.0, omega: 6.283185307179586, alpha: 5.0, R: 0.5}
+    expression: >-
+      2*U*(1 - (x**2 + y**2)/R**2)
+      + (K/omega)*((ber(alpha*sqrt(x**2 + y**2)/R)*bei(alpha) - bei(alpha*sqrt(x**2 + y**2)/R)*ber(alpha))
+      /(ber(alpha)**2 + bei(alpha)**2)*cos(omega*t)
+      + (1 - (ber(alpha*sqrt(x**2 + y**2)/R)*ber(alpha) + bei(alpha*sqrt(x**2 + y**2)/R)*bei(alpha))
+      /(ber(alpha)**2 + bei(alpha)**2))*sin(omega*t))
+```
+
+`duct_poiseuille` is the fully developed flow in a rectangular duct whose section has width
+along `xi` and height along `eta`, `beta` = height / width, at bulk velocity `U`: the
+cosh-cosine series of the exact solution over its own area mean, both to 100 odd terms, with
+`cosh(a)/cosh(b)` written so that it cannot overflow. On a square section it matches the
+double sine series of the `square_duct_poiseuille` generator to 1e-5 of `U`; written in the
+arc-length fractions, it is the physical profile on a stretched grid. `womersley` is the flow in
+a pipe of radius `R` along `z`, centred on the axis: a Poiseuille mean of bulk `U` plus the
+exact oscillatory part driven by `-(1/rho) dp/dz = K cos(omega t)` [m/s^2], with Womersley
+number `alpha = R sqrt(omega/nu)`. It matches the complex solution
+`Re{(K/(i omega))(1 - J0(i^{3/2} alpha s)/J0(i^{3/2} alpha)) e^{i omega t}}` to 1e-12, and at
+small `alpha` it tends to the quasi-steady Poiseuille profile. Either serves an inlet as
+written and an initial condition with `components: curvilinear` and the expression under
+`u_zeta`, on a grid whose `zeta` lines run along the flow.
+
 @subsection p33_file_or_import_ssec File, Or Import?
 
 Every Python provider ends in a `.dat` vector; what differs is who guarantees it fits the case.
@@ -208,8 +259,10 @@ evaluated at their corresponding geometric face centers. Expressions may use
 documented numerical functions. The language is shared with particle `fields` values
 (@ref p45_particle_values_sec): `+ - * / % **`, comparisons including chains such as
 `0.2 < x < 0.5`, `and or not` (a comparison or logical expression is 1 or 0), decimal
-literals, and `abs sin cos tan tanh exp erf sqrt minimum maximum where`; per-particle draws are
-particle-only. Expressions are physical: `x/y/z` are the grid's
+literals, `abs sin cos tan tanh cosh sinh exp log erf sqrt floor atan2 minimum maximum where`, and
+the series `sum(k, lo, hi, body)` (@ref p33_closed_form_ssec); per-particle draws are
+particle-only, and the Bessel and Kelvin functions are evaluated only by the solver, so an
+`ic_gen` expression cannot use them. Expressions are physical: `x/y/z` are the grid's
 physical coordinates (the staged grid times `length_ref`), and each value is a physical
 velocity for `Ucat` or a physical volume flux for `Ucont`; `scale`, `zero_tolerance`, and
 `max_magnitude` act on those physical values. The first implementation supports one block.

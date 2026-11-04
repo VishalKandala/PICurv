@@ -294,7 +294,8 @@ boundary_conditions:
 A uniform plug is `source: {components: normal, expression: 1.5}`; a parabola across two
 wall-bounded tangential directions is
 `source: {components: normal, expression: "16*1.5*xi*(1-xi)*eta*(1-eta)"}`, peaking at
-1.5 m/s.
+1.5 m/s. The exact rectangular-duct and Womersley profiles, written with the series
+`sum(k, lo, hi, body)` and the Kelvin functions `ber`/`bei`, are in @ref p33_closed_form_ssec.
 
 **When to choose it.** Every inlet. Choose an expression for any profile with a closed
 form and for every time-dependent profile; written in arc-length fractions it is the

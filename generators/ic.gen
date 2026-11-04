@@ -45,7 +45,14 @@ ALLOWED_FUNCTIONS = {
 #: the same calls.
 FUNCTION_ARITY = {"abs": 1, "cos": 1, "cosh": 1, "erf": 1, "exp": 1, "floor": 1, "log": 1, "sin": 1,
                   "sinh": 1, "sqrt": 1, "tan": 1, "tanh": 1, "atan2": 2, "maximum": 2, "minimum": 2,
-                  "where": 3}
+                  "where": 3, "besselj": 2, "bessely": 2, "ber": 1, "bei": 1, "sum": 4}
+#: Bessel functions of integer order (`besselj(n, x)`, `bessely(n, x)`) and the Kelvin
+#: functions `ber`, `bei`: validated here, evaluated only by the runtime, which has them.
+SOLVER_ONLY_FUNCTIONS = ("besselj", "bessely", "ber", "bei")
+#: Terms one series `sum(k, lo, hi, body)` may add; the runtime holds the same limit.
+MAX_SERIES_TERMS = 1000000
+#: Series that may nest inside one another; the runtime holds the same limit.
+MAX_SERIES_DEPTH = 4
 #: Per-particle random draws: evaluated only by the runtime, from a hash of the particle's
 #: identity; an optional non-negative integer literal names a stream shared across fields.
 RANDOM_FUNCTIONS = ("uniform", "normal")
@@ -218,31 +225,76 @@ def validate_expression(expression: str, names=EULERIAN_EXPRESSION_NAMES, random
     for token in tokens:
         if token.type == tokenize.NUMBER and not _DECIMAL_LITERAL.match(token.string):
             raise ValueError(f"'{token.string}' is not a decimal number; write numbers like 1, 0.5, or 2e-3.")
-    callees = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
-    for node in ast.walk(tree):
-        if not isinstance(node, ALLOWED_AST_NODES):
-            raise ValueError(f"unsupported expression syntax: {type(node).__name__}.")
-        if isinstance(node, ast.Constant) and type(node.value) not in (int, float):
-            raise ValueError(f"only numbers may appear as constants, not {node.value!r}.")
-        if isinstance(node, ast.Name) and id(node) not in callees and node.id not in set(names) | {"pi"}:
+    _check_expression_node(tree.body, frozenset(names) | {"pi"}, (), random)
+
+
+def _series_bound(node) -> int:
+    """!
+    @brief The integer a series bound denotes: an integer literal, possibly negated.
+    @param[in] node Bound node.
+    @return The bound.
+    @throws ValueError for anything else.
+    """
+    sign = 1
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        sign, node = (-1 if isinstance(node.op, ast.USub) else 1), node.operand
+    if (not isinstance(node, ast.Constant) or type(node.value) not in (int, float)
+            or node.value != int(node.value)):
+        raise ValueError("series bounds must be integer numbers.")
+    return sign * int(node.value)
+
+
+def _check_expression_node(node, names, indices, random) -> None:
+    """!
+    @brief Check one node of a parsed expression, with the series indices enclosing it in scope.
+    @param[in] node AST node.
+    @param[in] names Variables in scope, `pi` included.
+    @param[in] indices Indices of the enclosing series, outermost first.
+    @param[in] random Whether per-particle random draws may be called.
+    @throws ValueError naming the first construct outside the language.
+    """
+    if not isinstance(node, ALLOWED_AST_NODES):
+        raise ValueError(f"unsupported expression syntax: {type(node).__name__}.")
+    if isinstance(node, ast.Constant) and type(node.value) not in (int, float):
+        raise ValueError(f"only numbers may appear as constants, not {node.value!r}.")
+    if isinstance(node, ast.Name):
+        if node.id not in names and node.id not in indices:
             raise ValueError(f"unsupported expression name '{node.id}'.")
-        if isinstance(node, ast.Call):
-            name = node.func.id if isinstance(node.func, ast.Name) else None
-            if node.keywords:
-                raise ValueError("functions take positional arguments only.")
-            if name in RANDOM_FUNCTIONS and random:
-                if len(node.args) > 1:
-                    raise ValueError(f"{name}() takes at most one stream argument.")
-                if node.args:
-                    stream = node.args[0]
-                    if (not isinstance(stream, ast.Constant) or type(stream.value) not in (int, float)
-                            or stream.value < 0 or stream.value != int(stream.value)):
-                        raise ValueError(f"the stream of {name}() must be a non-negative integer literal.")
-                continue
-            if name not in FUNCTION_ARITY:
-                raise ValueError(f"'{name}' is not an available function.")
-            if len(node.args) != FUNCTION_ARITY[name]:
-                raise ValueError(f"{name}() takes {FUNCTION_ARITY[name]} argument(s).")
+        return
+    if isinstance(node, ast.Call):
+        name = node.func.id if isinstance(node.func, ast.Name) else None
+        if node.keywords:
+            raise ValueError("functions take positional arguments only.")
+        if name in RANDOM_FUNCTIONS and random:
+            if len(node.args) > 1:
+                raise ValueError(f"{name}() takes at most one stream argument.")
+            if node.args:
+                stream = node.args[0]
+                if (not isinstance(stream, ast.Constant) or type(stream.value) not in (int, float)
+                        or stream.value < 0 or stream.value != int(stream.value)):
+                    raise ValueError(f"the stream of {name}() must be a non-negative integer literal.")
+            return
+        if name not in FUNCTION_ARITY:
+            raise ValueError(f"'{name}' is not an available function.")
+        if len(node.args) != FUNCTION_ARITY[name]:
+            raise ValueError(f"{name}() takes {FUNCTION_ARITY[name]} argument(s).")
+        if name == "sum":
+            index, lower, upper, body = node.args
+            if not isinstance(index, ast.Name):
+                raise ValueError("a series sum(k, lo, hi, body) needs an index name first.")
+            if index.id in names or index.id in indices:
+                raise ValueError(f"the series index '{index.id}' reuses a name already in scope.")
+            if len(indices) == MAX_SERIES_DEPTH:
+                raise ValueError(f"series may nest at most {MAX_SERIES_DEPTH} deep.")
+            if _series_bound(upper) - _series_bound(lower) + 1 > MAX_SERIES_TERMS:
+                raise ValueError(f"a series may add at most {MAX_SERIES_TERMS} terms.")
+            _check_expression_node(body, names, indices + (index.id,), random)
+            return
+        for argument in node.args:
+            _check_expression_node(argument, names, indices, random)
+        return
+    for child in ast.iter_child_nodes(node):
+        _check_expression_node(child, names, indices, random)
 
 
 def _validate_expression(expression: str) -> None:
@@ -270,6 +322,21 @@ class _LogicalRewriter(ast.NodeTransformer):
         @return Call node.
         """
         return ast.Call(func=ast.Name(id=name, ctx=ast.Load()), args=list(args), keywords=[])
+
+    def visit_Call(self, node):
+        """!
+        @brief Rewrite `sum(k, lo, hi, body)` as a loop over `lambda k: body`.
+        @param[in] node Call node.
+        @return Rewritten node.
+        """
+        self.generic_visit(node)
+        if not (isinstance(node.func, ast.Name) and node.func.id == "sum"):
+            return node
+        index, lower, upper, body = node.args
+        loop = ast.Lambda(args=ast.arguments(posonlyargs=[], args=[ast.arg(arg=index.id)], vararg=None,
+                                             kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                          body=body)
+        return self._call("series", [loop, lower, upper])
 
     def visit_BoolOp(self, node):
         """!
@@ -313,6 +380,24 @@ class _LogicalRewriter(ast.NodeTransformer):
         return result
 
 
+def _solver_only(name: str):
+    """!
+    @brief A stand-in for a function only the runtime evaluates.
+    @param[in] name Function name.
+    @return Callable that refuses evaluation.
+    """
+    def refuse(*arguments):
+        """!
+        @brief Refuse to evaluate, naming the function and where it can be used.
+        @param[in] arguments The call's arguments, unused.
+        @throws ValueError always.
+        """
+        del arguments
+        raise ValueError(f"{name}() is evaluated only by the solver; use it in a velocity source, "
+                         "not in an expression picurv evaluates before launch.")
+    return refuse
+
+
 def evaluate_values(expression: str, values: dict):
     """!
     @brief Evaluate an already validated expression over named arrays or scalars.
@@ -323,10 +408,14 @@ def evaluate_values(expression: str, values: dict):
     tree = ast.fix_missing_locations(_LogicalRewriter().visit(ast.parse(expression, mode="eval")))
     env = dict(ALLOWED_FUNCTIONS)
     env.update({"logical_and": np.logical_and, "logical_or": np.logical_or,
-                "logical_not": np.logical_not, "pi": math.pi})
+                "logical_not": np.logical_not, "pi": math.pi,
+                "series": lambda body, lo, hi: sum((body(k) for k in range(int(lo), int(hi) + 1)), 0.0)})
+    for name in SOLVER_ONLY_FUNCTIONS:
+        env[name] = _solver_only(name)
     env.update(values)
     with np.errstate(all="ignore"):
-        value = eval(compile(tree, "<ic-expression>", "eval"), {"__builtins__": {}}, env)
+        # Globals, not locals: a series body is a lambda, which sees only the globals.
+        value = eval(compile(tree, "<ic-expression>", "eval"), dict(env, __builtins__={}))
     return np.asarray(value, dtype=float)
 
 

@@ -205,12 +205,97 @@ static PetscErrorCode TestExpressionConformance(void)
 }
 
 /**
+ * @brief Tests the Bessel and Kelvin functions against 30-digit references from their series,
+ *        and that a non-integer Bessel order gives NaN.
+ */
+static PetscErrorCode TestExpressionSpecialFunctions(void)
+{
+    const struct { const char *text; PetscReal expected; } cases[] = {
+        {"besselj(0, 1)", 0.76519768655796661},  {"besselj(1, x)", 0.4400505857449335},
+        {"besselj(2, 2.5)", 0.44605905843961724}, {"besselj(0, 10)", -0.24593576445134835},
+        {"bessely(0, 1)", 0.088256964215676956},  {"bessely(0, 2.5)", 0.49807035961523188},
+        {"ber(1)", 0.98438178121308684},          {"bei(x)", 0.24956604003665972},
+        {"ber(5)", -6.2300824786663576},          {"bei(5)", 0.11603438155020038},
+        {"ber(20)", 47489.370265061763},          {"bei(20)", 114775.19736006622},
+    };
+    const PetscReal values[3] = {1.0, 0.0, 0.0};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(cases) / sizeof(cases[0]); ++n) {
+        PicurvExpression *expression = NULL;
+        PetscReal         result = 0.0;
+        PetscCall(PicurvExpressionCompile(cases[n].text, kConformanceNames, 3, PETSC_FALSE, &expression));
+        PetscCall(PicurvExpressionEvaluate(expression, values, NULL, &result));
+        PetscCall(PicurvAssertRealNear(cases[n].expected, result, 1.0e-12 * PetscMax(1.0, PetscAbsReal(cases[n].expected)),
+                                       cases[n].text));
+        PetscCall(PicurvExpressionDestroy(&expression));
+    }
+    {
+        PicurvExpression *expression = NULL;
+        PetscReal         result = 0.0;
+        PetscCall(PicurvExpressionCompile("besselj(0.5, 1)", kConformanceNames, 3, PETSC_FALSE, &expression));
+        PetscCall(PicurvExpressionEvaluate(expression, values, NULL, &result));
+        PetscCall(PicurvAssertBool((PetscBool)PetscIsNanReal(result), "a non-integer order is not a value"));
+        PetscCall(PicurvExpressionDestroy(&expression));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests the documented closed-form sources. The Womersley source, written in real
+ *        arithmetic with `ber` and `bei`, against the complex solution `Re{(K/i w)(1 - J0(i^1.5 a s)/J0(i^1.5 a)) e^{iwt}}`
+ *        evaluated independently from its series (K = 1, w = 2 pi, a = 5, R = 0.5); the
+ *        rectangular-duct series against the Python evaluator.
+ */
+static PetscErrorCode TestExpressionClosedFormProfiles(void)
+{
+    static const char *const names[] = {"x", "y", "z", "t"};
+    const char *text =
+        "(1.0/(2*pi))*((ber(5.0*(sqrt(x**2 + y**2)/0.5))*bei(5.0) - bei(5.0*(sqrt(x**2 + y**2)/0.5))*ber(5.0))"
+        "/(ber(5.0)**2 + bei(5.0)**2)*cos(2*pi*t) + (1 - (ber(5.0*(sqrt(x**2 + y**2)/0.5))*ber(5.0)"
+        " + bei(5.0*(sqrt(x**2 + y**2)/0.5))*bei(5.0))/(ber(5.0)**2 + bei(5.0)**2))*sin(2*pi*t))";
+    const PetscReal points[4][5] = {{0.0, 0.0, 0.0, 0.1, 0.10894419422254727},
+                                    {0.2, 0.1, 0.0, 0.3, 0.15619922873565129},
+                                    {0.3, -0.2, 0.0, 0.7, -0.1332246948462772},
+                                    {0.0, 0.45, 0.0, 0.9, 0.004632857508023867}};
+    PicurvExpression *expression = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvExpressionCompile(text, names, 4, PETSC_FALSE, &expression));
+    for (PetscInt n = 0; n < 4; ++n) {
+        PetscReal result = 0.0;
+        PetscCall(PicurvExpressionEvaluate(expression, points[n], NULL, &result));
+        PetscCall(PicurvAssertRealNear(points[n][4], result, 1.0e-12, "Womersley velocity"));
+    }
+    PetscCall(PicurvExpressionDestroy(&expression));
+    {
+        /* The documented rectangular-duct series (unit bulk, square section, xi -> x, eta -> y),
+           against the Python evaluator's value at (0.3, 0.6). */
+        const char *duct =
+        "(1.0)*sum(k, 0, 99, (-1)**k/(2*k+1)**3 *(1 - (exp(abs((2*k+1)*pi*(1.0)*(y - 0.5)) - (2*k+1"
+        ")*pi*(1.0)/2) + exp(-abs((2*k+1)*pi*(1.0)*(y - 0.5)) - (2*k+1)*pi*(1.0)/2))/(1 + exp(-(2*k"
+        "+1)*pi*(1.0)))) *cos((2*k+1)*pi*(x - 0.5))) / sum(k, 0, 99, 2/(pi*(2*k+1)**4)*(1 - 2*tanh("
+        "(2*k+1)*pi*(1.0)/2)/((2*k+1)*pi*(1.0))))";
+        const PetscReal at[4] = {0.3, 0.6, 0.0, 0.0};
+        PetscReal       result = 0.0;
+        PetscCall(PicurvExpressionCompile(duct, names, 4, PETSC_FALSE, &expression));
+        PetscCall(PicurvExpressionEvaluate(expression, at, NULL, &result));
+        PetscCall(PicurvAssertRealNear(1.7442020681945691, result, 1.0e-12, "duct Poiseuille series"));
+        PetscCall(PicurvExpressionDestroy(&expression));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the compiler refuses what the Python validator also refuses.
  */
 static PetscErrorCode TestExpressionRejectsOutsideLanguage(void)
 {
     const char *bad[] = {"0x1F", "1_000", "x // 2", "abs", "abs(1, 2)", "where(x, 1)", "foo",
-                         "x +", "(x", "x y", "uniform(x)", "uniform(1.5)", "1.e", "not"};
+                         "x +", "(x", "x y", "uniform(x)", "uniform(1.5)", "1.e", "not",
+                         "sum(n, 0, 1.5, n)", "sum(n, 0, y, n)", "sum(x, 0, 2, x)", "sum(n, 0, 2)",
+                         "sum(n, 0, 2, sum(n, 0, 1, n))", "sum(n, 0, 2, sum(m, 0, n, m))", "sum(n, 0, 2, n) + n", "sum(n, 0, 2000000, n)",
+                         "sum(pi, 0, 2, 1)", "besselj(1)", "ber(1, 2)"};
 
     PetscFunctionBeginUser;
     for (size_t n = 0; n < sizeof(bad) / sizeof(bad[0]); ++n) {
@@ -301,6 +386,8 @@ int main(int argc, char **argv)
         {"place-particle-inside-cell", TestPlaceParticleInsideCell},
         {"expression-conformance", TestExpressionConformance},
         {"expression-rejects-outside-language", TestExpressionRejectsOutsideLanguage},
+        {"expression-special-functions", TestExpressionSpecialFunctions},
+        {"expression-closed-form-profiles", TestExpressionClosedFormProfiles},
         {"expression-draws-are-pure-and-keyed", TestExpressionDrawsArePureAndKeyed},
     };
 

@@ -5,7 +5,8 @@
  *
  * Expressions are parsed into a small tree, because a chained comparison evaluates its
  * middle operand twice, and compiled to postfix code that a stack evaluator runs once per
- * point. Evaluation is pure: random draws are hashed from a caller-supplied key, so a value
+ * point. A series `sum(k, lo, hi, body)` compiles its body once and loops over it, with the
+ * index in a slot of its nesting level. Evaluation is pure: random draws are hashed from a caller-supplied key, so a value
  * does not depend on rank count, evaluation order, or how often it is evaluated.
  */
 
@@ -28,7 +29,11 @@ typedef enum {
     OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_AND, OP_OR,
     OP_ABS, OP_COS, OP_ERF, OP_EXP, OP_SIN, OP_SQRT, OP_TAN, OP_TANH, OP_COSH, OP_SINH, OP_LOG, OP_FLOOR,
     OP_ATAN2, OP_MAXIMUM, OP_MINIMUM, OP_WHERE,
-    OP_UNIFORM, OP_NORMAL
+    OP_UNIFORM, OP_NORMAL,
+    OP_BESSELJ, OP_BESSELY, OP_BER, OP_BEI,
+    /* A series: START pushes the running total and sets the index, HI carries the upper bound
+       and the body's length, ACC adds the body's value and loops; LOCAL reads an index. */
+    OP_SUM, OP_SUM_START, OP_SUM_HI, OP_SUM_ACC, OP_LOCAL
 } ExpressionOp;
 
 /** @brief Name, arity, and opcode of every callable function. */
@@ -48,14 +53,21 @@ static const struct {
     {"atan2", 2, 2, OP_ATAN2, PETSC_FALSE},
     {"maximum", 2, 2, OP_MAXIMUM, PETSC_FALSE}, {"minimum", 2, 2, OP_MINIMUM, PETSC_FALSE},
     {"where", 3, 3, OP_WHERE, PETSC_FALSE},
+    {"besselj", 2, 2, OP_BESSELJ, PETSC_FALSE}, {"bessely", 2, 2, OP_BESSELY, PETSC_FALSE},
+    {"ber", 1, 1, OP_BER, PETSC_FALSE},         {"bei", 1, 1, OP_BEI, PETSC_FALSE},
     {"uniform", 0, 1, OP_UNIFORM, PETSC_TRUE},  {"normal", 0, 1, OP_NORMAL, PETSC_TRUE},
 };
+
+/** @brief Series that may nest inside one another, and terms one series may add. */
+#define EXPRESSION_MAX_SERIES_DEPTH 4
+#define EXPRESSION_MAX_SERIES_TERMS 1000000
 
 /** @brief One tree node; children index the node pool. */
 typedef struct {
     ExpressionOp op;
-    PetscReal    value;     /* OP_CONST value; explicit stream of a draw */
-    PetscInt     var;       /* OP_VAR index; 1 for a draw on an explicit stream */
+    PetscReal    value;     /* OP_CONST value; explicit stream of a draw; a series' lower bound */
+    PetscReal    upper;     /* A series' upper bound */
+    PetscInt     var;       /* OP_VAR index; 1 for a draw on an explicit stream; an index slot */
     PetscInt     child[3];
     PetscInt     nchild;
 } ExpressionNode;
@@ -84,6 +96,8 @@ typedef struct {
     const char *const *names;
     PetscInt           name_count;
     PetscBool          allow_random;
+    char               series_index[EXPRESSION_MAX_SERIES_DEPTH][64]; /* Indices in scope, outermost first */
+    PetscInt           series_depth;
     char               error[256];
 } ExpressionParser;
 
@@ -153,7 +167,80 @@ static PetscInt NewNode(ExpressionParser *parser, ExpressionOp op, PetscInt nchi
 
 static PetscInt ParseOr(ExpressionParser *parser);
 
-/** @brief number | name | name(args) | (expression) */
+/** @brief The value of a series bound: an integer literal, possibly negated or parenthesized. */
+static PetscBool SeriesBound(const ExpressionParser *parser, PetscInt index, PetscReal *bound)
+{
+    PROFILE_HELPER_BEGIN;
+    const ExpressionNode *node = &parser->nodes[index];
+    PetscReal sign = 1.0;
+    if (node->op == OP_NEG || node->op == OP_POS) {
+        if (node->op == OP_NEG) sign = -1.0;
+        node = &parser->nodes[node->child[0]];
+    }
+    *bound = sign * node->value;
+    PROFILE_HELPER_END;
+    return (PetscBool)(node->op == OP_CONST && node->value == PetscFloorReal(node->value));
+}
+
+/** @brief `sum(` has been read: index name, integer bounds, then the body with the index in scope. */
+static PetscInt ParseSeries(ExpressionParser *parser)
+{
+    PROFILE_HELPER_BEGIN;
+    char      name[64];
+    size_t    length = 0;
+    PetscReal lower = 0.0, upper = 0.0;
+
+    SkipSpace(parser);
+    const char *start = parser->text + parser->pos;
+    while (isalnum((unsigned char)start[length]) || start[length] == '_') length++;
+    if (!length || isdigit((unsigned char)start[0]) || length >= sizeof(name)) {
+        ParserFail(parser, "a series needs an index name first");
+        PROFILE_HELPER_END;
+        return -1;
+    }
+    memcpy(name, start, length);
+    name[length] = '\0';
+    parser->pos += length;
+    for (PetscInt v = 0; v < parser->name_count; ++v) {
+        if (!strcmp(name, parser->names[v])) { ParserFail(parser, "a series index cannot reuse a variable's name"); PROFILE_HELPER_END; return -1; }
+    }
+    for (PetscInt level = 0; level < parser->series_depth; ++level) {
+        if (!strcmp(name, parser->series_index[level])) { ParserFail(parser, "a series index cannot reuse an enclosing index"); PROFILE_HELPER_END; return -1; }
+    }
+    if (!strcmp(name, "pi")) { ParserFail(parser, "a series index cannot be pi"); PROFILE_HELPER_END; return -1; }
+    if (parser->series_depth == EXPRESSION_MAX_SERIES_DEPTH) { ParserFail(parser, "series nest too deeply"); PROFILE_HELPER_END; return -1; }
+    if (!Accept(parser, ",")) { ParserFail(parser, "expected ',' after the series index"); PROFILE_HELPER_END; return -1; }
+    const PetscInt lo = ParseOr(parser);
+    if (parser->error[0] || !Accept(parser, ",")) { ParserFail(parser, "expected ',' after the lower bound"); PROFILE_HELPER_END; return -1; }
+    const PetscInt hi = ParseOr(parser);
+    if (parser->error[0] || !Accept(parser, ",")) { ParserFail(parser, "expected ',' after the upper bound"); PROFILE_HELPER_END; return -1; }
+    if (!SeriesBound(parser, lo, &lower) || !SeriesBound(parser, hi, &upper)) {
+        ParserFail(parser, "series bounds must be integer numbers");
+        PROFILE_HELPER_END;
+        return -1;
+    }
+    if (upper - lower + 1.0 > (PetscReal)EXPRESSION_MAX_SERIES_TERMS) {
+        ParserFail(parser, "a series may add at most 1000000 terms");
+        PROFILE_HELPER_END;
+        return -1;
+    }
+    memcpy(parser->series_index[parser->series_depth], name, length + 1);
+    parser->series_depth++;
+    const PetscInt body = ParseOr(parser);
+    parser->series_depth--;
+    if (parser->error[0]) { PROFILE_HELPER_END; return -1; }
+    if (!Accept(parser, ")")) { ParserFail(parser, "expected ')' after the series body"); PROFILE_HELPER_END; return -1; }
+    PetscInt node = NewNode(parser, OP_SUM, 1, body, -1, -1);
+    if (node >= 0) {
+        parser->nodes[node].value = lower;
+        parser->nodes[node].upper = upper;
+        parser->nodes[node].var = parser->series_depth;
+    }
+    PROFILE_HELPER_END;
+    return node;
+}
+
+/** @brief number | name | name(args) | sum(index, lo, hi, body) | (expression) */
 static PetscInt ParseAtom(ExpressionParser *parser)
 {
     PROFILE_HELPER_BEGIN;
@@ -197,6 +284,7 @@ static PetscInt ParseAtom(ExpressionParser *parser)
             return -1;
         }
         parser->pos += length;
+        if (!strcmp(name, "sum") && Accept(parser, "(")) { PROFILE_HELPER_END; return ParseSeries(parser); }
         if (Accept(parser, "(")) {
             for (size_t f = 0; f < sizeof(kFunctions) / sizeof(kFunctions[0]); ++f) {
                 if (strcmp(name, kFunctions[f].name)) continue;
@@ -244,6 +332,13 @@ static PetscInt ParseAtom(ExpressionParser *parser)
             ParserFail(parser, "unknown function");
             PROFILE_HELPER_END;
             return -1;
+        }
+        for (PetscInt level = parser->series_depth - 1; level >= 0; --level) {
+            if (strcmp(name, parser->series_index[level])) continue;
+            PetscInt node = NewNode(parser, OP_LOCAL, 0, -1, -1, -1);
+            if (node >= 0) parser->nodes[node].var = level;
+            PROFILE_HELPER_END;
+            return node;
         }
         if (!strcmp(name, "pi")) {
             PetscInt node = NewNode(parser, OP_CONST, 0, -1, -1, -1);
@@ -397,6 +492,8 @@ static PetscInt ParseOr(ExpressionParser *parser)
     return left;
 }
 
+static PetscInt CountCode(const ExpressionParser *parser, PetscInt index);
+
 /** @brief Emit postfix code for a subtree and track the stack depth it needs. */
 static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpression *expression,
                      PetscInt *depth)
@@ -404,6 +501,21 @@ static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpre
     PROFILE_FUNCTION_BEGIN;
     const ExpressionNode *node = &parser->nodes[index];
 
+    if (node->op == OP_SUM) {
+        const PetscInt body = CountCode(parser, node->child[0]);
+        ExpressionInstruction *start = &expression->code[expression->length++];
+        start->op = OP_SUM_START; start->value = node->value; start->arg = node->var;
+        ExpressionInstruction *hi = &expression->code[expression->length++];
+        hi->op = OP_SUM_HI; hi->value = node->upper; hi->arg = body;
+        *depth += 1;  /* the running total */
+        if (*depth > expression->max_depth) expression->max_depth = *depth;
+        EmitNode(parser, node->child[0], expression, depth);
+        ExpressionInstruction *acc = &expression->code[expression->length++];
+        acc->op = OP_SUM_ACC; acc->value = (PetscReal)body; acc->arg = node->var;
+        *depth -= 1;
+        PROFILE_FUNCTION_END;
+        return;
+    }
     for (PetscInt c = 0; c < node->nchild; ++c) EmitNode(parser, node->child[c], expression, depth);
     ExpressionInstruction *instruction = &expression->code[expression->length++];
     instruction->op = node->op;
@@ -420,7 +532,7 @@ static PetscInt CountCode(const ExpressionParser *parser, PetscInt index)
 {
     PROFILE_HELPER_BEGIN;
     const ExpressionNode *node = &parser->nodes[index];
-    PetscInt total = 1;
+    PetscInt total = (node->op == OP_SUM) ? 3 : 1;  /* a series: START, HI and ACC around its body */
 
     for (PetscInt c = 0; c < node->nchild; ++c) total += CountCode(parser, node->child[c]);
     PROFILE_HELPER_END;
@@ -518,6 +630,37 @@ static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstru
     return PetscSqrtReal(-2.0 * PetscLogReal(u1)) * PetscCosReal(2.0 * PETSC_PI * u2);
 }
 
+/**
+ * @brief Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i / 4})`, from
+ *        their power series. Terms grow to about `exp(|x| / sqrt(2))` before the series
+ *        converges, so about `|x| / 5` of the sixteen digits are lost to cancellation.
+ */
+static PetscReal Kelvin(PetscReal x, PetscBool imaginary)
+{
+    PROFILE_HELPER_BEGIN;
+    const PetscReal q = 0.0625 * x * x * x * x;  /* (x/2)^4 */
+    PetscReal term = imaginary ? 0.25 * x * x : 1.0, total = term;
+    /* ber: (-1)^m (x/2)^(4m) / ((2m)!)^2; bei: (-1)^m (x/2)^(4m+2) / ((2m+1)!)^2. */
+    for (PetscInt m = 1; m < 200; ++m) {
+        const PetscReal a = imaginary ? 2.0 * m : 2.0 * m - 1.0, b = a + 1.0;
+        term *= -q / (a * a * b * b);
+        total += term;
+        if (PetscAbsReal(term) <= 1.0e-17 * PetscAbsReal(total)) break;
+    }
+    PROFILE_HELPER_END;
+    return total;
+}
+
+/** @brief Bessel function of the first or second kind of integer order; NaN for another order. */
+static PetscReal Bessel(PetscReal order, PetscReal x, PetscBool second)
+{
+    PROFILE_HELPER_BEGIN;
+    if (order != PetscFloorReal(order) || PetscAbsReal(order) > 1.0e6) { PROFILE_HELPER_END; return NAN; }
+    const int n = (int)order;
+    PROFILE_HELPER_END;
+    return second ? (PetscReal)yn(n, (double)x) : (PetscReal)jn(n, (double)x);
+}
+
 /** @brief Maximum or minimum that propagates NaN, as numpy does. */
 static PetscReal Extreme(PetscReal a, PetscReal b, PetscBool maximum)
 {
@@ -535,6 +678,7 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
                                         const PicurvExpressionDrawKey *key, PetscReal *result)
 {
     PetscReal stack[expression->max_depth + 1];
+    PetscReal index[EXPRESSION_MAX_SERIES_DEPTH];
     PetscInt  top = 0;
 
     PetscFunctionBeginUser;
@@ -565,6 +709,24 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
         case OP_SINH: stack[top - 1] = PetscSinhReal(stack[top - 1]); break;
         case OP_LOG: stack[top - 1] = PetscLogReal(stack[top - 1]); break;
         case OP_FLOOR: stack[top - 1] = PetscFloorReal(stack[top - 1]); break;
+        case OP_BER: stack[top - 1] = Kelvin(stack[top - 1], PETSC_FALSE); break;
+        case OP_BEI: stack[top - 1] = Kelvin(stack[top - 1], PETSC_TRUE); break;
+        case OP_LOCAL: stack[top++] = index[instruction->arg]; break;
+        case OP_SUM_START:
+            stack[top++] = 0.0;
+            index[instruction->arg] = instruction->value;
+            /* An empty range skips the body and its ACC. */
+            if (instruction->value > expression->code[i + 1].value) i += 2 + expression->code[i + 1].arg;
+            else i += 1;
+            break;
+        case OP_SUM_ACC: {
+            const PetscInt  body = (PetscInt)instruction->value;
+            const PetscReal upper = expression->code[i - body - 1].value;
+            const PetscReal term = stack[--top];
+            stack[top - 1] += term;
+            index[instruction->arg] += 1.0;
+            if (index[instruction->arg] <= upper) i -= body + 1;
+        } break;
         case OP_WHERE:
             c = stack[--top]; b = stack[--top]; a = stack[top - 1];
             stack[top - 1] = (a != 0.0) ? b : c;
@@ -590,6 +752,8 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
             case OP_ATAN2: a = PetscAtan2Real(a, b); break;
             case OP_MAXIMUM: a = Extreme(a, b, PETSC_TRUE); break;
             case OP_MINIMUM: a = Extreme(a, b, PETSC_FALSE); break;
+            case OP_BESSELJ: a = Bessel(a, b, PETSC_FALSE); break;
+            case OP_BESSELY: a = Bessel(a, b, PETSC_TRUE); break;
             default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB, "Unknown expression opcode %d.", (int)instruction->op);
             }
             stack[top - 1] = a;

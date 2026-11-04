@@ -76,8 +76,9 @@ Each value is one of:
 
 **Expressions** use the language of `ic_gen` Eulerian initial conditions
 (**@subpage 33_Initial_Conditions**): `+ - * / % **`, comparisons (chains such as
-`0.2 < x < 0.5` included), `and or not`, `abs sin cos tan tanh exp erf sqrt minimum maximum
-where(c, a, b)`, and `pi`. A comparison or logical expression is 1 when true and 0 when
+`0.2 < x < 0.5` included), `and or not`, `abs sin cos tan tanh cosh sinh exp log erf sqrt floor
+atan2 minimum maximum where(c, a, b)`, the series `sum(k, lo, hi, body)`, `besselj(n, x)
+bessely(n, x) ber(x) bei(x)` (@ref p33_closed_form_ssec), and `pi`. A comparison or logical expression is 1 when true and 0 when
 false. Numbers are decimal literals. A particle expression may use:
 
 | Name | Value |
