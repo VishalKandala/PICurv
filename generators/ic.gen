@@ -1262,7 +1262,7 @@ def validate_wall_spectral_params(raw, generator):
     if (not isinstance(walls, list) or len(walls) != count or any(a not in ("i", "j", "k") for a in walls)
             or len(set(walls)) != count
             or stream not in ("i", "j", "k") or stream in walls):
-        raise ValueError("wall_axes must name the channel's one or duct's two axes; streamwise_axis must be periodic.")
+        raise ValueError("wall_axes must name the channel's one or duct's two axes; streamwise_axis another.")
     # Reuse DIT's spectral/seed validation; the envelope shapes the vector potential,
     # not a promised isotropic velocity spectrum after the curl and wall envelope.
     common = validate_spectral_random_velocity_params({
@@ -1274,7 +1274,8 @@ def validate_wall_spectral_params(raw, generator):
         raise ValueError("wall_modes must be a positive integer.")
     return {"field": "Ucat", "seed": common["seed"], "spectrum": common["spectrum"],
             "wall_axes": walls, "streamwise_axis": stream, "wall_modes": modes,
-            "bulk_velocity": _finite_number(raw.get("bulk_velocity", 1.0), "bulk_velocity", positive=True),
+            # Zero adds no mean: the perturbation alone, to be summed with a mean of its own.
+            "bulk_velocity": _finite_number(raw.get("bulk_velocity", 1.0), "bulk_velocity", nonnegative=True),
             "perturbation_rms": _finite_number(raw.get("perturbation_rms", 0.1), "perturbation_rms", positive=True),
             **({"initial_spectra": raw["initial_spectra"]} if "initial_spectra" in raw else {})}
 
@@ -1429,7 +1430,7 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     divergence = sum(derivative(velocity[..., a], a) for a in range(3))
     perturbation_means = np.sum(velocity*volume[..., None], axis=(0,1,2))/np.sum(volume)
     component_rms = [float(np.sqrt(np.sum(volume*velocity[..., a]**2)/np.sum(volume))) for a in range(3)]
-    mean *= params["bulk_velocity"]*np.sum(volume)/np.sum(mean*volume)
+    mean *= params["bulk_velocity"]*np.sum(volume)/np.sum(mean*volume)  # zero bulk: no mean
     stream = "ijk".index(params["streamwise_axis"])
     velocity[..., stream] += mean
     full = with_dummy_layers(velocity, periodic)

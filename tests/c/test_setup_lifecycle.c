@@ -448,6 +448,40 @@ static PetscErrorCode TestConfiguredParticleInitialValue(void)
 }
 
 /**
+ * @brief Checks that a source initial condition is projected only when asked: a streamwise
+ *        velocity that varies along the flow is divergent as given and divergence-free after
+ *        the fresh-start projection.
+ */
+static PetscErrorCode TestSourceInitialConditionProjection(void)
+{
+    const char *base = "-finit 5\n-ic_source_frame cartesian\n"
+                       "-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+                       "-ic_source_expr_2 \"1.5*(1 + 0.5*sin(2*pi*zeta))\"\n";
+    char        options[512];
+    PetscReal   divergence[2] = {0.0, 0.0};
+
+    PetscFunctionBeginUser;
+    for (PetscInt project = 0; project < 2; ++project) {
+        SimCtx  *simCtx = NULL;
+        UserCtx *user = NULL;
+        char     tmpdir[PETSC_MAX_PATH_LEN];
+
+        PetscCall(PetscSNPrintf(options, sizeof(options), "%s-ic_source_project %s\n", base,
+                                project ? "true" : "false"));
+        PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, options, &simCtx, &user,
+                                                           tmpdir, sizeof(tmpdir)));
+        PetscCall(InitializeEulerianState(simCtx));
+        PetscCall(ComputeDivergence(user));
+        divergence[project] = simCtx->MaxDiv;
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscCall(PicurvAssertBool((PetscBool)(divergence[0] > 1.0e-3), "the source as given is divergent"));
+    PetscCall(PicurvAssertBool((PetscBool)(divergence[1] < 1.0e-8), "the projected initial field is divergence-free"));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks configured IEM relaxation through the production swarm update.
  * @details Each particle must relax toward the mean of the particles now in its cell, at the
  *          configured rate. A zero constant switches micromixing off, and must leave Psi
@@ -1077,6 +1111,7 @@ int main(int argc, char **argv)
         {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
+        {"source-initial-condition-projection", TestSourceInitialConditionProjection},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
         {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},

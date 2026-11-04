@@ -125,7 +125,16 @@ properties:
     #   components: curvilinear
     #   constants: {U: 1.0}
     #   expression: {u_zeta: "36*U*xi*(1-xi)*eta*(1-eta)"}  # [m/s], peak 2.25*U
-    # constraints: {scale: 1.0}
+    # constraints: {scale: 1.0, project: false}   # project: make it divergence-free before step 1
+    #
+    # A sum adds sources (one frame) and at most one generator that writes a Ucat, e.g. a mean
+    # plus turbulent fluctuations; project defaults to true for a sum:
+    # source:
+    #   sum:
+    #     - duct_flow                              # a source named under top-level `sources:`
+    #     - generator: duct_spectral_velocity      # bulk_velocity 0: fluctuations only
+    #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k, bulk_velocity: 0.0,
+    #                perturbation_rms: 0.1, initial_spectra: [...]}
 
     # --- File IC: one PETSc .dat velocity field, staged for ReadFieldData. ---
     # The payload is physical ([m/s] for Ucat, [m^3/s] per face for Ucont) and is divided

@@ -206,3 +206,71 @@ def test_a_data_source_is_staged_and_scaled(tmp_path):
     values = [float(token) for token in staged.read_text(encoding="utf-8").split()[4:]]
     velocity_ref = CORE.resolve_reference_scales(case)["velocity_ref"]
     assert values == pytest.approx([2.0 * speed / velocity_ref for speed in speeds])
+
+
+DUCT_SEED = {"generator": "duct_spectral_velocity",
+             "params": {"seed": 7, "bulk_velocity": 0.0, "perturbation_rms": 0.05,
+                        "initial_spectra": [{"task": "line_spectrum", "axes": ["k"],
+                                             "fixed_indices": {"i": 3, "j": 3}}]}}
+
+
+def resolve_initial(case):
+    """!
+    @brief Resolve a case's initial condition against its prepared boundaries.
+    @param[in] case Case mapping.
+    @return Resolved initial-condition contract.
+    """
+    return CORE.resolve_initial_condition_config(
+        case["properties"]["initial_conditions"], CORE.validate_and_prepare_boundary_conditions(case),
+        CORE.resolve_reference_scales(case), named_sources=case.get("sources"))
+
+
+def test_a_sum_adds_a_generator_to_a_source_and_projects():
+    """!
+    @brief A mean source plus a fluctuation-only seed between an inlet and an outlet: the seed
+           is staged as its provider stages it, added at runtime, and the sum is projected.
+    """
+    case, _, _ = load_configs(
+        sources={"duct": DUCT},
+        initial_conditions={"source": {"sum": ["duct", DUCT_SEED]}, "constraints": {"scale": 2.0}})
+    ic = resolve_initial(case)
+    assert ic["finit"] == 5 and ic["kind"] == "duct_spectral_velocity"
+    assert CORE.is_generated_ic_provider(ic) and ic["params"]["bulk_velocity"] == 0.0
+    assert ic["source"]["expressions"][2] == "((36*(1.5)*xi*(1-xi)*eta*(1-eta)))*(2.0)"
+    lines = CORE.velocity_source_control_lines("-ic_source", ic["source"], "src")
+    assert lines[-2:] == ["-ic_source_field_weight 2.0", "-ic_source_project true"]
+
+
+def test_source_terms_add_and_project_is_optional():
+    """!
+    @brief Two source terms in one frame are added; a plain source is not projected unless asked.
+    """
+    swirl = {"components": "curvilinear", "expression": {"u_xi": "0.1*zeta"}}
+    case, _, _ = load_configs(
+        sources={"duct": DUCT},
+        initial_conditions={"source": {"sum": ["duct", swirl]}, "constraints": {"project": False}})
+    ic = resolve_initial(case)
+    assert ic["kind"] == "source" and not ic["source"]["project"]
+    assert ic["source"]["expressions"][0] == "(0.0) + (0.1*zeta)"
+    plain, _, _ = load_configs(initial_conditions={"source": "duct", "constraints": {"project": True}},
+                               sources={"duct": DUCT})
+    assert resolve_initial(plain)["source"]["project"] is True
+    assert resolve_initial(load_configs(sources={"duct": DUCT},
+                                        initial_conditions={"source": "duct"})[0])["source"]["project"] is False
+
+
+@pytest.mark.parametrize("terms, message", [
+    ([DUCT_SEED, DUCT_SEED], "at most one generator"),
+    ([DUCT, {"components": "cartesian", "expression": {"w": "1"}}], "mix the"),
+    ([{"generator": "duct_spectral_velocity", "seed": 1}], "unknown keys"),
+    ([], "non-empty list"),
+])
+def test_invalid_sums_are_refused(terms, message):
+    """!
+    @brief Two generators, mixed frames, misplaced generator keys and an empty sum are refused.
+    @param[in] terms Sum terms.
+    @param[in] message Expected fragment of the error.
+    """
+    case, _, _ = load_configs(initial_conditions={"source": {"sum": terms}})
+    with pytest.raises(ValueError, match=message):
+        resolve_initial(case)

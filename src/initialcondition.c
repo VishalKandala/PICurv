@@ -6,6 +6,7 @@
  #include "initialcondition.h"
  #include "expression.h"
  #include "Metric.h"
+ #include "poisson.h"
 
 /**
  * @brief Internal helper implementation: `SetInitialInteriorField()`.
@@ -206,8 +207,28 @@ static PetscErrorCode UcontFromInteriorUcat(UserCtx *user)
 }
 
 /**
+ * @brief Read one staged initial field (`ufield00000_0` or `vfield00000_0`) from the
+ *        initial-condition directory into @p target.
+ */
+static PetscErrorCode ReadStagedInitialField(UserCtx *user, const char *name, Vec target)
+{
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, simCtx->initialConditionDirectory,
+                           sizeof(simCtx->_io_context_buffer)));
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+    PetscCall(ReadFieldData(user, name, target, "dat"));
+    simCtx->current_io_directory = NULL;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Evaluate the configured velocity source (`-ic_source_*`) at every owned cell centre
- *        into Ucat, then derive Ucont. Collective.
+ *        into Ucat, then derive Ucont. With `-ic_source_field_weight w`, the source is added
+ *        to w times the staged Ucat of a generator. Collective.
  */
 static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
 {
@@ -218,7 +239,8 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
     const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
     PicurvVelocitySource source;
-    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT];
+    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT], weight = 0.0;
+    PetscBool  add_field = PETSC_FALSE;
     Vec        fraction, length;
     const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet;
     const PetscReal ***aj;
@@ -232,7 +254,13 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     PetscCall(DMCreateGlobalVector(user->fda, &length));
     PetscCall(ComputeGridLineFractions(user, fraction, length));
 
-    PetscCall(VecSet(user->Ucat, 0.0));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-ic_source_field_weight", &weight, &add_field));
+    if (add_field) {
+        PetscCall(ReadStagedInitialField(user, "ufield00000_0", user->Ucat));
+        PetscCall(VecScale(user->Ucat, weight));
+    } else {
+        PetscCall(VecSet(user->Ucat, 0.0));
+    }
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
     PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
     PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
@@ -257,9 +285,9 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
         values[PICURV_SOURCE_VAR_L_ZETA] = len[k][j][i].z * L_ref;
         PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
         PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
-        ucat[k][j][i].x = v.x / U_ref;
-        ucat[k][j][i].y = v.y / U_ref;
-        ucat[k][j][i].z = v.z / U_ref;
+        ucat[k][j][i].x += v.x / U_ref;
+        ucat[k][j][i].y += v.y / U_ref;
+        ucat[k][j][i].z += v.z / U_ref;
     }
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
@@ -287,22 +315,16 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = PetscStrncpy(simCtx->_io_context_buffer, simCtx->initialConditionDirectory,
-                        sizeof(simCtx->_io_context_buffer)); CHKERRQ(ierr);
-    simCtx->current_io_directory = simCtx->_io_context_buffer;
-
     if (simCtx->initialConditionField == IC_FIELD_UCAT) {
-        ierr = ReadFieldData(user, "ufield00000_0", user->Ucat, "dat"); CHKERRQ(ierr);
+        ierr = ReadStagedInitialField(user, "ufield00000_0", user->Ucat); CHKERRQ(ierr);
         ierr = UcontFromInteriorUcat(user); CHKERRQ(ierr);
     } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
-        ierr = ReadFieldData(user, "vfield00000_0", user->Ucont, "dat"); CHKERRQ(ierr);
+        ierr = ReadStagedInitialField(user, "vfield00000_0", user->Ucont); CHKERRQ(ierr);
     } else {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                 "Unsupported file initial-condition field selector %d.",
                 simCtx->initialConditionField);
     }
-
-    simCtx->current_io_directory = NULL;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -365,6 +387,35 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 
 
 /**
+ * @brief Make the fresh-start velocity divergence-free with the time step's own projection:
+ *        solve the pressure Poisson equation for the initial Ucont, whose boundary fluxes are
+ *        already set, and correct the interior faces. As after a step's projection, the
+ *        boundary handlers are not reapplied, so the field stays divergence-free. The
+ *        potential is discarded, so pressure keeps its initial value. Collective.
+ */
+static PetscErrorCode ProjectInitialVelocity(SimCtx *simCtx)
+{
+    UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    const FieldId potential[] = {FIELD_ID_PHI};
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        /* UpdatePressure's refresh of Phi, without adding it to the pressure. */
+        PetscCall(SynchronizePeriodicCellFields(&user_finest[bi], 1, potential));
+        PetscCall(UpdateLocalGhosts(&user_finest[bi], FIELD_ID_PHI));
+        PetscCall(ProjectVelocity(&user_finest[bi]));
+        PetscCall(VecSet(user_finest[bi].Phi, 0.0));
+        PetscCall(UpdateLocalGhosts(&user_finest[bi], FIELD_ID_PHI));
+    }
+    LOG(GLOBAL, LOG_INFO, "Initial velocity projected to be divergence-free (Poisson source imbalance %g).\n",
+              (double)simCtx->poissonSourceImbalance);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Initialize Eulerian fields for a new simulation without restart data.
  */
 static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
@@ -401,6 +452,12 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
              ierr = SynchronizePeriodicStaggeredFields(&user_finest[bi], 1, staggered_fields); CHKERRQ(ierr);
              ierr = UpdateLocalGhosts(&user_finest[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
         }
+    }
+
+    if (simCtx->initialConditionMode == IC_MODE_SOURCE) {
+        PetscBool project = PETSC_FALSE;
+        ierr = PetscOptionsGetBool(NULL, NULL, "-ic_source_project", &project, NULL); CHKERRQ(ierr);
+        if (project) { ierr = ProjectInitialVelocity(simCtx); CHKERRQ(ierr); }
     }
 
     PROFILE_FUNCTION_END;

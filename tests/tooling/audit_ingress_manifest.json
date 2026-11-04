@@ -43,6 +43,8 @@
     "-grid_file",
     "-ic_dir",
     "-ic_field",
+    "-ic_source_field_weight",
+    "-ic_source_project",
     "-ic_velocity_physical",
     "-iem_constant",
     "-im",

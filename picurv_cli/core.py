@@ -14717,6 +14717,10 @@ def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list
         lines.append(f"{prefix}_expr_{component} \"{control_value(text, where)}\"")
     if source.get("bulk_velocity"):
         lines.append(f"{prefix}_bulk_velocity \"{control_value(source['bulk_velocity'], where)}\"")
+    if "field_weight" in source:
+        lines.append(f"{prefix}_field_weight {source['field_weight']!r}")
+    if source.get("project"):
+        lines.append(f"{prefix}_project true")
     return lines
 
 
@@ -14936,6 +14940,51 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
+def _resolve_initial_source_sum(spec: dict, where: str, named_sources, prepared_blocks, scales: dict,
+                                provider_context):
+    """!
+    @brief Split an initial `source: {sum: [...]}` into one source and at most one generator.
+    @details Source terms (names or mappings) must share a frame and are added term by term;
+             a `{generator, params}` term is resolved as the generated provider it names, whose
+             staged Ucat the runtime adds to the source.
+    @param[in] spec Mapping with `sum`, a list of terms.
+    @param[in] where Configuration path of the sum.
+    @param[in] named_sources The case's `sources:` mapping.
+    @param[in] prepared_blocks Normalized boundary-condition blocks.
+    @param[in] scales Reference scales.
+    @param[in] provider_context Optional conductor-derived provider context.
+    @return `(source mapping, resolved generator contract or None)`.
+    """
+    terms = spec["sum"]
+    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+    resolved, generated = [], None
+    for index, term in enumerate(terms):
+        at = f"{where}.sum[{index}]"
+        if isinstance(term, dict) and "generator" in term:
+            if generated is not None:
+                raise ValueError(f"{at}: a sum takes at most one generator term.")
+            unknown = sorted(set(term) - {"generator", "params"})
+            if unknown:
+                raise ValueError(f"{at}: unknown keys {unknown}; a generator term takes generator and params.")
+            generated = resolve_initial_condition_config(
+                {"mode": "generated", "generator": term["generator"], "params": term.get("params") or {}},
+                prepared_blocks, scales, provider_context)
+            if not is_generated_ic_provider(generated) or generated.get("field_code") != 0:
+                raise ValueError(f"{at}: generator '{term['generator']}' does not write a staged Ucat to add.")
+            continue
+        resolved.append(resolve_velocity_source(term, {"sources": named_sources or {}}, at, allow_normal=False))
+    if not resolved:
+        return {"components": "cartesian", "expression": {}}, generated
+    frames = {source["frame"] for source in resolved}
+    if len(frames) > 1:
+        raise ValueError(f"{where}.sum: its source terms mix the {sorted(frames)} frames; write them in one.")
+    names = SOURCE_FRAMES[resolved[0]["frame"]]
+    total = {name: " + ".join(f"({source['expressions'][c]})" for source in resolved)
+             for c, name in enumerate(names)}
+    return {"components": resolved[0]["frame"], "expression": total}, generated
+
+
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
                                      named_sources=None) -> dict:
     """!
@@ -14958,11 +15007,28 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         if others:
             raise ValueError(f"properties.initial_conditions takes 'source' (and 'constraints') alone; "
                              f"remove {others}.")
-        source = resolve_velocity_source(ic["source"], {"sources": named_sources or {}},
-                                         "properties.initial_conditions.source", allow_normal=False)
-        source = apply_source_constraints(source, ic.get("constraints"),
-                                          "properties.initial_conditions.constraints", allowed={"scale"})
-        return {"finit": 5, "cli_params": {}, "kind": "source", "label": "source", "source": source}
+        where = "properties.initial_conditions.source"
+        spec, generated = ic["source"], None
+        if isinstance(spec, dict) and "sum" in spec:
+            spec, generated = _resolve_initial_source_sum(spec, where, named_sources, prepared_blocks, scales,
+                                                          provider_context)
+        source = resolve_velocity_source(spec, {"sources": named_sources or {}}, where, allow_normal=False)
+        constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
+            else ic.get("constraints")
+        project = generated is not None
+        if isinstance(constraints, dict) and "project" in constraints:
+            project = constraints.pop("project")
+            if not isinstance(project, bool):
+                raise ValueError("properties.initial_conditions.constraints.project must be true or false.")
+        source = apply_source_constraints(source, constraints, "properties.initial_conditions.constraints",
+                                          allowed={"scale"})
+        source["project"] = project
+        if generated is None:
+            return {"finit": 5, "cli_params": {}, "kind": "source", "label": "source", "source": source}
+        # The generator's field is staged as its provider stages it, and added to the source at
+        # runtime with the same scale.
+        source["field_weight"] = float((constraints or {}).get("scale", 1.0))
+        return dict(generated, finit=5, label=f"source + {generated['label']}", source=source)
     if "constraints" in ic:
         raise ValueError("properties.initial_conditions.constraints applies to a 'source' initial condition.")
 
@@ -15035,12 +15101,17 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
             if axis in normalized["wall_axes"]:
                 # The perturbation vanishes at the wall, which every wall handler admits.
                 valid = bc["type"] == "WALL" and "WALL" in BC_HANDLER_SPECS.get(bc["handler"], {}).get("types", ())
+            elif axis == normalized["streamwise_axis"] and bc["type"] != "PERIODIC":
+                # Modes periodic along the flow; the boundary pass and a projection repair the ends.
+                valid = bc["type"] == ("INLET" if bc["face"][0] == "-" else "OUTLET")
             else:
                 valid = bc["type"] == "PERIODIC" and bc["handler"] in ("geometric", "constant_flux", "initial_flux")
                 if axis != normalized["streamwise_axis"]:
                     valid = valid and bc["handler"] == "geometric"
             if not valid:
-                raise ValueError("wall spectral IC requires wall pairs (no-slip or free-slip) and periodic remaining axes, driven only streamwise.")
+                raise ValueError("wall spectral IC requires wall pairs (no-slip or free-slip), periodic remaining "
+                                 "axes driven only streamwise, or an inlet on the streamwise axis's negative face "
+                                 "and an outlet on its positive face.")
         normalized["initial_spectra"] = normalize_ic_initial_spectra(
             normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
         return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
@@ -17244,7 +17315,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
             if "flow_direction" in ic_params:
                 ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
-            if resolved_ic["kind"] == "source":
+            if "source" in resolved_ic:
                 ic_cli.extend(velocity_source_control_lines(
                     "-ic_source", resolved_ic["source"], "properties.initial_conditions.source"))
         else:

@@ -127,8 +127,34 @@ time), the arc-length fractions `xi eta zeta` and the line lengths `L_xi L_eta L
 writes `Ucat`; @ref Cart2Contra then derives `Ucont`. The fractions follow distance along each
 grid line, so a profile written in them is the physical profile on a stretched grid, unlike the
 built-in `poiseuille` generator and the `xi`/`eta`/`zeta` of `ic_gen`, which are index fractions.
-The `normal` frame is a face's frame and is refused here. Nothing makes the field
-divergence-free: the first pressure projection does.
+The `normal` frame is a face's frame and is refused here.
+
+`source` may instead be a `sum` of terms: sources (names or mappings) in one frame, which are
+added, and at most one generator term, `{generator, params}`, naming a provider that writes a
+`Ucat` (@ref p33_wall_spectral_sec). The provider's field is generated and staged as it would be
+on its own, and the runtime adds the evaluated source to it. A mean profile plus the turbulent
+fluctuations of a wall seed with `bulk_velocity: 0`:
+
+```yaml
+properties:
+  initial_conditions:
+    source:
+      sum:
+        - inflow                                  # a named source: the mean
+        - generator: channel_spectral_velocity    # fluctuations only
+          params: {seed: 12345, wall_axes: [j], streamwise_axis: k, bulk_velocity: 0.0,
+                   perturbation_rms: 0.1, initial_spectra: [...]}
+    constraints: {scale: 1.0, project: true}
+```
+
+`constraints` apply to the whole field, in order. `scale` multiplies it. `project`, which
+defaults to true for a sum and false otherwise, makes it divergence-free before the first step
+with the time step's own pressure projection: one Poisson solve for the initial `Ucont`, whose
+boundary fluxes are already set by the boundary conditions, and the correction of the interior
+faces. The potential is discarded, so pressure keeps its initial value, and the solve's
+convergence record is overwritten by the first step's. Without `project`, the first step's
+projection makes the field divergence-free instead, after one momentum step on the field as
+given.
 
 @subsection p33_file_or_import_ssec File, Or Import?
 
@@ -456,7 +482,10 @@ Common pitfalls:
 @htmlinclude generated/capability_inventory_initial_file_generator.html
 
 `channel_spectral_velocity` uses one wall axis; `duct_spectral_velocity` uses two.
-The remaining axes are periodic, with driving allowed only on `streamwise_axis`.
+The remaining axes are periodic, with driving allowed only on `streamwise_axis`, or the
+streamwise axis runs from an inlet on its negative face to an outlet on its positive face. The
+seed's modes are periodic along that axis either way; between an inlet and an outlet, sum it
+with a mean and project it (@ref p33_source).
 Both use `Ucat` on one Cartesian block. Uniform spacing is required along periodic
 axes; wall-normal axes may stretch. `grid_gen` provides an inspectable staged grid.
 
@@ -476,7 +505,7 @@ params:
     - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
 ```
 
-Parameters are physical: `bulk_velocity` and `perturbation_rms` are velocities and the
+Parameters are physical: `bulk_velocity` (zero for the fluctuations alone) and `perturbation_rms` are velocities and the
 spectrum wavenumbers are per length, converted before the provider runs. `perturbation_rms` is
 `sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently.
 The spectral envelope shapes a seeded vector potential along periodic directions;
@@ -630,7 +659,7 @@ for `Ucont` and 78% for `Ucat` on that field - so compare spectra only well belo
 
 **Parameters it owns.** The wall-bounded parameter block above applies with one wall_axes entry; initial_spectra is required.
 
-**Interactions.** Single-block 3D Cartesian grid, two periodic axes, one no-slip pair, Ucat file staging.
+**Interactions.** Single-block 3D Cartesian grid, one no-slip pair, Ucat file staging; the spanwise axis is periodic, and the streamwise axis is periodic or runs from an inlet to an outlet. As a `sum` term with `bulk_velocity: 0` it supplies the fluctuations about a source's mean (@ref p33_source).
 
 **Diagnostics.** Summary reports bulk velocity, perturbation RMS and discrete divergence; selected plane/line spectra measure the seed.
 
@@ -646,7 +675,10 @@ cell RMS ratio 2.42, the discrete curl's value for a potential ~ y^2).
 
 **Limitations.** A startup construction: amplitude and resolution do not establish
 sustained turbulence, and the spectrum shapes the vector potential rather than the
-velocity. Measured on a reduced grid on one rank, not at the shipped production size.
+velocity. Measured on a reduced grid on one rank, not at the shipped production size. The
+measurement covers a periodic streamwise axis and a nonzero bulk; the inlet-outlet axis and
+`bulk_velocity: 0` are exercised only by `tests/test_velocity_sources.py` and a one-period
+demonstration run.
 
 @subsection p33_cap_gen_duct_spectral_velocity_sub duct_spectral_velocity
 
@@ -660,7 +692,7 @@ velocity. Measured on a reduced grid on one rank, not at the shipped production 
 
 **Parameters it owns.** The wall-bounded parameter block above applies with two wall_axes entries; initial_spectra selects streamwise lines.
 
-**Interactions.** Single-block 3D Cartesian grid, one periodic axis, two no-slip pairs, Ucat file staging.
+**Interactions.** Single-block 3D Cartesian grid, two no-slip pairs, Ucat file staging; the streamwise axis is periodic or runs from an inlet to an outlet. As a `sum` term with `bulk_velocity: 0` it supplies the fluctuations about a source's mean (@ref p33_source).
 
 **Diagnostics.** Summary reports bulk velocity and discrete divergence; actual selected line spectra report sample energy and Parseval residual.
 
@@ -675,7 +707,8 @@ both wall axes (ratios 2.42 and 2.44).
 
 **Limitations.** The product-parabola startup mean is not the exact laminar duct solution,
 and a startup construction establishes no sustained turbulence. Circular pipes and
-immersed boundaries are outside this provider. Measured on a reduced grid on one rank.
+immersed boundaries are outside this provider. Measured on a reduced grid on one rank. The
+inlet-outlet streamwise axis and `bulk_velocity: 0` are not covered by that measurement.
 
 @section p33_stability_mode_sec Linear-stability mode seeds
 
