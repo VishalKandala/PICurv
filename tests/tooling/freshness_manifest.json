@@ -282,7 +282,9 @@
         "include/ParticleMotion.h",
         "include/ParticlePhysics.h",
         "include/ParticleSwarm.h",
-        "include/ParticleInitialConditions.h"
+        "include/ParticleInitialConditions.h",
+        "src/expression.c",
+        "include/expression.h"
       ],
       "owning_pages": [
         "34_Particle_Model_Overview"
@@ -346,7 +348,9 @@
         "src/BC_Handlers.c",
         "src/Boundaries.c",
         "include/BC_Handlers.h",
-        "include/Boundaries.h"
+        "include/Boundaries.h",
+        "src/expression.c",
+        "include/expression.h"
       ],
       "owning_pages": [
         "44_Boundary_Conditions_Guide"
@@ -381,7 +385,9 @@
         "src/AnalyticalSolutions.c",
         "include/initialcondition.h",
         "include/AnalyticalSolutions.h",
-        "generators/ic.gen"
+        "generators/ic.gen",
+        "src/expression.c",
+        "include/expression.h"
       ],
       "owning_pages": [
         "33_Initial_Conditions"

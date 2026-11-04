@@ -332,6 +332,24 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user);
 PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user);
 
 /**
+ * @brief Arc-length position of every owned cell centre along its three grid lines.
+ * @details For each grid line through an interior cell, the line's length is the sum of
+ *          the cell edge lengths along it (ComputeCellEdgeVectors()), and a cell's fraction
+ *          is the length before it plus half its own, over that total: 0 at the line's
+ *          negative face and 1 at its positive face, proportional to distance along the
+ *          line, so it is the same on uniform and stretched grids. Lines that cross ranks
+ *          are summed with a scan along the line. Collective on `PETSC_COMM_WORLD`; needs the
+ *          face metrics and the Jacobian with their local ghosts.
+ * @param[in]  user     Block and level whose grid lines are measured.
+ * @param[out] fraction Global vector on `user->fda`: the xi, eta, zeta fractions in
+ *                      `.x`, `.y`, `.z` at interior cells; other entries are untouched.
+ * @param[out] length   Global vector on `user->fda`: the lengths of the same three lines,
+ *                      in solver units.
+ * @return Zero on success.
+ */
+PetscErrorCode ComputeGridLineFractions(UserCtx *user, Vec fraction, Vec length);
+
+/**
  * @brief Computes metrics centered on constant-i faces (i-faces).
  *
  * This function calculates the metric terms (ICsi, IEta, IZet) and the inverse

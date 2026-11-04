@@ -1,7 +1,6 @@
 /**
  * @file ParticleInitialConditions.h
- * @brief Configured initial values of particle-carried fields, and the expression
- *        language that defines them.
+ * @brief Configured initial values of particle-carried fields.
  *
  * A plan binds each configured particle field to one compiled expression per component.
  * Expressions are written in physical units: `x`, `y`, `z` are physical coordinates,
@@ -9,9 +8,7 @@
  * when written. The plan is applied to a contiguous local range of swarm entries, so the
  * t=0 population and, later, particles injected at a boundary share one path.
  *
- * The language is the one `generators/ic.gen` validates and evaluates for Eulerian
- * expressions; `tests/fixtures/expression_conformance.txt` holds cases both
- * implementations must agree on.
+ * The expressions are compiled and evaluated by the shared engine in expression.h.
  */
 
 #ifndef PARTICLE_INITIAL_CONDITIONS_H
@@ -19,97 +16,11 @@
 
 #include "variables.h"
 #include "particle_field_catalog.h"
+#include "expression.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * @brief Disjoint key spaces of the keyed particle draws, so draws made for different
- *        purposes never coincide for one particle.
- */
-typedef enum {
-    PICURV_DRAW_SPACE_FIELD = 0,        /**< An expression's default, per-field stream. */
-    PICURV_DRAW_SPACE_NAMED_STREAM = 1, /**< `uniform(k)`/`normal(k)`: a stream shared across fields. */
-    PICURV_DRAW_SPACE_BROWNIAN = 2,     /**< Brownian increments; the salt is the step. */
-    PICURV_DRAW_SPACE_PLACEMENT = 3     /**< Seeding points; the salt is the rejection attempt. */
-} PicurvDrawSpace;
-
-/**
- * @brief splitmix64 finalizer: a bijective mix of 64 bits.
- * @param[in] z Bits to mix.
- * @return The mixed bits.
- */
-uint64_t PicurvMix64(uint64_t z);
-
-/**
- * @brief Uniform on [0, 1) from the top 53 bits of a hash.
- * @param[in] hash Mixed bits.
- * @return A value in [0, 1).
- */
-PetscReal PicurvUnitFromHash(uint64_t hash);
-
-/**
- * @brief Hash that keys a particle draw: a pure function of its arguments, so a draw does
- *        not depend on the rank a particle lives on, the order particles are visited, or
- *        what was drawn before it.
- * @param[in] seed   Run seed (`-particle_random_seed`).
- * @param[in] space  Purpose of the draw.
- * @param[in] stream Stream within the space.
- * @param[in] pid    Particle identity.
- * @param[in] salt   Event that distinguishes repeated draws for one particle.
- * @return 64 mixed bits; derive further independent values with PicurvMix64().
- */
-uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
-                                PetscInt64 pid, PetscInt64 salt);
-
-/** @brief A compiled expression: postfix code for a small stack evaluator. */
-typedef struct PicurvExpression PicurvExpression;
-
-/** @brief What a random draw is keyed on, besides the particle and its stream. */
-typedef struct {
-    PetscInt64 seed;   /**< Run seed (`-particle_random_seed`). */
-    PetscInt64 pid;    /**< Particle identity; draws are pure functions of it. */
-    PetscInt64 salt;   /**< Event that produced the particle: 0 for the t=0 population. */
-    PetscInt64 field;  /**< Field whose expression draws, the default stream's namespace. */
-} PicurvExpressionDrawKey;
-
-/**
- * @brief Compile one expression against a list of variable names.
- * @details The grammar is Python's expression syntax restricted to numbers, the given
- *          names, `pi`, arithmetic (`+ - * / % **`), comparisons (chained ones included),
- *          `and`/`or`/`not`, and the functions `abs cos exp maximum minimum sin sqrt tan
- *          where`, plus `uniform` and `normal` when @p allow_random is true. Comparisons
- *          and logical operators yield 1 or 0; `%` takes the sign of the divisor; `**`
- *          binds tighter than a unary minus on its left and groups to the right.
- * @param[in]  text         Expression text.
- * @param[in]  names        Variable names, in the order evaluation supplies their values.
- * @param[in]  name_count   Number of names.
- * @param[in]  allow_random Whether `uniform` and `normal` may be called.
- * @param[out] expression   Compiled expression, owned by the caller.
- * @return Zero on success; `PETSC_ERR_ARG_WRONG` for a syntax error or an unknown name
- *         or function, with the offending position in the message.
- */
-PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *names, PetscInt name_count,
-                                       PetscBool allow_random, PicurvExpression **expression);
-
-/**
- * @brief Evaluate a compiled expression.
- * @param[in]  expression Compiled expression.
- * @param[in]  values     One value per compiled name, in compile order.
- * @param[in]  key        Draw key, required when the expression draws; may be NULL otherwise.
- * @param[out] result     Value of the expression; may be non-finite, which the caller judges.
- * @return Zero on success.
- */
-PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, const PetscReal *values,
-                                        const PicurvExpressionDrawKey *key, PetscReal *result);
-
-/**
- * @brief Free a compiled expression.
- * @param[in,out] expression Expression to free; set to NULL.
- * @return Zero on success.
- */
-PetscErrorCode PicurvExpressionDestroy(PicurvExpression **expression);
 
 /** @brief Compiled initial values for every configured particle field. */
 typedef struct ParticleFieldPlan ParticleFieldPlan;

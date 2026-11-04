@@ -89,6 +89,19 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
 PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc);
 
 /**
+ * @brief Configures a BoundaryCondition object as an inlet whose velocity is a configured
+ *        source: expressions over position, time and grid-line fractions, in the Cartesian,
+ *        curvilinear or face-normal frame, optionally rescaled to a bulk velocity.
+ *
+ * The face's `source_id` parameter names the options `-inlet_source_<id>_*` that hold the
+ * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` target.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_InletPrescribedVelocity(BoundaryCondition *bc);
+
+/**
  * @brief Configures a BoundaryCondition object for conservative outlet treatment.
  *
  * The constructed handler applies outlet updates that preserve the solver's

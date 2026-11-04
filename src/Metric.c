@@ -1347,6 +1347,88 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 }
 
 /**
+ * @brief Implementation of \ref ComputeGridLineFractions().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Metric.h`.
+ * @see ComputeGridLineFractions()
+ */
+PetscErrorCode ComputeGridLineFractions(UserCtx *user, Vec fraction, Vec length)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    const PetscInt lo[3] = {(xs == 0) ? 1 : xs, (ys == 0) ? 1 : ys, (zs == 0) ? 1 : zs};
+    const PetscInt hi[3] = {(xe == mx) ? mx - 1 : xe, (ye == my) ? my - 1 : ye, (ze == mz) ? mz - 1 : ze};
+    const PetscInt start[3] = {xs, ys, zs}, nodes[3] = {mx, my, mz};
+    const Cmpnts ***csi, ***eta, ***zet;
+    const PetscReal ***aj;
+    Cmpnts ***frac, ***len;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArray(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArray(user->fda, length, &len));
+
+    for (PetscInt axis = 0; axis < 3; ++axis) {
+        /* A line along `axis` is named by the other two indices; ranks with the same ranges
+           of those indices share lines, and their order along `axis` is the order in the line. */
+        const PetscInt a = (axis + 1) % 3, b = (axis + 2) % 3;
+        const PetscInt na = hi[a] - lo[a], nb = hi[b] - lo[b], n_lines = PetscMax(0, na) * PetscMax(0, nb);
+        PetscReal *segment, *before, *total;
+        MPI_Comm   line_comm;
+        PetscMPIInt line_rank;
+
+        PetscCall(PetscCalloc3(n_lines, &segment, n_lines, &before, n_lines, &total));
+        for (PetscInt pass = 0; pass < 2; ++pass) {
+            for (PetscInt ib = lo[b]; ib < hi[b]; ++ib)
+            for (PetscInt ia = lo[a]; ia < hi[a]; ++ia) {
+                const PetscInt line = (ia - lo[a]) + na * (ib - lo[b]);
+                PetscReal s = before[line];
+                for (PetscInt n = lo[axis]; n < hi[axis]; ++n) {
+                    PetscInt idx[3];
+                    Cmpnts   edges[3];
+                    idx[axis] = n; idx[a] = ia; idx[b] = ib;
+                    const PetscInt i = idx[0], j = idx[1], k = idx[2];
+                    PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+                    const PetscReal ds = PetscSqrtReal(edges[axis].x * edges[axis].x + edges[axis].y * edges[axis].y +
+                                                       edges[axis].z * edges[axis].z);
+                    if (pass == 0) { segment[line] += ds; continue; }
+                    /* Fraction at the cell centre: everything before the cell, plus half of it. */
+                    const PetscReal f = (s + 0.5 * ds) / total[line];
+                    s += ds;
+                    if (axis == 0) { frac[k][j][i].x = f; len[k][j][i].x = total[line]; }
+                    if (axis == 1) { frac[k][j][i].y = f; len[k][j][i].y = total[line]; }
+                    if (axis == 2) { frac[k][j][i].z = f; len[k][j][i].z = total[line]; }
+                }
+            }
+            if (pass == 1) break;
+            PetscCallMPI(MPI_Comm_split(PETSC_COMM_WORLD, (PetscMPIInt)(start[a] + nodes[a] * start[b]),
+                                        (PetscMPIInt)start[axis], &line_comm));
+            PetscCallMPI(MPI_Exscan(segment, before, (PetscMPIInt)n_lines, MPIU_REAL, MPI_SUM, line_comm));
+            PetscCallMPI(MPI_Comm_rank(line_comm, &line_rank));
+            if (line_rank == 0) PetscCall(PetscArrayzero(before, n_lines)); /* MPI_Exscan leaves rank 0's result undefined */
+            PetscCallMPI(MPI_Allreduce(segment, total, (PetscMPIInt)n_lines, MPIU_REAL, MPI_SUM, line_comm));
+            PetscCallMPI(MPI_Comm_free(&line_comm));
+        }
+        PetscCall(PetscFree3(segment, before, total));
+    }
+
+    PetscCall(DMDAVecRestoreArray(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArray(user->fda, fraction, &frac));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Internal helper implementation: `ComputeIFaceMetrics()`.
  * @details Local to this translation unit.
  */

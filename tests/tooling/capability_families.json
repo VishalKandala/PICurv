@@ -104,6 +104,19 @@
             ]
           }
         },
+        "prescribed_velocity": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "boundary.conditions",
+          "evidence": {
+            "unit": [
+              "make:unit-mpi"
+            ],
+            "integration": [
+              "file:tests/test_velocity_sources.py"
+            ]
+          }
+        },
         "conservation": {
           "status": "supported",
           "canonical": true,

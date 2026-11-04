@@ -1004,9 +1004,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     }
     ierr = PetscOptionsGetString(NULL, NULL, "-ic_dir", simCtx->initialConditionDirectory,
                                  sizeof(simCtx->initialConditionDirectory), NULL); CHKERRQ(ierr);
-    if (simCtx->initialConditionMode < IC_MODE_ZERO || simCtx->initialConditionMode > IC_MODE_FILE) {
+    if (simCtx->initialConditionMode < IC_MODE_ZERO || simCtx->initialConditionMode > IC_MODE_SOURCE) {
       SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-              "Invalid value for -finit. Expected an initial-condition mode in [0,4], got %d.",
+              "Invalid value for -finit. Expected an initial-condition mode in [0,5], got %d.",
               simCtx->initialConditionMode);
     }
     if (simCtx->initialConditionField < IC_FIELD_UCAT || simCtx->initialConditionField > IC_FIELD_UCONT) {

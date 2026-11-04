@@ -25,21 +25,27 @@ import numpy as np
 PETSC_VEC_CLASS_ID = 1211214
 ALLOWED_FUNCTIONS = {
     "abs": np.abs,
+    "atan2": np.arctan2,
     "cos": np.cos,
+    "cosh": np.cosh,
     "erf": np.vectorize(math.erf, otypes=[float]),
     "exp": np.exp,
+    "floor": np.floor,
+    "log": np.log,
     "maximum": np.maximum,
     "minimum": np.minimum,
     "sin": np.sin,
+    "sinh": np.sinh,
     "sqrt": np.sqrt,
     "tan": np.tan,
     "tanh": np.tanh,
     "where": np.where,
 }
-#: Arguments each function takes; the runtime evaluator (`src/ParticleInitialConditions.c`)
-#: accepts exactly the same calls.
-FUNCTION_ARITY = {"abs": 1, "cos": 1, "erf": 1, "exp": 1, "sin": 1, "sqrt": 1, "tan": 1, "tanh": 1,
-                  "maximum": 2, "minimum": 2, "where": 3}
+#: Arguments each function takes; the runtime evaluator (`src/expression.c`) accepts exactly
+#: the same calls.
+FUNCTION_ARITY = {"abs": 1, "cos": 1, "cosh": 1, "erf": 1, "exp": 1, "floor": 1, "log": 1, "sin": 1,
+                  "sinh": 1, "sqrt": 1, "tan": 1, "tanh": 1, "atan2": 2, "maximum": 2, "minimum": 2,
+                  "where": 3}
 #: Per-particle random draws: evaluated only by the runtime, from a hash of the particle's
 #: identity; an optional non-negative integer literal names a stream shared across fields.
 RANDOM_FUNCTIONS = ("uniform", "normal")

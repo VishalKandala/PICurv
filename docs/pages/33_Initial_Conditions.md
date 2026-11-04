@@ -20,9 +20,9 @@ Startup sequence:
 
 @section p33_euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
 
-The canonical contract has two modes: `generated` and `file`. Generated ICs may use a built-in
-C generator or the repository `generators/ic.gen` utility. Both produce the same solver-facing result: one
-initial velocity field.
+The canonical contract has two modes, `generated` and `file`, and a third form, `source`
+(@ref p33_source_ssec "below"). Generated ICs may use a built-in C generator or the repository
+`generators/ic.gen` utility. All produce the same solver-facing result: one initial velocity field.
 
 Built-in zero:
 
@@ -99,6 +99,36 @@ written in, and staging rescales it to this case's:
 
 `velocity_scale` needs `length_scale` too for a `Ucont` payload, and `source_case` and the
 explicit scales are mutually exclusive.
+
+@subsection p33_source_ssec Source: a velocity written as expressions
+
+@anchor p33_source
+
+`source` sets the field from a velocity source, the same definition a
+@ref p44_cap_prescribed_velocity "prescribed_velocity" inlet takes, given inline or by name
+from the case's top-level `sources:`. It takes the place of `mode` and stands alone
+(`constraints` aside):
+
+```yaml
+sources:
+  duct_flow:
+    components: curvilinear          # cartesian (default) | curvilinear
+    constants: {U: 1.0}
+    expression: {u_zeta: "36*U*xi*(1-xi)*eta*(1-eta)"}
+
+properties:
+  initial_conditions:
+    source: duct_flow
+    constraints: {scale: 1.0}        # optional
+```
+
+The runtime evaluates it at every cell centre, in physical units, over `x y z`, `t` (the start
+time), the arc-length fractions `xi eta zeta` and the line lengths `L_xi L_eta L_zeta`, and
+writes `Ucat`; @ref Cart2Contra then derives `Ucont`. The fractions follow distance along each
+grid line, so a profile written in them is the physical profile on a stretched grid, unlike the
+built-in `poiseuille` generator and the `xi`/`eta`/`zeta` of `ic_gen`, which are index fractions.
+The `normal` frame is a face's frame and is refused here. Nothing makes the field
+divergence-free: the first pressure projection does.
 
 @subsection p33_file_or_import_ssec File, Or Import?
 
@@ -359,9 +389,10 @@ The launcher maps the contract to one `InitialConditionMode` enum value:
 | `generator: streamwise_constant` | `IC_MODE_CONSTANT_STREAMWISE` |
 | `generator: poiseuille` | `IC_MODE_POISEUILLE` |
 | `mode: file` or `generator: ic_gen` | `IC_MODE_FILE` |
+| `source` | `IC_MODE_SOURCE` |
 
 @ref PopulateInitialUcont is the fresh-solve dispatcher. Built-in modes reuse
-@ref SetInitialInteriorField and @ref UniformCart2Contra. File mode reuses @ref ReadFieldData;
+@ref SetInitialInteriorField and @ref UniformCart2Contra. A source is evaluated by `SetInitialUcatFromSource`, which reads the `-ic_source_*` options. File mode reuses @ref ReadFieldData;
 when its field selector is `Ucat`, @ref Cart2Contra converts the loaded vector field to `Ucont`.
 After that point, the existing finalization path treats every IC source identically.
 

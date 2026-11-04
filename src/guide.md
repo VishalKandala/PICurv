@@ -20,9 +20,12 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `MomentumSolver_NewtonKrylov`, `ComputeRHS`, `PoissonSolver_Multigrid`, `ProjectVelocity`, `ComputeSmagorinskyConstant`
 - grid/metrics:
   - files: `grid.c`, `Metric.c`
-  - APIs: `DefineAllGridDimensions`, `InitializeAllGridDMs`, `AssignAllGridCoordinates`, `CalculateAllGridMetrics`
+  - APIs: `DefineAllGridDimensions`, `InitializeAllGridDMs`, `AssignAllGridCoordinates`, `CalculateAllGridMetrics`, `ComputeGridLineFractions`
+- expression language:
+  - files: `expression.c`
+  - APIs: `PicurvExpressionCompile`, `PicurvExpressionEvaluate`, `PicurvVelocitySourceCreate`, `PicurvVelocitySourceEvaluate`
 - boundary system:
-  - files: `Boundaries.c`, `BC_Handlers.c`, `wallfunction.c`
+  - files: `Boundaries.c`, `BC_Handlers.c`, `wallfunction.c`; inlet and initial-condition velocity sources compile through `expression.c`
   - APIs: `BoundarySystem_Initialize`, `BoundaryCondition_Create`, `ApplyBoundaryConditions`, `Validate_DrivenFlowConfiguration`
 - particle transport/coupling:
   - files: `ParticleSwarm.c`, `ParticleMotion.c`, `ParticlePhysics.c`, `ParticleInitialConditions.c`, `walkingsearch.c`, `interpolation.c`

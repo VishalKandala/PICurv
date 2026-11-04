@@ -59,7 +59,7 @@ Each physical input is converted at one site, recorded beside its dimension:
 | `c` | the runtime divides it, because the input reaches C with no staging step | `programmatic_settings` domain bounds (`ReadGridGenerationInputs()` in `src/io.c`) |
 | `staging` | a file payload is divided as it is staged under `<run.inputs>` | `.picgrid` grids, `grid.gen` output, inlet-profile PICSLICEs, a `mode: file` initial condition |
 | `provider` | a generator is handed the reference scales and writes solver units | `ic_gen` expressions (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) |
-| `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values |
+| `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values, velocity sources |
 | `reference` | the input defines a scale | `length_ref`, `velocity_ref`, `density`, `viscosity`, the provenance scales of a file payload |
 | `passthrough` | raw solver flags, in solver units by definition | `solver_parameters`, `petsc_passthrough_options` |
 
@@ -83,6 +83,10 @@ particle `fields`.
 | `case.yml: boundary_conditions[].params.vx` | VELOCITY | cli | U |
 | `case.yml: boundary_conditions[].params.vy` | VELOCITY | cli | U |
 | `case.yml: boundary_conditions[].params.vz` | VELOCITY | cli | U |
+| `case.yml: boundary_conditions.[].constraints` | VELOCITY | evaluator | U |
+| `case.yml: boundary_conditions.[].source` | VELOCITY | evaluator | U |
+| `case.yml: boundary_conditions.[].[].constraints` | VELOCITY | evaluator | U |
+| `case.yml: boundary_conditions.[].[].source` | VELOCITY | evaluator | U |
 | `case.yml: grid.generator` | LENGTH | staging | L |
 | `case.yml: grid.programmatic_settings.xMaxs` | LENGTH | c | L |
 | `case.yml: grid.programmatic_settings.xMins` | LENGTH | c | L |
@@ -118,6 +122,8 @@ particle `fields`.
 | `case.yml: initial_conditions.params.velocity_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.velocity_physical (streamwise_constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.w_physical (constant)` | VELOCITY | cli | U |
+| `case.yml: properties.initial_conditions.constraints` | VELOCITY | evaluator | U |
+| `case.yml: properties.initial_conditions.source` | VELOCITY | evaluator | U |
 | `case.yml: models.physics.particles.fields` | PAYLOAD | evaluator | by payload field |
 | `case.yml: models.physics.particles.point_source.x` | LENGTH | cli | L |
 | `case.yml: models.physics.particles.point_source.y` | LENGTH | cli | L |
@@ -136,6 +142,7 @@ particle `fields`.
 | `case.yml: properties.scaling.length_ref` | LENGTH | reference | L |
 | `case.yml: properties.scaling.velocity_ref` | VELOCITY | reference | U |
 | `case.yml: run_control.dt_physical` | TIME | cli | L/U |
+| `case.yml: sources` | VELOCITY | evaluator | U |
 | `monitor.yml: field_statistics.windows.[].end_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].start_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].time_cadence` | TIME | cli | L/U |
@@ -268,6 +275,9 @@ solver's own units exactly.
 - **`ic_gen` expressions** are evaluated at physical coordinates and give physical values.
   The generator receives `--length-ref` and `--velocity-ref` and writes solver units; a
   custom `params.script` receives the same two options.
+- **Velocity sources** (`sources:`, a `source` initial condition, a `prescribed_velocity`
+  inlet and its `bulk_velocity`) are evaluated by the runtime at physical coordinates and
+  time and give velocities in m/s; each value is divided by `U` before it is stored.
 - **Particle `fields` expressions** are evaluated by the runtime at physical coordinates
   (`x y z` are the particle position times `L`, `t` the physical time) and give values in
   the field's physical units; each value is divided by the field's catalog scale before it

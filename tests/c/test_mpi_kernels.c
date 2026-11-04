@@ -120,6 +120,86 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/** @brief Width of cell n (1-based interior index) along an axis in the line-fraction test. */
+static PetscReal LineFractionTestWidth(PetscInt axis, PetscInt n)
+{
+    if (axis == 0) return PetscPowReal(1.3, (PetscReal)n);   /* geometric stretching */
+    if (axis == 1) return 0.5;                              /* uniform */
+    return 1.0 + 0.1 * (PetscReal)n;                        /* linear growth */
+}
+
+/**
+ * @brief Grid-line fractions follow arc length on a stretched orthogonal grid, and the
+ *        lines that cross ranks are summed in order.
+ */
+static PetscErrorCode TestGridLineFractionsFollowArcLength(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Vec fraction, length;
+    Cmpnts ***csi, ***eta, ***zet;
+    const Cmpnts ***frac, ***len;
+    PetscReal ***aj;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 9, 7, 8));
+    const DMDALocalInfo info = user->info;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz, n_nodes[3] = {mx, my, mz};
+
+    /* An orthogonal box cell of widths (dx, dy, dz) has face-area vectors (dy dz, 0, 0),
+       (0, dx dz, 0), (0, 0, dx dy) and inverse volume 1/(dx dy dz). */
+    PetscCall(DMDAVecGetArray(user->fda, user->Csi, &csi));
+    PetscCall(DMDAVecGetArray(user->fda, user->Eta, &eta));
+    PetscCall(DMDAVecGetArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecGetArray(user->da, user->Aj, &aj));
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+    for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+    for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+        const PetscReal dx = LineFractionTestWidth(0, i), dy = LineFractionTestWidth(1, j), dz = LineFractionTestWidth(2, k);
+        csi[k][j][i] = (Cmpnts){dy * dz, 0.0, 0.0};
+        eta[k][j][i] = (Cmpnts){0.0, dx * dz, 0.0};
+        zet[k][j][i] = (Cmpnts){0.0, 0.0, dx * dy};
+        aj[k][j][i] = 1.0 / (dx * dy * dz);
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->Aj, &aj));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Eta, &eta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Csi, &csi));
+    PetscCall(DMGlobalToLocal(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
+    PetscCall(DMGlobalToLocal(user->fda, user->Eta, INSERT_VALUES, user->lEta));
+    PetscCall(DMGlobalToLocal(user->fda, user->Zet, INSERT_VALUES, user->lZet));
+    PetscCall(DMGlobalToLocal(user->da, user->Aj, INSERT_VALUES, user->lAj));
+
+    PetscCall(DMCreateGlobalVector(user->fda, &fraction));
+    PetscCall(DMCreateGlobalVector(user->fda, &length));
+    PetscCall(ComputeGridLineFractions(user, fraction, length));
+    PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+    for (PetscInt k = PetscMax(1, info.zs); k < PetscMin(mz - 1, info.zs + info.zm); ++k)
+    for (PetscInt j = PetscMax(1, info.ys); j < PetscMin(my - 1, info.ys + info.ym); ++j)
+    for (PetscInt i = PetscMax(1, info.xs); i < PetscMin(mx - 1, info.xs + info.xm); ++i) {
+        const PetscInt idx[3] = {i, j, k};
+        const PetscReal got_f[3] = {frac[k][j][i].x, frac[k][j][i].y, frac[k][j][i].z};
+        const PetscReal got_l[3] = {len[k][j][i].x, len[k][j][i].y, len[k][j][i].z};
+        for (PetscInt axis = 0; axis < 3; ++axis) {
+            PetscReal before = 0.0, total = 0.0;
+            for (PetscInt n = 1; n < n_nodes[axis] - 1; ++n) {
+                if (n < idx[axis]) before += LineFractionTestWidth(axis, n);
+                total += LineFractionTestWidth(axis, n);
+            }
+            const PetscReal expected = (before + 0.5 * LineFractionTestWidth(axis, idx[axis])) / total;
+            PetscCall(PicurvAssertRealNear(expected, got_f[axis], 1.0e-12, "arc-length fraction"));
+            PetscCall(PicurvAssertRealNear(total, got_l[axis], 1.0e-12, "grid-line length"));
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+    PetscCall(VecDestroy(&fraction));
+    PetscCall(VecDestroy(&length));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Tests distributed synchronization of persistent cell-centered scalar fields.
  */
@@ -1035,6 +1115,7 @@ int main(int argc, char **argv)
         {"profiling-summary-reduces-over-ranks", TestProfilingSummaryReducesOverRanks},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
         {"settlement-classifies-exit-once-across-passes", TestSettlementClassifiesExitOnceAcrossPasses},
+        {"grid-line-fractions-follow-arc-length", TestGridLineFractionsFollowArcLength},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

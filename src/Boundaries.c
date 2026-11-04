@@ -418,6 +418,11 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletProfileFromFile().\n");
             ierr = Create_InletProfileFromFile(bc); CHKERRQ(ierr);
             break;
+
+        case BC_HANDLER_INLET_PRESCRIBED_VELOCITY:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletPrescribedVelocity().\n");
+            ierr = Create_InletPrescribedVelocity(bc); CHKERRQ(ierr);
+            break;
         //Add cases for other handlers here in future phases 
         
         default:

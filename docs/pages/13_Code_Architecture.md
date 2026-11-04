@@ -84,6 +84,7 @@ post writer lock. See @ref p66_pvd_evidence for the tested scope.
   - `src/ParticleMotion.c`
   - `src/ParticlePhysics.c`
   - `src/ParticleInitialConditions.c`
+  - `src/expression.c`
   - `src/interpolation.c`
   - `src/particle_statistics.c`
 - Postprocessing and VTK:

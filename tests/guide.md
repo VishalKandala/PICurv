@@ -178,6 +178,13 @@ is a test-local routine.
     `USER_INITIALIZE` capability, values become quoted `-particle_fields_*` options, and
     validation refuses unknown fields, bad expressions, particle-free runs, and a
     conflicting verification scalar source
+- `test_velocity_sources.py`
+  - velocity sources (`sources:`, a `prescribed_velocity` inlet, a `source` initial
+    condition): named and inline sources resolve to one form with constants inlined,
+    become quoted `-inlet_source_<id>_*` / `-ic_source_*` options with only `source_id` in
+    the bcs row, and validation refuses unknown names, wrong frames, bad expressions and
+    constraints a target does not take; the C side is `make unit-mpi`
+    (`grid-line-fractions-follow-arc-length`)
 - `test_field_catalog.py`
   - the published field inventory matches the compiled Eulerian and particle catalogs
   - missing fields, wrong layout groups, undocumented layout values, and renamed

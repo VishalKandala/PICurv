@@ -17,6 +17,7 @@ Selector: `case.yml -> boundary_conditions[].handler`
 | `noslip` | `WALL` | none | none |
 | `parabolic` | `INLET` | `v_max` | none |
 | `prescribed_flow` | `INLET` | `source` | none |
+| `prescribed_velocity` | `INLET` | none | none |
 
 ### Boundary Condition Types
 

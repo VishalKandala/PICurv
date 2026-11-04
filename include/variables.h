@@ -198,7 +198,8 @@ typedef enum {
     IC_MODE_CONSTANT_CARTESIAN = 1,
     IC_MODE_POISEUILLE = 2,
     IC_MODE_CONSTANT_STREAMWISE = 3,
-    IC_MODE_FILE = 4
+    IC_MODE_FILE = 4,
+    IC_MODE_SOURCE = 5      /**< A configured velocity source (`-ic_source_*`), evaluated at cell centres. */
 } InitialConditionMode;
 
 /** @brief Selects the authoritative velocity representation in a staged file IC. */
@@ -378,6 +379,7 @@ typedef enum {
     BC_HANDLER_INLET_CONSTANT_VELOCITY = 4,
     BC_HANDLER_INLET_PARABOLIC = 5,
     BC_HANDLER_INLET_PROFILE_FROM_FILE = 6,
+    BC_HANDLER_INLET_PRESCRIBED_VELOCITY = 7,
     BC_HANDLER_FARFIELD_NONREFLECTING = 9,
     BC_HANDLER_OUTLET_CONSERVATION = 10, 
     BC_HANDLER_OUTLET_PRESSURE = 11,

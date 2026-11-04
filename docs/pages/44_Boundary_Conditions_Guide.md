@@ -69,7 +69,7 @@ compatibility check, but no public handler exposes it.
 
 **What it does.** Marks a face where flow enters with a prescribed condition. Legal
 handlers: @ref p44_cap_constant_velocity "constant_velocity", @ref p44_cap_parabolic "parabolic",
-@ref p44_cap_prescribed_flow "prescribed_flow".
+@ref p44_cap_prescribed_flow "prescribed_flow", @ref p44_cap_prescribed_velocity "prescribed_velocity".
 
 **When to choose it.** Any face where you specify what enters the domain.
 
@@ -382,6 +382,76 @@ solver's own node formula, so a multi-block `programmatic_c` case with a generat
 is refused at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at
 uniform logical points and normalized to its continuous mean, and the inlet delivered
 roughly `2/n` too much flux for `n` cells across - 12% at 16 cells.
+
+@subsection p44_cap_prescribed_velocity_sub prescribed_velocity
+
+@anchor p44_cap_prescribed_velocity
+
+**Identity.** `handler: prescribed_velocity` on an `INLET` face, with `source` and
+optional `constraints` on the entry -> bcs parameter `source_id` and control options
+`-inlet_source_<id>_frame`, `-inlet_source_<id>_expr_<c>`, `-inlet_source_<id>_bulk_velocity`
+-> `BC_HANDLER_INLET_PRESCRIBED_VELOCITY` -> @ref Create_InletPrescribedVelocity.
+
+**What it does.** Imposes a velocity written as expressions in the shared expression
+language, in physical units, over `x y z` [m], `t` [s], the arc-length fractions
+`xi eta zeta` (0 at a line's negative face, 1 at its positive face, proportional to
+distance along the grid line) and the line lengths `L_xi L_eta L_zeta` [m]. The values
+are read in one of three frames: `cartesian` (`u v w`), `curvilinear` (`u_xi u_eta u_zeta`
+along the unit grid-line directions; omitted components are zero) or `normal` (one
+speed into the domain). Each face slot is evaluated at its face centre, with the
+fractions and directions of the interior cell behind it. A source without `t` is
+evaluated once; with `t`, once per step at the step's end time, not on every boundary
+pass.
+
+```yaml
+sources:
+  duct_flow:
+    components: curvilinear
+    constants: {U: 1.0}
+    expression: {u_zeta: "36*U*xi*(1-xi)*eta*(1-eta)"}
+
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_velocity
+    source: duct_flow                 # or the source mapping inline
+    constraints:
+      bulk_velocity: "U*(1 + 0.3*sin(2*pi*0.5*t))"
+```
+
+**When to choose it.** For any profile with a closed form, and for every time-dependent
+inlet. Unlike `parabolic`, the profile is written in arc-length fractions, so it is the
+physical profile on a stretched grid; unlike `prescribed_flow`, it needs no staged file
+and may vary in time.
+
+**Parameters it owns.** `source` - required: the name of an entry of the case's top-level
+`sources:`, or a mapping with `expression` (required), `components` (default
+`cartesian`) and `constants` (named numbers inlined into the expressions and the
+constraints). `constraints` - optional: `scale` multiplies every value; `bulk_velocity`
+[m/s], a number or an expression in `t`, rescales the face each step it changes so the
+area-weighted mean normal speed equals it.
+
+**Interactions.** The same named source can set the initial condition
+(@ref p33_source "source initial condition"), so the interior and the inlet agree at
+the first step. `bulk_velocity` sums over the whole face, a collective once per step it
+is recomputed. A shared shape with the time dependence only in `bulk_velocity` is
+evaluated once; only the rescaling runs each step.
+
+**Diagnostics.** The startup banner names the face's `-inlet_source_<id>` options. With
+debug logging the handler logs the target, the source mean and the factor each time it
+rescales. The applied flux is the inlet's entry in `Continuity_Metrics.csv` (`flux_in`).
+A value that is not finite stops the run naming the position and time; a source whose
+mean normal speed is zero cannot be rescaled and is refused.
+
+**Evidence.** Unit verified - `make unit-mpi` (`grid-line-fractions-follow-arc-length`)
+checks the fractions and lengths against arc length on a stretched grid across ranks.
+Integration verified - `tests/test_velocity_sources.py` covers resolution, the emitted
+options and the refusals. Implemented only for production use: no shipped example
+selects it yet.
+
+**Limitations.** Expressions only: a profile from data still needs `prescribed_flow`.
+Random draws are not available. On a multi-block case the fractions run from 0 to 1
+within each block.
 
 @subsection p44_cap_conservation_sub conservation
 

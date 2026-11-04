@@ -4,6 +4,8 @@
  **/
 
  #include "initialcondition.h"
+ #include "expression.h"
+ #include "Metric.h"
 
 /**
  * @brief Internal helper implementation: `SetInitialInteriorField()`.
@@ -187,6 +189,95 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
 }
 
 /**
+ * @brief Derive Ucont from a Ucat whose interior cells are set: sync the periodic and ghost
+ *        cells, then interpolate to the faces.
+ */
+static PetscErrorCode UcontFromInteriorUcat(UserCtx *user)
+{
+    const FieldId cell_fields[] = {FIELD_ID_UCAT};
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(SynchronizePeriodicCellFields(user, 1, cell_fields));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+    PetscCall(Cart2Contra(user));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Evaluate the configured velocity source (`-ic_source_*`) at every owned cell centre
+ *        into Ucat, then derive Ucont. Collective.
+ */
+static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
+{
+    SimCtx *simCtx = user->simCtx;
+    const DMDALocalInfo *info = &user->info;
+    const PetscReal L_ref = simCtx->scaling.L_ref, U_ref = simCtx->scaling.U_ref;
+    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    PicurvVelocitySource source;
+    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT];
+    Vec        fraction, length;
+    const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet;
+    const PetscReal ***aj;
+    Cmpnts ***ucat;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PicurvVelocitySourceCreate(PICURV_SOURCE_TARGET_INITIAL, 0, &source));
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+    PetscCall(DMCreateGlobalVector(user->fda, &fraction));
+    PetscCall(DMCreateGlobalVector(user->fda, &length));
+    PetscCall(ComputeGridLineFractions(user, fraction, length));
+
+    PetscCall(VecSet(user->Ucat, 0.0));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
+    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
+    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+        Cmpnts edges[3], v;
+        values[PICURV_SOURCE_VAR_X] = cent[k][j][i].x * L_ref;
+        values[PICURV_SOURCE_VAR_Y] = cent[k][j][i].y * L_ref;
+        values[PICURV_SOURCE_VAR_Z] = cent[k][j][i].z * L_ref;
+        values[PICURV_SOURCE_VAR_XI] = frac[k][j][i].x;
+        values[PICURV_SOURCE_VAR_ETA] = frac[k][j][i].y;
+        values[PICURV_SOURCE_VAR_ZETA] = frac[k][j][i].z;
+        values[PICURV_SOURCE_VAR_L_XI] = len[k][j][i].x * L_ref;
+        values[PICURV_SOURCE_VAR_L_ETA] = len[k][j][i].y * L_ref;
+        values[PICURV_SOURCE_VAR_L_ZETA] = len[k][j][i].z * L_ref;
+        PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+        PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
+        ucat[k][j][i].x = v.x / U_ref;
+        ucat[k][j][i].y = v.y / U_ref;
+        ucat[k][j][i].z = v.z / U_ref;
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(VecDestroy(&fraction));
+    PetscCall(VecDestroy(&length));
+    PetscCall(PicurvVelocitySourceDestroy(&source));
+    PetscCall(UcontFromInteriorUcat(user));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Load a staged file IC and return with Ucont populated.
  */
 static PetscErrorCode LoadInitialUcont(UserCtx *user)
@@ -202,12 +293,7 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
 
     if (simCtx->initialConditionField == IC_FIELD_UCAT) {
         ierr = ReadFieldData(user, "ufield00000_0", user->Ucat, "dat"); CHKERRQ(ierr);
-        {
-            const FieldId cell_fields[] = {FIELD_ID_UCAT};
-            ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
-        }
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = Cart2Contra(user); CHKERRQ(ierr);
+        ierr = UcontFromInteriorUcat(user); CHKERRQ(ierr);
     } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
         ierr = ReadFieldData(user, "vfield00000_0", user->Ucont, "dat"); CHKERRQ(ierr);
     } else {
@@ -233,6 +319,8 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
     if (simCtx->initialConditionMode == IC_MODE_FILE) {
         ierr = LoadInitialUcont(user); CHKERRQ(ierr);
+    } else if (simCtx->initialConditionMode == IC_MODE_SOURCE) {
+        ierr = SetInitialUcatFromSource(user); CHKERRQ(ierr);
     } else {
         ierr = SetInitialInteriorField(user, FIELD_ID_UCONT); CHKERRQ(ierr);
     }

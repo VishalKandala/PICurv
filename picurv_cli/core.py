@@ -8123,6 +8123,13 @@ BC_HANDLER_SPECS = {
         "required_params": {"source"},
         "optional_params": set(),
     },
+    # Takes a velocity source and constraints on the entry itself, not params.
+    "prescribed_velocity": {
+        "types": {"INLET"},
+        "particle_policy": "remove",
+        "required_params": set(),
+        "optional_params": set(),
+    },
     "geometric": {
         "types": {"PERIODIC"},
         "particle_policy": "wrap",
@@ -8729,6 +8736,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
 
     all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
     prepared_blocks = []
+    inlet_sources = 0
 
     expected_faces = {"-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"}
     axis_pairs = [("-Xi", "+Xi"), ("-Eta", "+Eta"), ("-Zeta", "+Zeta")]
@@ -8859,12 +8867,26 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 )
             converted_params["particle_policy"] = policy
 
-            prepared_block.append({
+            prepared_entry = {
                 "face": face,
                 "type": bc_type,
                 "handler": handler,
                 "params": converted_params,
-            })
+            }
+            where = f"boundary_conditions[{bi}][{idx}]"
+            if handler == "prescribed_velocity":
+                if "source" not in bc:
+                    raise ValueError(f"{where}: handler 'prescribed_velocity' needs a 'source'.")
+                source = resolve_velocity_source(bc["source"], case_cfg, f"{where}.source", allow_normal=True)
+                prepared_entry["source"] = apply_source_constraints(
+                    source, bc.get("constraints"), f"{where}.constraints", allowed={"scale", "bulk_velocity"})
+                converted_params["source_id"] = inlet_sources
+                inlet_sources += 1
+            else:
+                for key in ("source", "constraints"):
+                    if key in bc:
+                        raise ValueError(f"{where}.{key} is only read by the 'prescribed_velocity' handler.")
+            prepared_block.append(prepared_entry)
 
         missing_faces = sorted(expected_faces - set(seen_faces.keys()))
         if missing_faces:
@@ -9001,7 +9023,9 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
 _CASE_SCHEMA = {
     (): {
         "title", "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
+        "sources",
     },
+    ("sources",): None,
     ("run_control",): {"start_step", "total_steps", "dt_physical"},
     ("properties",): {"scaling", "fluid", "initial_conditions"},
     ("properties", "scaling"): {"length_ref", "velocity_ref"},
@@ -9010,9 +9034,10 @@ _CASE_SCHEMA = {
         "mode", "generator", "params", "field", "source_file",
         "source_case", "velocity_scale", "length_scale",
         "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
-        "velocity_physical", "flow_direction",
+        "velocity_physical", "flow_direction", "source", "constraints",
     },
     ("properties", "initial_conditions", "params"): None,
+    ("properties", "initial_conditions", "constraints"): None,
     ("grid",): {
         "mode", "source_file", "programmatic_settings", "generator",
         "da_processors_x", "da_processors_y", "da_processors_z",
@@ -9054,10 +9079,13 @@ _CASE_SCHEMA = {
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
-    ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy"},
-    ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params", "particle_policy"},
+    ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy", "source", "constraints"},
+    ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params", "particle_policy", "source",
+                                          "constraints"},
     ("boundary_conditions", "[]", "params"): None,
     ("boundary_conditions", "[]", "[]", "params"): None,
+    ("boundary_conditions", "[]", "constraints"): None,
+    ("boundary_conditions", "[]", "[]", "constraints"): None,
     ("solver_parameters",): None,
 }
 
@@ -9428,6 +9456,14 @@ INPUT_QUANTITIES = {
     ("case", "models", "physics", "particles", "point_source", "z"): (LENGTH, "cli"),
     # Expressions at physical coordinates; each value is in its field's physical units.
     ("case", "models", "physics", "particles", "fields"): (None, "evaluator"),
+    # Velocity sources: physical expressions the runtime evaluates and divides by U.
+    ("case", "sources"): (VELOCITY, "evaluator"),
+    ("case", "properties", "initial_conditions", "source"): (VELOCITY, "evaluator"),
+    ("case", "properties", "initial_conditions", "constraints"): (VELOCITY, "evaluator"),
+    ("case", "boundary_conditions", "[]", "source"): (VELOCITY, "evaluator"),
+    ("case", "boundary_conditions", "[]", "constraints"): (VELOCITY, "evaluator"),
+    ("case", "boundary_conditions", "[]", "[]", "source"): (VELOCITY, "evaluator"),
+    ("case", "boundary_conditions", "[]", "[]", "constraints"): (VELOCITY, "evaluator"),
     # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
     ("case", "models", "physics", "turbulence", "les"): UNITLESS,
     ("case", "models", "physics", "turbulence", "rans"): NOT_A_QUANTITY,
@@ -10341,7 +10377,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
     elif not isinstance(ic, dict):
         errors.append(f"  {case_path}: 'properties.initial_conditions' must be a mapping.")
-    elif 'mode' not in ic:
+    elif 'mode' not in ic and 'source' not in ic:
         errors.append(
             f"  {case_path}: missing key 'properties.initial_conditions.mode'. "
             "Specify 'generated' or 'file' explicitly."
@@ -10352,6 +10388,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             resolved_ic = resolve_initial_condition_config(
                 ic, prepared_blocks, scales=scaling_contract,
                 provider_context={"kinematic_viscosity": scaling_contract["nondimensional_kinematic_viscosity"]},
+                named_sources=case_cfg.get("sources"),
             )
         except KeyError as e:
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
@@ -14523,6 +14560,139 @@ def load_ic_generator_module():
     return load_generator_module("ic.gen", "picurv_ic_generator")
 
 
+#: Variables a prescribed velocity source may use, in physical units; the runtime's list is
+#: `kPicurvSourceVariableNames` in `src/expression.c`. `xi`, `eta`, `zeta` are arc-length
+#: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
+#: lengths [m].
+SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
+#: Component frames a velocity source may be written in, and the value names each takes; the
+#: normal frame takes one value, the speed into the domain through a face.
+SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"), "normal": None}
+_SOURCE_KEYS = {"expression", "components", "constants"}
+_SOURCE_CONSTRAINTS = ("scale", "bulk_velocity")
+
+
+def _source_text(value, constants: dict, names, where: str, ic_gen) -> str:
+    """!
+    @brief One configured value as validated expression text, with constants inlined.
+    @param[in] value Number or expression string.
+    @param[in] constants Named numbers of the source.
+    @param[in] names Variables the expression may use.
+    @param[in] where Configuration path of the value.
+    @param[in] ic_gen Loaded `generators/ic.gen`, which owns the expression language.
+    @return Expression text.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{where} must be a number or an expression string.")
+    text = repr(float(value)) if not isinstance(value, str) else ic_gen._substitute_params(value, constants)
+    ic_gen._validate_at(text, names, False, where)
+    return text
+
+
+def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool) -> dict:
+    """!
+    @brief Resolve a velocity source, given inline or by its name under the case's `sources:`.
+    @details A source is an `expression` in one frame (`components`: cartesian, curvilinear,
+             or, on a face, normal), with optional named `constants` inlined into its text.
+             Every value is physical; the runtime nondimensionalizes them.
+    @param[in] spec Inline mapping, or the name of an entry of `sources:`.
+    @param[in] case_cfg Case configuration holding `sources:`.
+    @param[in] where Configuration path of the reference.
+    @param[in] allow_normal Whether the target is a face, where the normal frame is meaningful.
+    @return `{"frame", "expressions", "constants"}`.
+    """
+    ic_gen = load_ic_generator_module()
+    named = case_cfg.get("sources") or {}
+    if not isinstance(named, dict):
+        raise ValueError("sources must map names to source definitions.")
+    if isinstance(spec, str):
+        if spec not in named:
+            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}).")
+        where, spec = f"sources.{spec}", named[spec]
+    if not isinstance(spec, dict):
+        raise ValueError(f"{where} must be a source mapping or the name of one under sources.")
+    unknown = sorted(set(spec) - _SOURCE_KEYS)
+    if unknown:
+        raise ValueError(f"{where}: unknown keys {unknown}; a source takes {sorted(_SOURCE_KEYS)}.")
+    if "expression" not in spec:
+        raise ValueError(f"{where} needs an 'expression'.")
+    frame = str(spec.get("components", "cartesian")).strip().lower()
+    if frame not in SOURCE_FRAMES or (frame == "normal" and not allow_normal):
+        allowed = [name for name in SOURCE_FRAMES if allow_normal or name != "normal"]
+        raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
+    constants = spec.get("constants") or {}
+    if not isinstance(constants, dict):
+        raise ValueError(f"{where}.constants must map names to numbers.")
+    reserved = set(SOURCE_EXPRESSION_NAMES) | set(ic_gen.FUNCTION_ARITY) | {"pi"}
+    for name, value in constants.items():
+        if not isinstance(name, str) or not name.isidentifier() or name in reserved:
+            raise ValueError(f"{where}.constants: '{name}' cannot name a constant.")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{where}.constants.{name} must be a number.")
+    expression = spec["expression"]
+    if frame == "normal":
+        if isinstance(expression, dict):
+            raise ValueError(f"{where}.expression takes one value in the normal frame.")
+        texts = [_source_text(expression, constants, SOURCE_EXPRESSION_NAMES, f"{where}.expression", ic_gen)]
+    else:
+        components = SOURCE_FRAMES[frame]
+        if not isinstance(expression, dict):
+            raise ValueError(f"{where}.expression must map {list(components)} to values in the {frame} frame.")
+        extra = sorted(set(expression) - set(components))
+        if extra:
+            raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
+        texts = [_source_text(expression.get(name, 0), constants, SOURCE_EXPRESSION_NAMES,
+                              f"{where}.expression.{name}", ic_gen) for name in components]
+    return {"frame": frame, "expressions": texts, "constants": dict(constants)}
+
+
+def apply_source_constraints(source: dict, constraints, where: str, allowed: set) -> dict:
+    """!
+    @brief Apply a target's `constraints` to a resolved source.
+    @details `scale` multiplies every value. `bulk_velocity`, on a face, is the target mean
+             normal speed [m/s], a number or an expression in `t` that may use the source's
+             constants; the runtime rescales the face to it each step it changes.
+    @param[in] source Resolved source from resolve_velocity_source().
+    @param[in] constraints Constraint mapping, or None.
+    @param[in] where Configuration path of the constraints.
+    @param[in] allowed Constraints this target accepts.
+    @return Source with the constraints applied, and `bulk_velocity` text when set.
+    """
+    resolved = dict(source, bulk_velocity=None)
+    if constraints is None:
+        return resolved
+    if not isinstance(constraints, dict):
+        raise ValueError(f"{where} must be a mapping.")
+    unknown = sorted(set(constraints) - set(allowed))
+    if unknown:
+        raise ValueError(f"{where}: {unknown} are not constraints of this target; it takes {sorted(allowed)}.")
+    if "scale" in constraints:
+        scale = constraints["scale"]
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)):
+            raise ValueError(f"{where}.scale must be a number.")
+        resolved["expressions"] = [f"({text})*({float(scale)!r})" for text in resolved["expressions"]]
+    if "bulk_velocity" in constraints:
+        resolved["bulk_velocity"] = _source_text(constraints["bulk_velocity"], source["constants"], {"t"},
+                                                 f"{where}.bulk_velocity", load_ic_generator_module())
+    return resolved
+
+
+def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list:
+    """!
+    @brief Control-file options carrying a resolved velocity source to the runtime.
+    @param[in] prefix Option prefix, e.g. `-inlet_source_0`.
+    @param[in] source Resolved source.
+    @param[in] where Configuration path, for the newline guard.
+    @return Control lines.
+    """
+    lines = [f"{prefix}_frame {source['frame']}"]
+    for component, text in enumerate(source["expressions"]):
+        lines.append(f"{prefix}_expr_{component} \"{control_value(text, where)}\"")
+    if source.get("bulk_velocity"):
+        lines.append(f"{prefix}_bulk_velocity \"{control_value(source['bulk_velocity'], where)}\"")
+    return lines
+
+
 #: Particle fields a case may give an initial value, with their component counts: the
 #: fields the particle carries (catalog capability `USER_INITIALIZE`). Every other particle
 #: field is re-derived from the Eulerian fields or from particle location, so a configured
@@ -14739,7 +14909,8 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
-def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
+def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
+                                     named_sources=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
     @details Every value the user writes is physical; the resolved contract carries solver
@@ -14748,11 +14919,25 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
     @param[in] provider_context Optional conductor-derived provider context.
+    @param[in] named_sources The case's `sources:` mapping, which `source:` may name.
     @return Normalized launcher initial-condition contract.
     """
     if not isinstance(ic, dict):
         raise ValueError("properties.initial_conditions must be a mapping.")
     mode = str(ic.get("mode", "")).strip()
+
+    if "source" in ic:
+        others = sorted(set(ic) - {"source", "constraints"})
+        if others:
+            raise ValueError(f"properties.initial_conditions takes 'source' (and 'constraints') alone; "
+                             f"remove {others}.")
+        source = resolve_velocity_source(ic["source"], {"sources": named_sources or {}},
+                                         "properties.initial_conditions.source", allow_normal=False)
+        source = apply_source_constraints(source, ic.get("constraints"),
+                                          "properties.initial_conditions.constraints", allowed={"scale"})
+        return {"finit": 5, "cli_params": {}, "kind": "source", "label": "source", "source": source}
+    if "constraints" in ic:
+        raise ValueError("properties.initial_conditions.constraints applies to a 'source' initial condition.")
 
     # Backward-compatible legacy spelling.
     if mode in LEGACY_FIELD_INIT_SPELLINGS:
@@ -17016,6 +17201,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             resolved_ic = resolve_initial_condition_config(
                 ic, prepared_blocks, fluid_scaling,
                 provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
+                named_sources=case_cfg.get("sources"),
             )
             finit_mode_str = resolved_ic["label"]
             finit_code = resolved_ic["finit"]
@@ -17031,6 +17217,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
             if "flow_direction" in ic_params:
                 ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
+            if resolved_ic["kind"] == "source":
+                ic_cli.extend(velocity_source_control_lines(
+                    "-ic_source", resolved_ic["source"], "properties.initial_conditions.source"))
         else:
             source = (f"the run starts from the checkpoint at step {start_step}" if start_step > 0
                       else f"eulerian_field_source={eulerian_source!r} reads stored fields")
@@ -17175,6 +17364,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         print(f"[FATAL] Invalid boundary_conditions in case.yml: {e}", file=sys.stderr)
         sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
+    for block_index, block in enumerate(prepared_blocks):
+        for entry in block:
+            if "source" in entry:
+                control_lines.extend(velocity_source_control_lines(
+                    f"-inlet_source_{entry['params']['source_id']}", entry["source"],
+                    f"boundary_conditions[{block_index}] {entry['face']}.source"))
 
     configs["decomposition_resolved"] = append_grid_da_processor_layout(
         control_lines, grid_cfg, num_procs,
@@ -19226,6 +19421,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
             validate_and_prepare_boundary_conditions(case_cfg),
             scales=fluid_scaling,
             provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
+            named_sources=case_cfg.get("sources"),
         )
     except (KeyError, ValueError):
         return
@@ -19836,6 +20032,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
             provider_context={
                 "kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]
             },
+            named_sources=case_cfg.get("sources"),
         )
         if (grid_cfg.get("mode") == "programmatic_c" and is_generated_ic_provider(resolved_ic)
                 and not os.path.isfile(staged_grid)):

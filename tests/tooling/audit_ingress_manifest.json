@@ -5,7 +5,10 @@
     "src/io.c",
     "src/statistics_config.c",
     "src/ParticleInitialConditions.c",
-    "src/simulator.c"
+    "src/simulator.c",
+    "src/expression.c",
+    "src/BC_Handlers.c",
+    "src/initialcondition.c"
   ],
   "known_petsc_options": [
     "-TwoD",
@@ -188,6 +191,11 @@
     "-field_statistics_window_%_step_cadence",
     "-field_statistics_window_%_time_cadence",
     "-field_statistics_window_%_weighting",
+    "-ic_source_expr_%",
+    "-ic_source_frame",
+    "-inlet_source_%_bulk_velocity",
+    "-inlet_source_%_expr_%",
+    "-inlet_source_%_frame",
     "-particle_fields_%_expr_%",
     "-particle_fields_%_name",
     "-particle_fields_count"

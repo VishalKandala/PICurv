@@ -29,6 +29,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.diagnostics.les.*` (deprecated alias `case.models.physics.turbulence.les.diagnostics`) | `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci` | `src/setup.c` | `src/les.c` (@ref LogLESDiagnostics) |
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
+| `case.sources`, a `prescribed_velocity` entry's `source`/`constraints`, `case.properties.initial_conditions.source` | `source_id` in the bcs row; `-inlet_source_<id>_frame`, `-inlet_source_<id>_expr_<c>`, `-inlet_source_<id>_bulk_velocity`, `-ic_source_frame`, `-ic_source_expr_<c>` | `src/expression.c` (`PicurvVelocitySourceCreate`), `src/BC_Handlers.c` (bulk velocity) | `src/BC_Handlers.c` (prescribed-velocity inlet), `src/initialcondition.c` (`IC_MODE_SOURCE`) |
 | `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type`, `-analytical_uniform_u/-v/-w` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
 | `solver.verification.sources.diffusivity.*` | `-verification_diffusivity_mode/-profile/-gamma0/-slope_x` | `src/setup.c` | `src/verification_sources.c`, `src/ParticlePhysics.c` |
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
@@ -112,7 +113,10 @@ Some launcher behaviors depend on other config selections before values ever rea
   routes through the analytical grid-ingestion split:
   `TGV3D` still requires `case.grid.mode: programmatic_c`, while `ZERO_FLOW` and `UNIFORM_FLOW`
   accept `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
-- `case.properties.initial_conditions.mode` is an explicit launcher requirement.
+- `case.properties.initial_conditions.mode` is an explicit launcher requirement, unless the
+  initial condition is a `source`, which stands in its place. A `source` named by a string is
+  looked up in the case's top-level `sources:`, and its `constants` are inlined into every
+  expression before the options are written.
 
 This means the YAML contract is intentionally stricter than "whatever C would do with missing
 options" in several places.

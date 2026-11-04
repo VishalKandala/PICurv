@@ -13,7 +13,8 @@
           "initial_flux": "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
           "noslip": "BC_HANDLER_WALL_NOSLIP",
           "parabolic": "BC_HANDLER_INLET_PARABOLIC",
-          "prescribed_flow": "BC_HANDLER_INLET_PROFILE_FROM_FILE"
+          "prescribed_flow": "BC_HANDLER_INLET_PROFILE_FROM_FILE",
+          "prescribed_velocity": "BC_HANDLER_INLET_PRESCRIBED_VELOCITY"
         },
         "source": {
           "function": "StringToBCHandlerType",
@@ -29,7 +30,8 @@
           "initial_flux",
           "noslip",
           "parabolic",
-          "prescribed_flow"
+          "prescribed_flow",
+          "prescribed_velocity"
         ]
       },
       {
@@ -42,6 +44,7 @@
         "values": [
           "BC_HANDLER_INLET_CONSTANT_VELOCITY",
           "BC_HANDLER_INLET_PARABOLIC",
+          "BC_HANDLER_INLET_PRESCRIBED_VELOCITY",
           "BC_HANDLER_INLET_PROFILE_FROM_FILE",
           "BC_HANDLER_OUTLET_CONSERVATION",
           "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
@@ -137,6 +140,14 @@
           "source"
         ],
         "status": "supported",
+        "types": [
+          "INLET"
+        ]
+      },
+      "prescribed_velocity": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "experimental",
         "types": [
           "INLET"
         ]

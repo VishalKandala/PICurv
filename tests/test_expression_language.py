@@ -3,7 +3,7 @@
 @brief Pytest coverage for the expression language shared by Eulerian and particle initial values.
 
 `generators/ic.gen` validates and evaluates the language in Python; the runtime evaluates
-it in C (`src/ParticleInitialConditions.c`). Both read
+it in C (`src/expression.c`). Both read
 `tests/fixtures/expression_conformance.txt` and must reproduce every case.
 """
 
