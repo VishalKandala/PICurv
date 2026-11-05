@@ -479,27 +479,6 @@
     "title": "LES Coefficient Limiting Modes"
   },
   {
-    "family_page": "32_Analytical_Solutions",
-    "id": "analytical.solution_type",
-    "parity": [],
-    "public_values": {
-      "TGV3D": {
-        "maps_to": "TGV3D",
-        "status": "supported"
-      },
-      "UNIFORM_FLOW": {
-        "maps_to": "UNIFORM_FLOW",
-        "status": "supported"
-      },
-      "ZERO_FLOW": {
-        "maps_to": "ZERO_FLOW",
-        "status": "supported"
-      }
-    },
-    "selector": "solver.yml -> operation_mode.analytical_type",
-    "title": "Analytical Solution Types"
-  },
-  {
     "family_page": "07_Case_Reference",
     "id": "turbulence.wall_function",
     "parity": [],

@@ -25,12 +25,10 @@
 
 /**
  * @brief Populate Ucont for one fresh-start block from the initial source (`-ic_source_*`).
- * @details A staged field, when there is one, is read first: Ucat, or Ucont. A Cartesian source
- *          is then evaluated at every owned cell centre into Ucat, and a curvilinear one sets
- *          each owned face's flux directly: its component along the grid line, evaluated at the
- *          face centre, times the face area. With `-ic_source_field_weight w` the staged field
- *          is scaled by w. With a bulk velocity, the source is scaled so that the volume mean of
- *          the whole field along the source's own direction equals it. Collective.
+ * @details A staged field, when there is one, is read first: Ucat, or Ucont. The source's
+ *          expressions then add their flux at every owned face. With `-ic_source_field_weight w`
+ *          the staged field is scaled by w, and with a bulk velocity the expressions are scaled
+ *          by PicurvSourceCellBulkFactor(). Collective.
  * @param[in,out] user Block context whose velocity field is populated.
  * @return PETSc error code.
  */

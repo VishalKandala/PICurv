@@ -184,26 +184,9 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**
 
-@section p50_analytical_sec 7. Analytical Type
+@section p50_analytical_sec 7. Analytical Fields
 
-- Schema home: `solver.yml -> operation_mode.analytical_type`
-- Canonical values:
-  - `TGV3D`
-  - `ZERO_FLOW`
-  - `UNIFORM_FLOW`
-- Python hook:
-  - `normalize_analytical_type()` in `picurv_cli/core.py`
-- Generated mapping:
-  - `analytical_type` -> `-analytical_type`
-- C storage/parser:
-  - `AnalyticalSolutionType` in `SimCtx`
-  - `-analytical_type` in @ref CreateSimulationContext
-- Runtime:
-  - `src/AnalyticalSolutions.c`
-- Tests/docs to update:
-  - `tests/test_cli_smoke.py`
-  - **@subpage 08_Solver_Reference**
-  - **@subpage 32_Analytical_Solutions**
+An analytical field is a source, not a selector: see @ref p32_extension_sec. Nothing here is registered.
 
 @section p50_verification_sources_sec 8. Verification Source Overrides
 

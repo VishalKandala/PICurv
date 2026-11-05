@@ -1,6 +1,6 @@
 base_configs:
   case: "search_robustness_cartesian.yml"
-  solver: "Analytical-Zero.yml"
+  solver: "Analytical.yml"
   monitor: "Search_Robustness_Output.yml"
   post: "search_robustness_analysis.yml"
 

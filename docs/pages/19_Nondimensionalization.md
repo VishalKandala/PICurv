@@ -125,9 +125,6 @@ particle `fields`.
 | `monitor.yml: field_statistics.windows.[].end_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].start_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].time_cadence` | TIME | cli | L/U |
-| `solver.yml: operation_mode.uniform_flow.u` | VELOCITY | cli | U |
-| `solver.yml: operation_mode.uniform_flow.v` | VELOCITY | cli | U |
-| `solver.yml: operation_mode.uniform_flow.w` | VELOCITY | cli | U |
 | `solver.yml: verification.sources.diffusivity.gamma0` | DIFFUSIVITY | cli | U L |
 | `solver.yml: verification.sources.diffusivity.slope_x` | VELOCITY | cli | U |
 | `solver.yml: verification.sources.scalar.kx` | WAVENUMBER | cli | 1/L |
@@ -266,7 +263,7 @@ solver's own units exactly.
 
 @section p19_transition_sec 7. Inputs Once Read in Solver Units
 
-The point source, the wall-function roughness height, `uniform_flow`, the verification
+The point source, the wall-function roughness height, the analytical uniform flow, the verification
 source profiles, the statistics window times, the `ic_gen` expressions, the spectral
 provider parameters, and a file initial-condition payload were read in solver
 units before this rule covered them. At unit reference scales the two readings are the

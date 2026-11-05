@@ -32,7 +32,7 @@ Normal production behavior is preserved:
 
 When scalar verification is active, only the `Psi` update is bypassed. Carrier
 flow selection remains independent, so the same scalar truth machinery can later
-be paired with `ZERO_FLOW`, `UNIFORM_FLOW`, or `TGV3D`.
+be paired with zero flow, a uniform stream, or the Taylor-Green vortex.
 
 ## What `scatter_metrics.csv` Measures
 
@@ -147,9 +147,9 @@ Stage either study without submitting jobs:
 Prescribed scalar truth injection plus runtime scatter metrics is not specific to
 this study. The same configuration supports:
 
-- static deposition verification with `ZERO_FLOW`
-- moving-cloud verification with `UNIFORM_FLOW`
-- coupled flow-plus-scatter verification with `TGV3D`
+- static deposition verification with zero flow
+- moving-cloud verification with a uniform stream
+- coupled flow-plus-scatter verification with the Taylor-Green vortex
 - conservation diagnostics for deposited scalar fields
 - grid and curvilinear-geometry sensitivity studies
 

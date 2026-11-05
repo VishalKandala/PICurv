@@ -18,19 +18,10 @@ operation_mode:
   #               this is also the restart mode: the saved state is loaded, then solved on.
   # 'load':       Replay stored fields; nothing is solved. Every replayed step needs its
   #               own checkpoint in the --restart-from run (io.data_output_frequency: 1).
-  # 'analytical': Evaluate a closed-form field each step (analytical_type below).
+  # 'analytical': Nothing is solved: the field is case.yml's initial_conditions.source,
+  #               re-evaluated each step it depends on t, with an optional `pressure`.
   eulerian_field_source: "solve"  # -> -euler_field_source
-  # Optional analytical solution selector used when eulerian_field_source = "analytical".
-  # Supported values today: "TGV3D", "ZERO_FLOW", "UNIFORM_FLOW".
-  # TGV3D currently requires case.yml to use grid.mode: programmatic_c.
-  # ZERO_FLOW and UNIFORM_FLOW also support file-based grid ingestion.
-  analytical_type: "TGV3D"        # -> -analytical_type
-  # Parameters for analytical_type: "UNIFORM_FLOW".
-  # Uncomment this block only when analytical_type = "UNIFORM_FLOW".
-  # uniform_flow:
-  #   u: 0.0                      # [m/s] -> -analytical_uniform_u (divided by velocity_ref)
-  #   v: 0.0                      # [m/s] -> -analytical_uniform_v
-  #   w: 0.0                      # [m/s] -> -analytical_uniform_w
+
 
 # Verification-only source overrides.
 # Use these only when ordinary end-to-end setup cannot expose the behavior you need to test.

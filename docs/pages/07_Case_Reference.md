@@ -94,8 +94,7 @@ Supported modes:
 Mode compatibility note:
 
 - for normal `solve` and `load` workflows, all three grid modes are supported.
-- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `TGV3D` supports `grid.mode: programmatic_c` (the solver assigns the [0, 2π]² × [0, 0.2π] TGV domain) and `grid.mode: file` (the given grid is kept and the field is evaluated at its cell centres, e.g. a warped `grid.gen box --amp-A` grid spanning the same domain).
-- `ZERO_FLOW` and `UNIFORM_FLOW` support `grid.mode: programmatic_c` and `grid.mode: file`.
+- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `grid.mode` is `programmatic_c` or `file`.
 
 The MPI decomposition is not a case property: it is given with `--ni/--nj/--nk`, by
 `cluster.yml -> execution.decomposition`, or chosen from the grid
@@ -173,7 +172,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Parameters it owns.** `grid.source_file` -> the staged `.picgrid` path.
 
-**Interactions.** Mutually exclusive with `programmatic_c` and `grid_gen`. Compatible with the `ZERO_FLOW` and `UNIFORM_FLOW` analytical sources; `TGV3D` is not, because it needs the programmatic Cartesian box.
+**Interactions.** Mutually exclusive with `programmatic_c` and `grid_gen`. Compatible with an analytical field.
 
 **Diagnostics.** The startup banner reports the resolved grid source. A missing or unreadable file is a fatal `picurv validate` error naming the path, not a runtime failure.
 
@@ -193,7 +192,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Parameters it owns.** `grid.programmatic_settings.im/jm/km` (cell counts, converted to node counts before `-im/-jm/-km`), `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`, `rxs/rys/rzs`, and `cgrids` -> `-cgrids` - see @ref p07_grid_prog_ssec for why this is not a real geometry choice.
 
-**Interactions.** Mutually exclusive with `file` and `grid_gen`. Required by the `TGV3D` analytical source. Per-block lists are supported for the geometry arrays, but the MPI decomposition stays global: per-block processor decomposition is not implemented.
+**Interactions.** Mutually exclusive with `file` and `grid_gen`. Compatible with an analytical field. Per-block lists are supported for the geometry arrays, but the MPI decomposition stays global: per-block processor decomposition is not implemented.
 
 **Diagnostics.** The startup banner reports the resolved block extents and counts. A count/extent mismatch across per-block lists is a validation error naming the offending key.
 

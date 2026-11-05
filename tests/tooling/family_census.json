@@ -136,10 +136,6 @@
       "reason": "Analytic scalar profiles the manufactured-solution verification source may impose. They parameterise the verification block rather than selecting a solver behaviour, and are documented with it in the solver reference.",
       "owner": "08_Solver_Reference::p08_verification_sec"
     },
-    "picurv_cli.core::normalize_analytical_type": {
-      "classification": "not_public",
-      "reason": "The normalizer for analytical.solution_type. Its accepted values are now the named constant ANALYTICAL_SOLUTION_TYPES, which is the family's declared public surface; this function applies it rather than defining a second one."
-    },
     "picurv_cli.core::normalize_boundary_conditions_layout": {
       "classification": "not_public",
       "reason": "Normalizes layout shape, not a selectable value."

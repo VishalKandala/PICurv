@@ -67,10 +67,8 @@ To use a fixed, externally curated grid instead:
 `examples/search_robustness` already does this and is the better starting point if
 `grid.mode: file` itself, rather than the bent-duct geometry, is what you are studying.
 
-One constraint worth knowing: `grid.mode: grid_gen` is not accepted when
-`operation_mode.analytical_type` is anything other than `TGV3D` (see
-`docs/pages/14_Config_Contract.md`) - a pure analytical carrier flow only accepts `file` or
-`programmatic_c`. Pairing this case with `config/solvers/Analytical-UniformFlow.yml` needs
+One constraint worth knowing: an analytical field accepts `grid.mode` `file` or `programmatic_c`
+only, not `grid_gen` (see `docs/pages/14_Config_Contract.md`). Pairing this case with `config/solvers/Analytical.yml` needs
 the file-mode override above.
 
 ## 5. Output Check

@@ -526,34 +526,6 @@ def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
     assert expected_stats_path in payload["artifacts"]
 
 
-def test_parse_solver_config_maps_uniform_flow_velocity_flags():
-    """!
-    @brief Test that parse_solver_config maps UNIFORM_FLOW settings into control flags.
-    """
-    picurv = load_picurv_module()
-    solver_cfg = {
-        "operation_mode": {
-            "eulerian_field_source": "analytical",
-            "analytical_type": "UNIFORM_FLOW",
-            "uniform_flow": {
-                "u": 0.5,
-                "v": -0.25,
-                "w": 0.125,
-            },
-        }
-    }
-
-    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
-
-    # The velocities are physical and reach the solver divided by velocity_ref.
-    assert flags["-analytical_type"] == '"UNIFORM_FLOW"'
-    assert flags["-analytical_uniform_u"] == pytest.approx(0.5 / 4.0)
-    assert flags["-analytical_uniform_v"] == pytest.approx(-0.25 / 4.0)
-    assert flags["-analytical_uniform_w"] == pytest.approx(0.125 / 4.0)
-    with pytest.raises(RuntimeError, match="reference scales"):
-        picurv.parse_solver_config(solver_cfg)
-
-
 def test_parse_solver_config_maps_verification_diffusivity_flags():
     """!
     @brief Test that parse_solver_config maps verification diffusivity settings into control flags.
@@ -562,7 +534,6 @@ def test_parse_solver_config_maps_verification_diffusivity_flags():
     solver_cfg = {
         "operation_mode": {
             "eulerian_field_source": "analytical",
-            "analytical_type": "ZERO_FLOW",
         },
         "verification": {
             "sources": {
@@ -593,7 +564,6 @@ def test_parse_solver_config_maps_verification_scalar_flags():
     solver_cfg = {
         "operation_mode": {
             "eulerian_field_source": "analytical",
-            "analytical_type": "ZERO_FLOW",
         },
         "verification": {
             "sources": {
@@ -2383,7 +2353,6 @@ def test_validate_rejects_verification_scalar_missing_required_parameter(tmp_pat
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     solver_cfg["operation_mode"] = {
         "eulerian_field_source": "analytical",
-        "analytical_type": "ZERO_FLOW",
     }
     solver_cfg["verification"] = {
         "sources": {

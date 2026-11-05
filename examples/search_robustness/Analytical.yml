@@ -1,7 +1,5 @@
-# Zero-flow analytical carrier field for Brownian-motion and stationary-particle checks.
 operation_mode:
   eulerian_field_source: "analytical"
-  analytical_type: "ZERO_FLOW"
 
 interpolation:
   method: "Trilinear"

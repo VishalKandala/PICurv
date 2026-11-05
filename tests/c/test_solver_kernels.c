@@ -48,72 +48,6 @@ static PetscErrorCode TestLESTestFilterPaths(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests analytical geometry selection for supported analytical solutions.
- */
-
-static PetscErrorCode TestAnalyticalGeometrySelection(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    PetscErrorCode ierr_grid = 0;
-    PetscErrorCode ierr_non_square = 0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
-    PetscCall(PicurvAssertBool(AnalyticalTypeRequiresCustomGeometry("TGV3D"),
-                               "TGV3D should require custom geometry"));
-    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalTypeRequiresCustomGeometry("ZERO_FLOW"),
-                               "ZERO_FLOW should not require custom geometry"));
-
-    /* TGV3D assigns its own domain only on a programmatic grid; a file grid keeps its geometry. */
-    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
-    simCtx->generate_grid = PETSC_TRUE;
-    PetscCall(PicurvAssertBool(AnalyticalRunUsesCustomGeometry(simCtx),
-                               "TGV3D on a programmatic grid should use the analytical geometry"));
-    simCtx->generate_grid = PETSC_FALSE;
-    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalRunUsesCustomGeometry(simCtx),
-                               "TGV3D on a file grid should keep the file geometry"));
-    simCtx->generate_grid = PETSC_TRUE;
-    PetscCall(PetscStrncpy(simCtx->eulerianSource, "solve", sizeof(simCtx->eulerianSource)));
-    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalRunUsesCustomGeometry(simCtx),
-                               "solve mode should never use the analytical geometry"));
-    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
-
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    ierr_grid = SetAnalyticalGridInfo(user);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(ierr_grid != 0),
-                               "SetAnalyticalGridInfo should reject analytical types without custom geometry"));
-
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
-    simCtx->block_number = 2;
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    ierr_non_square = SetAnalyticalGridInfo(user);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(ierr_non_square != 0),
-                               "TGV3D multi-block setup should reject non-square block counts"));
-
-    simCtx->block_number = 1;
-    PetscCall(SetAnalyticalGridInfo(user));
-    PetscCall(PicurvAssertRealNear(0.0, user->Min_X, 1.0e-12, "TGV3D single-block xmin"));
-    PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_X, 1.0e-12, "TGV3D single-block xmax"));
-
-    simCtx->block_number = 4;
-    user->_this = 3;
-    PetscCall(SetAnalyticalGridInfo(user));
-    PetscCall(PicurvAssertRealNear(PETSC_PI, user->Min_X, 1.0e-12, "TGV3D multi-block xmin should reflect the block column"));
-    PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_X, 1.0e-12, "TGV3D multi-block xmax should reflect the block column"));
-    PetscCall(PicurvAssertRealNear(PETSC_PI, user->Min_Y, 1.0e-12, "TGV3D multi-block ymin should reflect the block row"));
-    PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_Y, 1.0e-12, "TGV3D multi-block ymax should reflect the block row"));
-    PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_Z, 1.0e-12, "TGV3D multi-block zmax should span the full domain"));
-
-    simCtx->block_number = 1;
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Tests analytical scalar verification helper routines.
  */
 
@@ -188,82 +122,81 @@ static PetscErrorCode TestAnalyticalScalarVerificationHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests analytical solution engine ZERO_FLOW, UNIFORM_FLOW, and unknown-type dispatch.
+ * @brief Selects an analytical field: the options a case's source becomes.
  */
+static PetscErrorCode UseAnalyticalSource(SimCtx *simCtx, const char *u, const char *v, const char *w, const char *pressure)
+{
+    PetscFunctionBeginUser;
+    PetscCall(AnalyticalFieldDestroy(simCtx));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_frame", "cartesian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_0", u));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_1", v));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_2", w));
+    PetscCall(PetscOptionsClearValue(NULL, "-ic_source_pressure"));
+    if (pressure) PetscCall(PetscOptionsSetValue(NULL, "-ic_source_pressure", pressure));
+    PetscFunctionReturn(0);
+}
 
-static PetscErrorCode TestAnalyticalSolutionEngineDispatch(void)
+/**
+ * @brief Tests that the field is the source: zero, then uniform with its face fluxes and boundary
+ *        values, and that a source without `t` is evaluated once.
+ */
+static PetscErrorCode TestAnalyticalSolutionEngineFollowsItsSource(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    PetscErrorCode ierr_unknown = 0;
-    Cmpnts ***ucat = NULL;
-    Cmpnts ***ubcs = NULL;
+    Cmpnts ***ucat = NULL, ***ucont = NULL, ***ubcs = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
     PetscCall(VecSet(user->Ucat, 3.0));
     PetscCall(VecSet(user->P, 5.0));
     PetscCall(VecSet(user->Bcs.Ubcs, 7.0));
 
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(UseAnalyticalSource(simCtx, "0", "0", "0", NULL));
     PetscCall(AnalyticalSolutionEngine(simCtx));
-    PetscCall(PicurvAssertVecConstant(user->Ucat, 0.0, 1.0e-12, "ZERO_FLOW should zero the Eulerian velocity field"));
-    PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "ZERO_FLOW should zero the pressure field"));
-    PetscCall(PicurvAssertVecConstant(user->Bcs.Ubcs, 0.0, 1.0e-12, "ZERO_FLOW should zero boundary-condition velocity data"));
+    PetscCall(PicurvAssertVecConstant(user->Ucat, 0.0, 1.0e-12, "a zero source should zero the velocity"));
+    PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "a source without pressure should zero the pressure"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertRealNear(0.0, ubcs[0][1][1].z, 1.0e-12, "a zero source should zero the boundary values"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalFieldSupportsInterpolationError(simCtx),
+                               "a uniform field has no interpolation error to measure"));
 
-    /* UNIFORM_FLOW now works in curvilinear form (sets Ucont via metric dot products,
-       derives Ucat via Contra2Cart).  The test grid needs identity metrics so the
-       transformation is invertible and Ucat recovers the physical velocity exactly. */
-    {
-        Cmpnts ***l_csi, ***l_eta, ***l_zet;
-        DMDALocalInfo linfo;
-        PetscCall(DMDAGetLocalInfo(user->fda, &linfo));
-        PetscCall(DMDAVecGetArray(user->fda, user->lCsi, &l_csi));
-        PetscCall(DMDAVecGetArray(user->fda, user->lEta, &l_eta));
-        PetscCall(DMDAVecGetArray(user->fda, user->lZet, &l_zet));
-        for (PetscInt k = linfo.zs; k < linfo.zs + linfo.zm; k++)
-            for (PetscInt j = linfo.ys; j < linfo.ys + linfo.ym; j++)
-                for (PetscInt i = linfo.xs; i < linfo.xs + linfo.xm; i++) {
-                    l_csi[k][j][i] = (Cmpnts){1.0, 0.0, 0.0};
-                    l_eta[k][j][i] = (Cmpnts){0.0, 1.0, 0.0};
-                    l_zet[k][j][i] = (Cmpnts){0.0, 0.0, 1.0};
-                }
-        PetscCall(DMDAVecRestoreArray(user->fda, user->lZet, &l_zet));
-        PetscCall(DMDAVecRestoreArray(user->fda, user->lEta, &l_eta));
-        PetscCall(DMDAVecRestoreArray(user->fda, user->lCsi, &l_csi));
-    }
-
-    simCtx->AnalyticalUniformVelocity.x = 1.25;
-    simCtx->AnalyticalUniformVelocity.y = -0.5;
-    simCtx->AnalyticalUniformVelocity.z = 0.75;
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(UseAnalyticalSource(simCtx, "1.25", "-0.5", "0.75", NULL));
     PetscCall(AnalyticalSolutionEngine(simCtx));
-    PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "UNIFORM_FLOW should keep the pressure field zero"));
-
-    Cmpnts ***ucont = NULL;
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
-    PetscCall(PicurvAssertRealNear(1.25, ucat[1][1][1].x, 1.0e-12, "UNIFORM_FLOW should impose the configured x velocity"));
-    PetscCall(PicurvAssertRealNear(-0.5, ucat[1][1][1].y, 1.0e-12, "UNIFORM_FLOW should impose the configured y velocity"));
-    PetscCall(PicurvAssertRealNear(0.75, ucat[1][1][1].z, 1.0e-12, "UNIFORM_FLOW should impose the configured z velocity"));
-    PetscCall(PicurvAssertRealNear(1.25, ucont[1][1][1].x, 1.0e-12, "UNIFORM_FLOW should set contravariant x flux (identity metric)"));
-    PetscCall(PicurvAssertRealNear(-0.5, ucont[1][1][1].y, 1.0e-12, "UNIFORM_FLOW should set contravariant y flux (identity metric)"));
-    PetscCall(PicurvAssertRealNear(0.75, ucont[1][1][1].z, 1.0e-12, "UNIFORM_FLOW should set contravariant z flux (identity metric)"));
-    PetscCall(PicurvAssertRealNear(1.25, ubcs[0][1][1].x, 1.0e-12, "UNIFORM_FLOW should populate boundary x velocity"));
-    PetscCall(PicurvAssertRealNear(-0.5, ubcs[0][1][1].y, 1.0e-12, "UNIFORM_FLOW should populate boundary y velocity"));
-    PetscCall(PicurvAssertRealNear(0.75, ubcs[0][1][1].z, 1.0e-12, "UNIFORM_FLOW should populate boundary z velocity"));
+    PetscCall(PicurvAssertRealNear(1.25, ucat[1][1][1].x, 1.0e-12, "the source should set the interior x velocity"));
+    PetscCall(PicurvAssertRealNear(-0.5, ucat[1][1][1].y, 1.0e-12, "the source should set the interior y velocity"));
+    PetscCall(PicurvAssertRealNear(0.75, ucat[1][1][1].z, 1.0e-12, "the source should set the interior z velocity"));
+    PetscCall(PicurvAssertRealNear(1.25, ucont[1][1][1].x, 1.0e-12, "the source should set the xi flux"));
+    PetscCall(PicurvAssertRealNear(-0.5, ucont[1][1][1].y, 1.0e-12, "the source should set the eta flux"));
+    PetscCall(PicurvAssertRealNear(0.75, ucont[1][1][1].z, 1.0e-12, "the source should set the zeta flux"));
+    PetscCall(PicurvAssertRealNear(0.75, ucont[0][1][1].z, 1.0e-12, "the source should set the boundary face's flux"));
+    PetscCall(PicurvAssertRealNear(1.25, ubcs[0][1][1].x, 1.0e-12, "the source should set the boundary x velocity"));
+    PetscCall(PicurvAssertRealNear(0.75, ubcs[0][1][1].z, 1.0e-12, "the source should set the boundary z velocity"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
 
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "NOT_A_REAL_ANALYTICAL_TYPE", sizeof(simCtx->AnalyticalSolutionType)));
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    ierr_unknown = AnalyticalSolutionEngine(simCtx);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(ierr_unknown != 0),
-                               "AnalyticalSolutionEngine should reject unknown analytical type strings"));
+    /* Nothing reads t, so a later step finds the fields as it left them. */
+    PetscCall(VecSet(user->P, 9.0));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+    PetscCall(PicurvAssertVecConstant(user->P, 9.0, 1.0e-12, "a source without t should be evaluated once"));
 
+    /* A bulk velocity scales the expressions on this target too. */
+    PetscCall(UseAnalyticalSource(simCtx, "0", "0", "3", NULL));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_bulk_velocity", "2"));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+    PetscCall(PetscOptionsClearValue(NULL, "-ic_source_bulk_velocity"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(PicurvAssertRealNear(2.0, ucat[1][1][1].z, 1.0e-12, "the source should reach its bulk velocity"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+
+    PetscCall(AnalyticalFieldDestroy(simCtx));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -285,9 +218,10 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    simCtx->ren = 2.0;
+    PetscCall(PicurvPopulateIdentityMetrics(user));
     simCtx->ti = 0.5;
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(UseAnalyticalSource(simCtx, "sin(x)*cos(y)*cos(z)*exp(-2*0.5*t)", "(-cos(x)*sin(y)*cos(z)*exp(-2*0.5*t))", "0",
+                                  "0.25*(cos(2*x) + cos(2*y))*exp(-4*0.5*t)"));
 
     PetscCall(DMDAVecGetArray(user->fda, user->Cent, &cent));
     PetscCall(DMDAVecGetArray(user->fda, user->lCentx, &cent_x));
@@ -334,85 +268,56 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
 
+    PetscCall(AnalyticalFieldDestroy(simCtx));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests particle analytical-solution dispatch for TGV3D, UNIFORM_FLOW, and non-analytical no-op paths.
+ * @brief Tests the source evaluated at particle positions, and the fields it cannot be evaluated for.
  */
-
-static PetscErrorCode TestAnalyticalSolutionForParticlesDispatch(void)
+static PetscErrorCode TestAnalyticalSolutionForParticlesEvaluatesTheSource(void)
 {
-    SimCtx simCtx;
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
     Vec tempVec = NULL;
     PetscReal *data = NULL;
+    PetscErrorCode ierr_uniform;
     const PetscReal vel_decay = PetscExpReal(-0.5);
 
     PetscFunctionBeginUser;
-    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
-    simCtx.ren = 2.0;
-    simCtx.ti = 0.5;
-    PetscCall(PetscStrncpy(simCtx.AnalyticalSolutionType, "TGV3D", sizeof(simCtx.AnalyticalSolutionType)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    simCtx->ti = 0.5;
+    PetscCall(UseAnalyticalSource(simCtx, "sin(x)*cos(y)*cos(z)*exp(-2*0.5*t)", "(-cos(x)*sin(y)*cos(z)*exp(-2*0.5*t))", "0", NULL));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+    PetscCall(PicurvAssertBool(AnalyticalFieldSupportsInterpolationError(simCtx),
+                               "a source in x, y, z and t can be compared at particles"));
 
     PetscCall(VecCreateSeq(PETSC_COMM_SELF, 6, &tempVec));
     PetscCall(VecGetArray(tempVec, &data));
-    data[0] = 0.5 * PETSC_PI; data[1] = 0.0;          data[2] = 0.0;
-    data[3] = 0.0;           data[4] = 0.5 * PETSC_PI; data[5] = 0.0;
+    data[0] = 0.5 * PETSC_PI; data[1] = 0.0;           data[2] = 0.0;
+    data[3] = 0.0;            data[4] = 0.5 * PETSC_PI; data[5] = 0.0;
+    PetscCall(VecRestoreArray(tempVec, &data));
+    PetscCall(SetAnalyticalSolutionForParticles(tempVec, simCtx));
+    PetscCall(VecGetArray(tempVec, &data));
+    PetscCall(PicurvAssertRealNear(vel_decay, data[0], 1.0e-12, "the x velocity at x=pi/2"));
+    PetscCall(PicurvAssertRealNear(0.0, data[1], 1.0e-12, "the y velocity at x=pi/2"));
+    PetscCall(PicurvAssertRealNear(0.0, data[3], 1.0e-12, "the x velocity at y=pi/2"));
+    PetscCall(PicurvAssertRealNear(-vel_decay, data[4], 1.0e-12, "the y velocity at y=pi/2"));
     PetscCall(VecRestoreArray(tempVec, &data));
 
-    PetscCall(SetAnalyticalSolutionForParticles(tempVec, &simCtx));
-    PetscCall(VecGetArray(tempVec, &data));
-    PetscCall(PicurvAssertRealNear(vel_decay, data[0], 1.0e-12,
-                                   "TGV3D particle dispatch should populate the x velocity at x=pi/2"));
-    PetscCall(PicurvAssertRealNear(0.0, data[1], 1.0e-12,
-                                   "TGV3D particle dispatch should leave the first particle y velocity at zero"));
-    PetscCall(PicurvAssertRealNear(0.0, data[2], 1.0e-12,
-                                   "TGV3D particle dispatch should leave the first particle z velocity at zero"));
-    PetscCall(PicurvAssertRealNear(0.0, data[3], 1.0e-12,
-                                   "TGV3D particle dispatch should leave the second particle x velocity at zero"));
-    PetscCall(PicurvAssertRealNear(-vel_decay, data[4], 1.0e-12,
-                                   "TGV3D particle dispatch should populate the y velocity at y=pi/2"));
-    PetscCall(PicurvAssertRealNear(0.0, data[5], 1.0e-12,
-                                   "TGV3D particle dispatch should leave the second particle z velocity at zero"));
-    PetscCall(VecRestoreArray(tempVec, &data));
-
-    PetscCall(PetscStrncpy(simCtx.AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx.AnalyticalSolutionType)));
-    PetscCall(VecGetArray(tempVec, &data));
-    data[0] = 3.0;
-    data[1] = 4.0;
-    data[2] = 5.0;
-    PetscCall(VecRestoreArray(tempVec, &data));
-    PetscCall(SetAnalyticalSolutionForParticles(tempVec, &simCtx));
-    PetscCall(VecGetArray(tempVec, &data));
-    PetscCall(PicurvAssertRealNear(3.0, data[0], 1.0e-12,
-                                   "Non-TGV particle dispatch should leave the vector untouched"));
-    PetscCall(PicurvAssertRealNear(4.0, data[1], 1.0e-12,
-                                   "Non-TGV particle dispatch should preserve the y component"));
-    PetscCall(PicurvAssertRealNear(5.0, data[2], 1.0e-12,
-                                   "Non-TGV particle dispatch should preserve the z component"));
-    PetscCall(VecRestoreArray(tempVec, &data));
-
-    simCtx.AnalyticalUniformVelocity.x = 0.125;
-    simCtx.AnalyticalUniformVelocity.y = -0.25;
-    simCtx.AnalyticalUniformVelocity.z = 0.375;
-    PetscCall(PetscStrncpy(simCtx.AnalyticalSolutionType, "UNIFORM_FLOW", sizeof(simCtx.AnalyticalSolutionType)));
-    PetscCall(SetAnalyticalSolutionForParticles(tempVec, &simCtx));
-    PetscCall(VecGetArray(tempVec, &data));
-    PetscCall(PicurvAssertRealNear(0.125, data[0], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should populate the x velocity"));
-    PetscCall(PicurvAssertRealNear(-0.25, data[1], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should populate the y velocity"));
-    PetscCall(PicurvAssertRealNear(0.375, data[2], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should populate the z velocity"));
-    PetscCall(PicurvAssertRealNear(0.125, data[3], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should use the same x velocity for each particle"));
-    PetscCall(PicurvAssertRealNear(-0.25, data[4], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should use the same y velocity for each particle"));
-    PetscCall(PicurvAssertRealNear(0.375, data[5], 1.0e-12,
-                                   "UNIFORM_FLOW particle dispatch should use the same z velocity for each particle"));
-    PetscCall(VecRestoreArray(tempVec, &data));
+    PetscCall(UseAnalyticalSource(simCtx, "1", "0", "4*eta*(1-eta)", NULL));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalFieldSupportsInterpolationError(simCtx),
+                               "a source in grid-line fractions cannot be evaluated at a point"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    ierr_uniform = SetAnalyticalSolutionForParticles(tempVec, simCtx);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertBool((PetscBool)(ierr_uniform != 0), "evaluating such a source at particles should fail"));
 
     PetscCall(VecDestroy(&tempVec));
+    PetscCall(AnalyticalFieldDestroy(simCtx));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
@@ -1188,11 +1093,10 @@ int main(int argc, char **argv)
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"les-filter-paths", TestLESTestFilterPaths},
-        {"analytical-geometry-selection", TestAnalyticalGeometrySelection},
         {"analytical-scalar-verification-helpers", TestAnalyticalScalarVerificationHelpers},
-        {"analytical-solution-engine-dispatch", TestAnalyticalSolutionEngineDispatch},
+        {"analytical-solution-engine-follows-its-source", TestAnalyticalSolutionEngineFollowsItsSource},
         {"analytical-solution-engine-taylor-green-samples", TestAnalyticalSolutionEngineTaylorGreenSamples},
-        {"analytical-solution-for-particles-dispatch", TestAnalyticalSolutionForParticlesDispatch},
+        {"analytical-solution-for-particles-evaluates-the-source", TestAnalyticalSolutionForParticlesEvaluatesTheSource},
         {"compute-eddy-viscosity-les-deterministic-field", TestComputeEddyViscosityLESDeterministicField},
         {"flow-solver-rejects-unsupported-momentum-solver-type", TestFlowSolverRejectsUnsupportedMomentumSolverType},
         {"driven-channel-flow-source", TestDrivenChannelFlowSource},

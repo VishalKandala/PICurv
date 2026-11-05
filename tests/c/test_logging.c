@@ -827,7 +827,13 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    simCtx->ti = 0.25;
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_frame", "cartesian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_0", "sin(x)*cos(y)*cos(z)*exp(-2*t)"));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_1", "(-cos(x)*sin(y)*cos(z)*exp(-2*t))"));
+    PetscCall(PetscOptionsSetValue(NULL, "-ic_source_expr_2", "0"));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
     simCtx->ren = 1.0;
@@ -865,6 +871,7 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_INTERPOLATION_ERROR should write interpolation_error.csv"));
     PetscCall(AssertFileContains(metrics_path, "25,2.500000e-01,",
                                  "interpolation_error.csv should record physical time, not time multiplied by dt"));
+    PetscCall(AnalyticalFieldDestroy(simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

@@ -224,6 +224,36 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
                                             const Cmpnts edges[3], Cmpnts *value);
 
 /**
+ * @brief Factor on a source's expressions that makes the volume mean of the whole field, along
+ *        the source's own direction at each cell, equal its bulk velocity. Collective.
+ * @param[in]  user          Block; its Ucat holds whatever is staged.
+ * @param[in]  source        Source with a bulk velocity.
+ * @param[in]  fraction      Grid-line fractions, from ComputeGridLineFractions().
+ * @param[in]  length        Grid-line lengths, from ComputeGridLineFractions().
+ * @param[in]  physical_time Time [s].
+ * @param[out] factor        Factor on the expressions.
+ * @return PETSc error code.
+ */
+PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySource *source, Vec fraction, Vec length,
+                                      PetscReal physical_time, PetscReal *factor);
+
+/**
+ * @brief Add a source's flux to every owned face of Ucont, evaluating it at each face centre.
+ * @details A Cartesian velocity is dotted with the face metric; a curvilinear component is the
+ *          speed through the face, times its area.
+ * @param[in,out] user           Block whose Ucont receives the fluxes.
+ * @param[in]     source         Source with expressions.
+ * @param[in]     fraction       Grid-line fractions, from ComputeGridLineFractions().
+ * @param[in]     length         Grid-line lengths, from ComputeGridLineFractions().
+ * @param[in]     physical_time  Time [s].
+ * @param[in]     factor         Factor on the expressions.
+ * @param[in]     boundary_faces Whether the boundary - faces are set too; each cell's + face always is.
+ * @return PETSc error code.
+ */
+PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *source, Vec fraction, Vec length,
+                                     PetscReal physical_time, PetscReal factor, PetscBool boundary_faces);
+
+/**
  * @brief Free a source's compiled expressions and bulk velocity.
  * @param[in,out] source Source to release; left empty.
  * @return Zero on success.

@@ -1,6 +1,5 @@
 operation_mode:
   eulerian_field_source: "analytical"
-  analytical_type: "ZERO_FLOW"
 
 verification:
   sources:

@@ -1744,8 +1744,7 @@
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
-        "eulerian.field_source",
-        "analytical.solution_type"
+        "eulerian.field_source"
       ],
       "obligations": {
         "purpose": {

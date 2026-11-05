@@ -1177,9 +1177,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
     user->inletFaceDefined = PETSC_TRUE;
     user->identifiedInletBCFace = (BCFace)0;
     PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
     PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
-    PetscCall(AssertCapturedContains(captured, "Analytical Solution Type : ZERO_FLOW",
+    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : analytical (Source)",
                                      "DisplayBanner should include the analytical solution type for analytical runs"));
     PetscCall(AssertCapturedContains(captured, "Particle Console Cadence   : every 6 step(s)",
                                      "DisplayBanner should include active particle console cadence when particles are configured"));

@@ -15,19 +15,12 @@ For the full commented template, see:
 ```yaml
 operation_mode:
   eulerian_field_source: "solve"
-  analytical_type: "TGV3D"
-  uniform_flow:
-    u: 0.0
-    v: 0.0
-    w: 0.0
 ```
 
 Mappings:
 - `eulerian_field_source` -> `-euler_field_source` (`solve`, `load`, `analytical`)
-- `analytical_type` -> `-analytical_type`
-- `uniform_flow.u/v/w` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` when `analytical_type: "UNIFORM_FLOW"`; physical velocities, divided by `velocity_ref`
 
-`uniform_flow` is only valid when `analytical_type: "UNIFORM_FLOW"`.
+With `analytical`, the field is the case's `properties.initial_conditions.source` (@ref p32_activation_sec).
 
 @section p08_strategy_sec 2. strategy
 
@@ -312,8 +305,8 @@ step by step.
 
 @anchor p08_cap_src_analytical
 
-**Identity.** `operation_mode.eulerian_field_source: analytical` -> `-analytical_type` selects
-a closed-form field.
+**Identity.** `operation_mode.eulerian_field_source: analytical` -> the case's source is the field,
+evaluated at each step's time.
 
 **What it does.** Supplies an exact analytical velocity field instead of solving for one.
 
@@ -331,7 +324,7 @@ is why the particle verification examples use it.
 verification examples that rely on it are catalogued in **@subpage 65_Example_Catalog**.
 Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: the TGV3D velocity and
 pressure match the closed form to 9e-16 at every step; `uniform-drift-2026-09-18`: a cloud
-in `UNIFORM_FLOW` drifts at exactly the carrier velocity.
+in a uniform stream drifts at exactly the carrier velocity.
 
 **Limitations.** Only the shipped analytical forms are available; there is no
 user-supplied expression path.
@@ -416,9 +409,8 @@ matters more than density, and on coarse near-wall grids.
 
 **Parameters it owns.** None.
 
-**Interactions.** Needs `Ucont` to hold the flow, so it is refused with an analytical
-type other than `UNIFORM_FLOW`, which set `Ucat` only. Same swarm prerequisites as the
-other methods.
+**Interactions.** Reads `Ucont`, which every solved or analytical field sets. Same swarm
+prerequisites as the other methods.
 
 **Diagnostics.** The startup banner names the method. The per-cell particle count stays
 statistically uniform in a solved incompressible flow; compare against Trilinear.

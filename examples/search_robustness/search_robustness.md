@@ -16,18 +16,17 @@ That CSV is the authoritative quantitative artifact for this family.
 
 Brownian baselines:
 
-- `search_robustness_cartesian.yml`: Cartesian `ZERO_FLOW` baseline with early migration on the documented `2 x 1 x 1` split
-- `search_robustness_curvilinear.yml`: curvilinear `ZERO_FLOW` baseline with healthy but delayed migration on the bundled file grid
+- `search_robustness_cartesian.yml`: Cartesian zero-flow baseline with early migration on the documented `2 x 1 x 1` split
+- `search_robustness_curvilinear.yml`: curvilinear zero-flow baseline with healthy but delayed migration on the bundled file grid
 
 Deterministic migration stress cases:
 
-- `search_robustness_cartesian_uniform.yml`: Cartesian analytical `UNIFORM_FLOW` transport/search stress case with repeatable advection-driven search work; the flow runs from an inlet at `-Xi` to an outlet at `+Xi`, so particles that reach `+Xi` are counted as `exited`, not `lost`
-- `search_robustness_curvilinear_uniform.yml`: curvilinear analytical `UNIFORM_FLOW` transport/search stress case on the bundled file grid; the uniform flow crosses the curved walls, which reflect particles (`reflections` in `search_metrics.csv`)
+- `search_robustness_cartesian_uniform.yml`: Cartesian analytical uniform-stream transport/search stress case with repeatable advection-driven search work; the flow runs from an inlet at `-Xi` to an outlet at `+Xi`, so particles that reach `+Xi` are counted as `exited`, not `lost`
+- `search_robustness_curvilinear_uniform.yml`: curvilinear analytical uniform-stream transport/search stress case on the bundled file grid; the uniform flow crosses the curved walls, which reflect particles (`reflections` in `search_metrics.csv`)
 
 Shared assets:
 
-- `Analytical-Zero.yml`: shared analytical zero-flow solver profile
-- `Analytical-UniformFlow.yml`: shared analytical uniform-flow solver profile
+- `Analytical.yml`: shared analytical solver profile; each case's `source` is the field
 - `Imp-MG-Standard.yml`: solve-mode curvilinear solver profile retained for the Brownian file-grid baseline
 - `Search_Robustness_Output.yml`: shared monitor profile
 - `search_robustness_analysis.yml`: optional particle-visualization/MSD post recipe
@@ -35,9 +34,9 @@ Shared assets:
 - `search_robustness_cartesian_dt_study.yml`: paired `dt`/`total_steps` sweep for the Cartesian Brownian baseline
 - `search_robustness_curvilinear_dt_study.yml`: paired `dt`/`total_steps` sweep for the curvilinear Brownian baseline
 
-## Why `ZERO_FLOW` Still Moves Particles
+## Why Zero Flow Still Moves Particles
 
-These cases use analytical `ZERO_FLOW`, which sets the carrier velocity to
+These cases prescribe a zero source, which sets the carrier velocity to
 zero. Particles still move because the particle update includes Brownian
 diffusion when the effective diffusivity is nonzero. That makes these examples
 good for isolating search robustness from carrier-flow solver and interpolation
@@ -71,7 +70,7 @@ particles cross a rank boundary during the run.
 Cartesian Brownian baseline:
 
 ```bash
-./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian.yml   --solver examples/search_robustness/Analytical-Zero.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian.yml   --solver examples/search_robustness/Analytical.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 Curvilinear Brownian baseline:
@@ -83,20 +82,20 @@ Curvilinear Brownian baseline:
 Cartesian deterministic migration stress:
 
 ```bash
-./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian_uniform.yml   --solver examples/search_robustness/Analytical.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 Curvilinear deterministic migration stress:
 
 ```bash
-./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_curvilinear_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_curvilinear_uniform.yml   --solver examples/search_robustness/Analytical.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 ## Interpretation Notes
 
 - The Cartesian Brownian case is the fast baseline for healthy search plus early migration.
 - The curvilinear Brownian case is a healthy delayed-migration baseline, not an immediate migration stress test.
-- The two `UNIFORM_FLOW` cases are deterministic transport/search stress references; exact handoff onset depends on the grid geometry, seed placement, and imposed drift magnitude.
+- The two uniform-stream cases are deterministic transport/search stress references; exact handoff onset depends on the grid geometry, seed placement, and imposed drift magnitude.
 - `migrated` is a stress/exposure metric, not a failure metric.
 - The official paper-grade signals for this family are `search_failure_fraction` and `search_work_index`.
 - `re_search_fraction` is the optional third live/supporting signal.

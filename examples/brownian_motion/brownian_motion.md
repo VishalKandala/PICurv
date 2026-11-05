@@ -40,7 +40,7 @@ the statistical noise at N = 50000.
 # From project root
 ./bin/picurv run --solve --post-process -n 4 \
   --case  examples/brownian_motion/brownian_motion.yml \
-  --solver examples/brownian_motion/Analytical-Zero.yml \
+  --solver examples/brownian_motion/Analytical.yml \
   --monitor examples/brownian_motion/Standard_Output.yml \
   --post examples/brownian_motion/brownian_analysis.yml
 ```
@@ -153,7 +153,7 @@ in x, y, z at a late timestep. A Gaussian fit should match with width
 This example is intentionally modular:
 
 - keep `brownian_motion.yml` when you want the same Brownian particle setup,
-- swap `Analytical-Zero.yml` for another analytical or solve-mode `solver.yml` only if you intentionally want a different carrier-flow model,
+- swap `Analytical.yml` for another analytical or solve-mode `solver.yml` only if you intentionally want a different carrier-flow model,
 - reuse `brownian_analysis.yml` as a post recipe for other diffusion-focused particle tests.
 
 For broader profile-composition examples, see:

@@ -1071,8 +1071,7 @@ case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 # would differ in the last bits through the Krylov reductions alone.
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
-solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
-solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.05, "v": -0.02, "w": 0.1}
+case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.05, "v": -0.02, "w": 0.1}}}
 
 monitor_cfg.setdefault("io", {})
 monitor_cfg["io"]["data_output_frequency"] = 2
@@ -1163,7 +1162,7 @@ case_cfg["models"]["physics"]["particles"]["restart_mode"] = "init"
 
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
-solver_cfg["operation_mode"]["analytical_type"] = "ZERO_FLOW"
+case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.0, "v": 0.0, "w": 0.0}}}
 
 monitor_cfg.setdefault("io", {})
 monitor_cfg["io"]["data_output_frequency"] = 1
@@ -1244,7 +1243,7 @@ PY
 prepare_bent_case_analytical_uniform_tiny() {
   local case_dir="$1"
   # bent_channel.yml's own grid.mode is grid_gen, which validate_case refuses to combine
-  # with a non-TGV3D analytical carrier (UNIFORM_FLOW here) - only 'file' or
+  # with an analytical carrier - only 'file' or
   # 'programmatic_c' are allowed there. This variant exists specifically to exercise the
   # analytical branch on the bent (curvilinear) domain, so it overrides to 'file' and
   # points at the one bent-channel grid the examples still ship, rather than dropping to
@@ -1278,8 +1277,7 @@ case_cfg["models"]["physics"]["particles"] = {"count": 0}
 
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
-solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
-solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.05, "v": -0.02, "w": 0.1}
+case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.05, "v": -0.02, "w": 0.1}}}
 
 monitor_cfg.setdefault("io", {})
 monitor_cfg["io"]["data_output_frequency"] = 1
@@ -1403,8 +1401,7 @@ case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
-solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
-solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.0, "v": 0.0, "w": 1.0}
+case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.0, "v": 0.0, "w": 1.0}}}
 
 monitor_cfg.setdefault("io", {})
 monitor_cfg["io"]["data_output_frequency"] = 4
@@ -1698,14 +1695,11 @@ def case(cfg):
     particles["init_mode"] = "PointSource"
     particles["point_source"] = {"x": 0.5, "y": 0.5, "z": 0.5}
     particles["fields"] = {"Psi": "x + 0.001*uniform()"}
-def solver(cfg):
-    cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
-    cfg["operation_mode"]["uniform_flow"] = {"u": 0.3, "v": 0.0, "w": 0.0}
+    cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.3}}}
 def post(cfg):
     cfg.setdefault("global_operations", {})["dimensionalize"] = True
     cfg["run_control"]["end_step"] = 4
 edit("case", case)
-edit("solver", solver)
 edit("post", post)
 PY
   done
@@ -2433,7 +2427,7 @@ PY_SINGLE
   require_count_ge "${bent_analytical_run}/output/checkpoints" "COMMITTED" 1 "bent analytical committed checkpoints"
   require_count_ge "${bent_analytical_run}/output/checkpoints" "Ucat.dat" 1 "bent analytical Eulerian checkpoint payloads"
   require_count_ge "${bent_analytical_run}/output/visualization" "*.vts" 1 "bent analytical post VTS files"
-  require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type : UNIFORM_FLOW" "bent analytical uniform-flow runtime branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : analytical (Source)" "bent analytical uniform-flow runtime branch"
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
   prepare_flat_case_particles_base "${flat_particles_case}"
   run_case_workflow \
@@ -2533,7 +2527,7 @@ PY_SINGLE
   require_count_ge "${brownian_run}/output/visualization" "*.vtp" 1 "brownian particle VTP files"
   require_count_ge "${brownian_run}/output/analysis/statistics" "BrownianStats_msd.csv" 1 \
     "brownian MSD statistics CSV"
-  require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type" "analytical runtime branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : analytical (Source)" "analytical runtime branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 64" "brownian runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "brownian runtime banner disabled particle console cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "brownian runtime banner row sampling"

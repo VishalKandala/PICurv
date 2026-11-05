@@ -147,16 +147,6 @@ Selector: `case.yml -> models.physics.turbulence.les.clipping.mode`
 | `clip_negative` | `1` |
 | `none` | `2` |
 
-### Analytical Solution Types
-
-Selector: `solver.yml -> operation_mode.analytical_type`
-
-| Value | Maps to |
-|---|---|
-| `TGV3D` | `TGV3D` |
-| `UNIFORM_FLOW` | `UNIFORM_FLOW` |
-| `ZERO_FLOW` | `ZERO_FLOW` |
-
 ### Wall Function Models
 
 Selector: `case.yml -> models.physics.turbulence.wall_function.model`

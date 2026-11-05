@@ -11,6 +11,7 @@
  */
 
 #include "expression.h"
+#include "Metric.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -908,6 +909,144 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
         value->z = v[2];
     }
     PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvSourceCellBulkFactor().
+ * @see PicurvSourceCellBulkFactor()
+ */
+PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySource *source, Vec fraction, Vec length,
+                                      PetscReal physical_time, PetscReal *factor)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscReal L_ref = user->simCtx->scaling.L_ref, U_ref = user->simCtx->scaling.U_ref;
+    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    PetscReal values[PICURV_SOURCE_VAR_COUNT], local[3] = {0.0, 0.0, 0.0};
+    const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet, ***ucat;
+    const PetscReal ***aj;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
+    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
+    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+        const PetscReal volume = 1.0 / PetscAbsReal(aj[k][j][i]);
+        Cmpnts edges[3], v;
+        PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], L_ref);
+        PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+        PetscCall(PicurvVelocitySourceEvaluate(source, values, edges, &v));
+        const PetscReal speed = PetscSqrtReal(v.x * v.x + v.y * v.y + v.z * v.z);
+        local[0] += speed * volume;
+        if (speed > 0.0) local[1] += U_ref * (ucat[k][j][i].x * v.x + ucat[k][j][i].y * v.y +
+                                              ucat[k][j][i].z * v.z) / speed * volume;
+        local[2] += volume;
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(PicurvVelocitySourceBulkFactor(source, physical_time, local, "The field", factor));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvSourceAddFluxes().
+ * @see PicurvSourceAddFluxes()
+ */
+PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *source, Vec fraction, Vec length,
+                                     PetscReal physical_time, PetscReal factor, PetscBool boundary_faces)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscReal L_ref = user->simCtx->scaling.L_ref, U_ref = user->simCtx->scaling.U_ref;
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+    const PetscInt nodes[3] = {info->mx, info->my, info->mz};
+    const PetscInt lo[3] = {(start[0] == 0) ? 1 : start[0], (start[1] == 0) ? 1 : start[1], (start[2] == 0) ? 1 : start[2]};
+    const PetscInt hi[3] = {(end[0] == nodes[0]) ? nodes[0] - 1 : end[0], (end[1] == nodes[1]) ? nodes[1] - 1 : end[1],
+                            (end[2] == nodes[2]) ? nodes[2] - 1 : end[2]};
+    const Cmpnts ***frac, ***len, ***csi, ***eta, ***zet, ***centx, ***centy, ***centz;
+    const PetscReal ***aj;
+    Cmpnts ***ucont;
+    PetscReal values[PICURV_SOURCE_VAR_COUNT];
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentx, &centx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCenty, &centy));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentz, &centz));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt k = lo[2]; k < hi[2]; ++k)
+    for (PetscInt j = lo[1]; j < hi[1]; ++j)
+    for (PetscInt i = lo[0]; i < hi[0]; ++i) {
+        const PetscInt cell[3] = {i, j, k};
+        const PetscReal lengths[3] = {len[k][j][i].x, len[k][j][i].y, len[k][j][i].z};
+        Cmpnts edges[3];
+        PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+        for (PetscInt a = 0; a < 3; ++a) {
+            const PetscReal half = 0.5 * PetscSqrtReal(edges[a].x * edges[a].x + edges[a].y * edges[a].y +
+                                                       edges[a].z * edges[a].z) / lengths[a];
+            /* Each cell owns its + face; the first cell of a line also owns the boundary - face. */
+            const PetscInt sides = (boundary_faces && start[a] == 0 && cell[a] == 1) ? 2 : 1;
+            for (PetscInt side = 0; side < sides; ++side) {
+                const PetscInt offset = side ? -1 : 0;
+                const PetscInt fi = i + (a == 0 ? offset : 0), fj = j + (a == 1 ? offset : 0), fk = k + (a == 2 ? offset : 0);
+                const Cmpnts metric = (a == 0) ? csi[fk][fj][fi] : (a == 1) ? eta[fk][fj][fi] : zet[fk][fj][fi];
+                const Cmpnts centre = (a == 0) ? centx[fk][fj][fi] : (a == 1) ? centy[fk][fj][fi] : centz[fk][fj][fi];
+                PetscReal flux;
+                PicurvSourceSetVariables(values, centre, frac[k][j][i], len[k][j][i], L_ref);
+                values[PICURV_SOURCE_VAR_XI + a] += side ? -half : half;
+                if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
+                    const PetscReal area = PetscSqrtReal(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
+                    PetscReal value;
+                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, NULL, &value));
+                    flux = factor * (value / U_ref) * user->GridOrientation * area;
+                } else {
+                    Cmpnts v;
+                    PetscCall(PicurvVelocitySourceEvaluate(source, values, edges, &v));
+                    flux = (factor * v.x / U_ref) * metric.x + (factor * v.y / U_ref) * metric.y +
+                           (factor * v.z / U_ref) * metric.z;
+                }
+                if (a == 0) ucont[fk][fj][fi].x += flux;
+                if (a == 1) ucont[fk][fj][fi].y += flux;
+                if (a == 2) ucont[fk][fj][fi].z += flux;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentz, &centz));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCenty, &centy));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentx, &centx));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

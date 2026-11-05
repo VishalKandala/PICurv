@@ -108,6 +108,7 @@ extern "C" {
 // These declarations allow pointers to these types before their full definition.
 typedef struct SimCtx SimCtx;
 struct ParticleFieldPlan;
+struct AnalyticalField;
 struct PicurvWindow;
 struct PicurvWindowStorage;
 typedef struct UserCtx UserCtx;
@@ -936,7 +937,7 @@ typedef struct SimCtx {
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi;   ///< Refused at setup: immersed boundaries and moving bodies are not implemented.
     PetscInt  invicid, TwoD, moveframe, rotateframe; ///< moveframe/rotateframe are refused at setup.
-    char AnalyticalSolutionType[PETSC_MAX_PATH_LEN];
+    struct AnalyticalField *analyticalField; /**< The prescribed field's source, once read; see AnalyticalSolutionEngine(). */
   
     //================ Group 4: Immersed-Body Flux Corrections ================
     PetscInt  MHV, LV;                         ///< Heart-valve flux corrections for immersed bodies; refused at setup.
@@ -962,7 +963,6 @@ typedef struct SimCtx {
     PetscBool initialConditionStaged; /* A staged velocity field is part of the initial source. */
     InitialConditionField initialConditionField;
     char initialConditionDirectory[PETSC_MAX_PATH_LEN];
-    Cmpnts    AnalyticalUniformVelocity;
     PetscBool solutionConvergenceEnabled;
     SolutionConvergenceMode solutionConvergenceMode;
     PetscInt  solutionConvergencePeriodSteps;

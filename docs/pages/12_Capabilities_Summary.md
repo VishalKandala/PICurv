@@ -38,8 +38,7 @@ Supported high-level operation modes:
 
 - solve from numerically evolved Eulerian fields,
 - load/restart from prior field outputs,
-- analytical Eulerian field modes (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`).
-- file-grid analytical support for the non-custom analytical modes (`ZERO_FLOW`, `UNIFORM_FLOW`).
+- analytical Eulerian fields, prescribed from any source on a programmatic or file grid.
 
 Particle controls include:
 

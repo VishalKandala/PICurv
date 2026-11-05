@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 41 families, 136 canonical values.
+capability family the census recognises - 40 families, 133 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -78,7 +78,7 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  127 values cite `measurement:` records - 54 distinct ones, taken between 2026-09-18 and
+  124 values cite `measurement:` records - 54 distinct ones, taken between 2026-09-18 and
   2026-10-29 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, staged initial-condition fields, every
   particle seeding and restart mode, both interpolation methods, the post-processing

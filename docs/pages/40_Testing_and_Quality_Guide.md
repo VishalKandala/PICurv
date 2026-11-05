@@ -496,7 +496,7 @@ The smoke suite uses these named runtime sequences:
 - `S2b`: tiny flat-channel particle solve+post with `CornerAveraged` interpolation (legacy path regression)
 - `S3`: tiny restart runs from `S2` with `particle_restart_mode=load` and `particle_restart_mode=init`
 - `S4`: tiny Brownian analytical solve+post with particle outputs and MSD statistics
-- `S4b`: tiny flat-channel UNIFORM_FLOW run carrying 64 particles out through the outlet; checks every step that the particle count falls by exactly the counted exits and none is lost (`particle_policy: remove`)
+- `S4b`: tiny flat-channel analytical uniform-stream run carrying 64 particles out through the outlet; checks every step that the particle count falls by exactly the counted exits and none is lost (`particle_policy: remove`)
 - `S5`: multi-rank tiny solve+post runs for flat and bent channels, plus flat particle base/restart (`load` and `init`) branches
 - `S6`: restart-equivalence run for flat channel (continuous vs split restart continuity metric agreement)
 - `S7`: periodic constant-flux validate + dry-run contract coverage in the opt-in stress tier

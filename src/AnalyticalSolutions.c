@@ -1,585 +1,325 @@
 /**
  * @file AnalyticalSolutions.c
- * @brief Implements the analytical solution engine for initializing or driving the simulation.
+ * @brief Prescribes the Eulerian fields from the case's source instead of solving for them.
  *
- * @details This file provides a modular and extensible framework for applying analytical solutions
- * to the Eulerian fields. The primary entry point is `AnalyticalSolutionEngine`, which acts
- * as a dispatcher based on user configuration.
+ * @details With `eulerian_field_source: analytical`, the field is the initial condition's source,
+ * evaluated at the step's time through the operations every target of a source shares: fluxes at
+ * the faces (PicurvSourceAddFluxes()) and a bulk velocity (PicurvSourceCellBulkFactor()). A Cartesian
+ * source also sets `Ucat` and an optional pressure at the cell centres, exactly; a curvilinear one
+ * derives `Ucat` from its fluxes.
  *
- * --- DESIGN PHILOSOPHY ---
- * 1.  **Non-Dimensional Core:** All calculations within this engine are performed in
- *     **non-dimensional units** (e.g., reference velocity U_ref=1.0, reference length L_ref=1.0).
- *     This is critical for consistency with the core numerical solver, which also operates on
- *     non-dimensional equations. The `simCtx->scaling` parameters are intentionally NOT used here;
- *     they are reserved for dimensionalization during I/O and post-processing only.
- *
- * 2.  **Separation of Concerns:** The role of this engine is to set the **physical state** of the
- *     fluid at a given time `t`. This involves:
- *     - For most types (TGV3D, ZERO_FLOW): setting `Ucat` and `P` directly.
- *     - For curvilinear-aware types (UNIFORM_FLOW): setting `Ucont` via metric
- *       dot products and deriving `Ucat` through `Contra2Cart`.
- *     - Declaring the physical values on the boundaries by populating the boundary condition
- *       vector (`user->Bcs.Ubcs`).
- *     It does NOT fill dummy cells itself. After setting the physical state, every setter
- *     runs the same sequence the solved flow is finalized with (see
- *     `FinalizePostProjectionCellFields`): `UpdateDummyCells` on non-periodic faces,
- *     `SynchronizePeriodicCellFields` on periodic ones, `UpdateCornerNodes` for edges and
- *     corners, and the periodic synchronization again because corner averaging can overwrite
- *     periodic endpoints. The boundary values are this module's own `Ubcs`, which is why the
- *     setters do not call that finalizer: it would refresh `Ubcs` from the boundary handlers.
- *
- * 3.  **Extensibility:** The dispatcher design makes it straightforward to add new analytical
- *     solutions. A developer only needs to add a new `else if` condition and a corresponding
- *     `static` implementation function, without modifying any other part of the solver.
+ * The boundary values are this module's own `Ubcs`. After setting the state it runs the sequence the
+ * solved flow is finalized with (see `FinalizePostProjectionCellFields`): `UpdateDummyCells` on
+ * non-periodic faces, `SynchronizePeriodicCellFields` on periodic ones, `UpdateCornerNodes` for edges
+ * and corners, and the periodic synchronization again because corner averaging can overwrite
+ * periodic endpoints. It does not call that finalizer, which would refresh `Ubcs` from the boundary
+ * handlers.
  */
 
 #include "AnalyticalSolutions.h"     // The header that declares this file's functions
+#include "expression.h"
+#include "Metric.h"
 #include <petscmath.h>               // Provides PETSc-compatible math functions like sin, cos, exp
 
-// Forward-declare the private function for the TGV3D case.
-// This function is not visible outside this file, enforcing modularity.
-/** @brief Cell-centred fields every analytical setter finalizes, in the order the
- *         post-projection finalization uses for the solved flow. */
+/** @brief Cell-centred fields the analytical state finalizes, in the order the post-projection
+ *         finalization uses for the solved flow. */
 static const FieldId kAnalyticalCellFields[] = {FIELD_ID_UCAT, FIELD_ID_P};
 
-static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
-static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
-static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx);
-static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx);
-static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx);
 static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarConfig *cfg,
                                                       PetscReal x,
                                                       PetscReal y,
                                                       PetscReal z,
                                                       PetscReal *value);
 
-/**
- * @brief Implementation of \ref AnalyticalTypeRequiresCustomGeometry().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
- * @see AnalyticalTypeRequiresCustomGeometry()
- */
+/** @brief The prescribed field: the case's source, and what it reuses from step to step. */
+struct AnalyticalField {
+    PicurvVelocitySource source;   /* `-ic_source_*`. */
+    PicurvExpression    *pressure; /* `-ic_source_pressure` [Pa], or NULL for zero pressure. */
+    PetscBool            time_dependent;
+    PetscBool            pointwise; /* Reads only x, y, z, t in the Cartesian frame, and varies in space. */
+    PetscBool            evaluated;
+    PetscReal            factor;   /* From the bulk velocity. */
+    Vec                 *fraction; /* Per block. */
+    Vec                 *length;
+};
 
-PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
+/** @brief Read the source once, and work out what it depends on. Collective. */
+static PetscErrorCode AnalyticalFieldCreate(SimCtx *simCtx)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (!analytical_type) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return (strcmp(analytical_type, "TGV3D") == 0) ? PETSC_TRUE : PETSC_FALSE;
-}
-
-/**
- * @brief Implementation of \ref AnalyticalRunUsesCustomGeometry().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
- * @see AnalyticalRunUsesCustomGeometry()
- */
-PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx)
-{
-    PROFILE_FUNCTION_BEGIN;
-    if (!simCtx || strcmp(simCtx->eulerianSource, "analytical") != 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return simCtx->generate_grid;
-}
-
-/**
- * @brief Implementation of \ref AnalyticalTypeSupportsInterpolationError().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
- * @see AnalyticalTypeSupportsInterpolationError()
- */
-PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type)
-{
-    PROFILE_FUNCTION_BEGIN;
-    if (!analytical_type) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    if (strcmp(analytical_type, "ZERO_FLOW") == 0 || strcmp(analytical_type, "UNIFORM_FLOW") == 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return PETSC_TRUE;
-}
-
-/**
- * @brief Internal helper implementation: `SetAnalyticalGridInfo()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
-{
-    SimCtx         *simCtx = user->simCtx;
-    PetscInt       nblk = simCtx->block_number;
-    PetscInt       block_index = user->_this;
+    UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    struct AnalyticalField *field;
+    char      text[4096];
+    PetscBool found = PETSC_FALSE, uses;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-                 "SetAnalyticalGridInfo called for analytical type '%s' that does not require custom geometry.",
-                 simCtx->AnalyticalSolutionType);
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PetscNew(&field));
+    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, PETSC_FALSE, &field->source));
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-ic_source_pressure", text, sizeof(text), &found));
+    if (found) {
+        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_COUNT, PETSC_FALSE, &field->pressure));
+        PetscCall(PicurvExpressionUsesVariable(field->pressure, PICURV_SOURCE_VAR_T, &uses));
+        field->time_dependent = uses;
     }
-    if (user->IM <= 0 || user->JM <= 0 || user->KM <= 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-                "Analytical grid resolution is not initialized. Ensure IM/JM/KM are preloaded before SetAnalyticalGridInfo.");
-    }
-
-    if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Configuring grid for TGV3D analytical solution, block %" PetscInt_FMT ".\n", simCtx->rank, block_index);
-
-        if (nblk == 1) {
-            // --- Single Block Case ---
-            if (block_index == 0) {
-                LOG_ALLOW(GLOBAL, LOG_INFO, "Single block detected. Setting domain to [0, 2*PI].\n");
+    field->time_dependent = (PetscBool)(field->time_dependent || field->source.time_dependent ||
+                                        field->source.bulk_time_dependent);
+    field->pointwise = (PetscBool)(field->source.frame == PICURV_SOURCE_FRAME_CARTESIAN && !field->source.bulk);
+    {
+        PetscBool varies = PETSC_FALSE;
+        for (PetscInt c = 0; c < field->source.count; ++c) {
+            for (PetscInt var = 0; var < PICURV_SOURCE_VAR_COUNT; ++var) {
+                PetscCall(PicurvExpressionUsesVariable(field->source.component[c], var, &uses));
+                if (!uses) continue;
+                if (var >= PICURV_SOURCE_VAR_XI) field->pointwise = PETSC_FALSE;
+                if (var <= PICURV_SOURCE_VAR_Z) varies = PETSC_TRUE;
             }
-            user->Min_X = 0.0; user->Max_X = 2.0 * PETSC_PI;
-            user->Min_Y = 0.0; user->Max_Y = 2.0 * PETSC_PI;
-            user->Min_Z = 0.0; user->Max_Z = 0.2 * PETSC_PI; //2.0 * PETSC_PI;
-
-        } else { // --- Multi-Block Case ---
-            PetscReal s = sqrt((PetscReal)nblk);
-            
-            // Validate that nblk is a perfect square.
-            if (fabs(s - floor(s)) > 1e-9) {
-                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
-                         "\n\n*** CONFIGURATION ERROR FOR TGV3D ***\n"
-                         "For multi-block TGV3D cases, the number of blocks must be a perfect square (e.g., 4, 9, 16).\n"
-                         "You have specified %" PetscInt_FMT " blocks. Please adjust `-block_number`.\n", nblk);
-            }
-            PetscInt blocks_per_dim = (PetscInt)s;
-
-            if (block_index == 0) {
-                 LOG_ALLOW(GLOBAL, LOG_INFO, "%" PetscInt_FMT " blocks detected. Decomposing domain into a %" PetscInt_FMT " x %" PetscInt_FMT " grid in the X-Y plane.\n", nblk, blocks_per_dim, blocks_per_dim);
-            }
-
-            // Determine the (row, col) position of this block in the 2D decomposition
-            PetscInt row = block_index / blocks_per_dim;
-            PetscInt col = block_index % blocks_per_dim;
-
-            // Calculate the width/height of each sub-domain
-            PetscReal block_width  = (2.0 * PETSC_PI) / (PetscReal)blocks_per_dim;
-            PetscReal block_height = (2.0 * PETSC_PI) / (PetscReal)blocks_per_dim;
-            
-            // Assign this block its specific sub-domain
-            user->Min_X = col * block_width;
-            user->Max_X = (col + 1) * block_width;
-            user->Min_Y = row * block_height;
-            user->Max_Y = (row + 1) * block_height;
-            user->Min_Z = 0.0;
-            user->Max_Z = 2.0 * PETSC_PI; // Z-domain is not decomposed
         }
+        field->pointwise = (PetscBool)(field->pointwise && varies);
     }
-    /*
-     * --- EXTENSIBILITY HOOK ---
-     * To add another analytical case with special grid requirements:
-     *
-     * else if (strcmp(simCtx->AnalyticalSolutionType, "ChannelFlow") == 0) {
-     *     // ... implement logic to set domain for ChannelFlow case ...
-     * }
-     */
-    else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE,
-                 "Analytical type '%s' has no custom geometry implementation.",
-                 simCtx->AnalyticalSolutionType);
+    field->factor = 1.0;
+    PetscCall(PetscCalloc2(simCtx->block_number, &field->fraction, simCtx->block_number, &field->length));
+    for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+        PetscCall(DMCreateGlobalVector(user_finest[bi].fda, &field->fraction[bi]));
+        PetscCall(DMCreateGlobalVector(user_finest[bi].fda, &field->length[bi]));
+        PetscCall(ComputeGridLineFractions(&user_finest[bi], field->fraction[bi], field->length[bi]));
     }
-
-    // We can also read stretching ratios, as they are independent of the domain size
-    // For simplicity, we assume uniform grid unless specified.
-    user->rx = 1.0; user->ry = 1.0; user->rz = 1.0;
-    
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " grid resolution set: IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
-              simCtx->rank, block_index, user->IM, user->JM, user->KM);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " final bounds: X=[%.4f, %.4f], Y=[%.4f, %.4f], Z=[%.4f, %.4f]\n",
-              simCtx->rank, block_index, user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
-
-    PROFILE_FUNCTION_END;
+    simCtx->analyticalField = field;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref AnalyticalFieldDestroy().
+ * @see AnalyticalFieldDestroy()
+ */
+PetscErrorCode AnalyticalFieldDestroy(SimCtx *simCtx)
+{
+    struct AnalyticalField *field = simCtx->analyticalField;
 
-/*================================================================================*
- *                       PUBLIC ANALYTICAL SOLUTION ENGINE                        *
- *================================================================================*/
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (field) {
+        PetscCall(PicurvVelocitySourceDestroy(&field->source));
+        PetscCall(PicurvExpressionDestroy(&field->pressure));
+        for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+            PetscCall(VecDestroy(&field->fraction[bi]));
+            PetscCall(VecDestroy(&field->length[bi]));
+        }
+        PetscCall(PetscFree2(field->fraction, field->length));
+        PetscCall(PetscFree(simCtx->analyticalField));
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref AnalyticalFieldSupportsInterpolationError().
+ * @see AnalyticalFieldSupportsInterpolationError()
+ */
+PetscBool AnalyticalFieldSupportsInterpolationError(const SimCtx *simCtx)
+{
+    PROFILE_FUNCTION_BEGIN;
+    PROFILE_FUNCTION_END;
+    return (simCtx && simCtx->analyticalField) ? simCtx->analyticalField->pointwise : PETSC_FALSE;
+}
+
+/** @brief Set Ubcs on every physical boundary face to the source at the face centre. */
+static PetscErrorCode SetBoundaryVelocityFromSource(UserCtx *user, const struct AnalyticalField *field, PetscInt block,
+                                                    PetscReal physical_time)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscReal L_ref = user->simCtx->scaling.L_ref, U_ref = user->simCtx->scaling.U_ref;
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+    const PetscInt nodes[3] = {info->mx, info->my, info->mz};
+    const Cmpnts ***frac, ***len, ***csi, ***eta, ***zet, ***cent_face[3];
+    const PetscReal ***aj;
+    Cmpnts ***ubcs;
+    PetscReal values[PICURV_SOURCE_VAR_COUNT];
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, field->fraction[block], &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, field->length[block], &len));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentx, &cent_face[0]));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCenty, &cent_face[1]));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentz, &cent_face[2]));
+    PetscCall(DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt normal = 0; normal < 3; ++normal) {
+        const PetscInt a = (normal + 1) % 3, b = (normal + 2) % 3;
+        for (PetscInt side = 0; side < 2; ++side) {
+            const PetscInt layer = side ? end[normal] - 1 : start[normal];
+            if (side ? end[normal] != nodes[normal] : start[normal] != 0) continue;
+            for (PetscInt q = start[b]; q < end[b]; ++q)
+            for (PetscInt p = start[a]; p < end[a]; ++p) {
+                PetscInt f[3], c[3];
+                Cmpnts edges[3], v;
+                f[normal] = layer; f[a] = p; f[b] = q;
+                /* Grid-line data lives on interior cells; rows of dummies read the nearest one. */
+                c[normal] = side ? nodes[normal] - 2 : 1;
+                c[a] = PetscMax(PetscMin(p, nodes[a] - 2), 1); c[b] = PetscMax(PetscMin(q, nodes[b] - 2), 1);
+                PicurvSourceSetVariables(values, cent_face[normal][f[2]][f[1]][f[0]], frac[c[2]][c[1]][c[0]],
+                                         len[c[2]][c[1]][c[0]], L_ref);
+                values[PICURV_SOURCE_VAR_XI + normal] = side ? 1.0 : 0.0;
+                PetscCall(ComputeCellEdgeVectors(aj[c[2]][c[1]][c[0]], csi[c[2]][c[1]][c[0]], eta[c[2]][c[1]][c[0]],
+                                                 zet[c[2]][c[1]][c[0]], edges));
+                PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, edges, &v));
+                ubcs[f[2]][f[1]][f[0]].x = field->factor * v.x / U_ref;
+                ubcs[f[2]][f[1]][f[0]].y = field->factor * v.y / U_ref;
+                ubcs[f[2]][f[1]][f[0]].z = field->factor * v.z / U_ref;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentz, &cent_face[2]));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCenty, &cent_face[1]));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentx, &cent_face[0]));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, field->length[block], &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, field->fraction[block], &frac));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/** @brief Set a block's Ucat and P at every interior cell centre from the source. */
+static PetscErrorCode SetCellFieldsFromSource(UserCtx *user, const struct AnalyticalField *field, PetscInt block,
+                                              PetscReal physical_time)
+{
+    const DMDALocalInfo *info = &user->info;
+    const ScalingCtx *scaling = &user->simCtx->scaling;
+    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    const PetscBool set_velocity = (PetscBool)(field->source.frame != PICURV_SOURCE_FRAME_CURVILINEAR);
+    const Cmpnts ***cent, ***frac, ***len;
+    Cmpnts ***ucat;
+    PetscReal ***p, values[PICURV_SOURCE_VAR_COUNT];
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecGetArrayRead(user->fda, field->fraction[block], &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, field->length[block], &len));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
+    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
+    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+        PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
+        if (set_velocity) {
+            Cmpnts v;
+            PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
+            ucat[k][j][i].x = field->factor * v.x / scaling->U_ref;
+            ucat[k][j][i].y = field->factor * v.y / scaling->U_ref;
+            ucat[k][j][i].z = field->factor * v.z / scaling->U_ref;
+        }
+        if (field->pressure) {
+            PetscReal value;
+            PetscCall(PicurvExpressionEvaluate(field->pressure, values, NULL, &value));
+            p[k][j][i] = value / scaling->P_ref;
+        } else {
+            p[k][j][i] = 0.0;
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, field->length[block], &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, field->fraction[block], &frac));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
 
 /**
  * @brief Implementation of \ref AnalyticalSolutionEngine().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @details The field is the case's source, evaluated at the step's time. As on an inlet, a source
+ *          that does not read `t` is evaluated once.
  * @see AnalyticalSolutionEngine()
  */
 PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
 {
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // -- Before any operation, here is defensive test to ensure that the Corner->Center Interpolation method works
-    //ierr = TestCornerToCenterInterpolation(&(simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1]->user[0])); 
-
-    // --- Dispatch based on the string provided by the user ---
-    if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: 3D Taylor-Green Vortex (TGV3D).\n");
-        ierr = SetAnalyticalSolution_TGV3D(simCtx); CHKERRQ(ierr);
-    }
-    else if (strcmp(simCtx->AnalyticalSolutionType, "ZERO_FLOW") == 0) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Zero Background Flow (ZERO_FLOW).\n");
-        ierr = SetAnalyticalSolution_ZeroFlow(simCtx); CHKERRQ(ierr);
-    }
-    else if (strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Uniform Background Flow (UNIFORM_FLOW).\n");
-        ierr = SetAnalyticalSolution_UniformFlow(simCtx); CHKERRQ(ierr);
-    }
-    /*
-     * --- EXTENSIBILITY HOOK ---
-     * To add a new analytical solution (e.g., "ChannelFlow"):
-     * 1. Add an `else if` block here:
-     *
-     *    else if (strcmp(simCtx->AnalyticalSolutionType, "ChannelFlow") == 0) {
-     *        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Channel Flow.\n");
-     *        ierr = SetAnalyticalSolution_ChannelFlow(simCtx); CHKERRQ(ierr);
-     *    }
-     *
-     * 2. Implement the static function `SetAnalyticalSolution_ChannelFlow(SimCtx *simCtx)`
-     *    below, following the TGV3D pattern.
-     */
-    else {
-        // If the type is unknown, raise a fatal error to prevent silent failures.
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown AnalyticalSolutionType specified: '%s'", simCtx->AnalyticalSolutionType);
-    }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-
-/*================================================================================*
- *                       PRIVATE IMPLEMENTATIONS                                  *
- *================================================================================*/
-
-/**
- * @brief Populate the Eulerian field vectors with the Taylor--Green vortex at the current time.
- */
-static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
-    UserCtx       *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-    
-    // --- NON-DIMENSIONAL TGV Parameters ---
-    const PetscReal V0  = 1.0; // Non-dimensional reference velocity.
-    const PetscReal rho = 1.0; // Non-dimensional reference density.
-    const PetscReal p0  = 0.0; // Non-dimensional reference pressure.
-    
-    // Kinematic viscosity is derived from the non-dimensional Reynolds number.
-    const PetscReal nu  = (simCtx->ren > 0) ? (1.0 / simCtx->ren) : 0.0; 
-
-    const PetscReal k   = 1.0; // Wavenumber, assumes a non-dimensional [0, 2*pi] domain.
-    const PetscReal t   = simCtx->ti;
-
-    LOG_ALLOW(GLOBAL,LOG_TRACE,"TGV Setup: t = %.4f, V0* = %.4f, rho* = %.4f, k = %.4f, p0* = %4.f, nu = %.6f.\n",simCtx->ti,V0,rho,k,p0,nu);
-
-    const PetscReal vel_decay = exp(-2.0 * nu * k * k * t);
-    const PetscReal prs_decay = exp(-4.0 * nu * k * k * t);
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        UserCtx* user = &user_finest[bi];
-        DMDALocalInfo info = user->info;
-        PetscInt      xs = info.xs, xe = info.xs + info.xm;
-        PetscInt      ys = info.ys, ye = info.ys + info.ym;
-        PetscInt      zs = info.zs, ze = info.zs + info.zm;
-        PetscInt      mx = info.mx, my = info.my, mz = info.mz;
-
-        Cmpnts      ***ucat, ***ubcs;
-        const Cmpnts ***cent, ***cent_x, ***cent_y, ***cent_z;
-        PetscReal   ***p;
-        
-        // Define loop bounds for physical interior cells owned by this rank.
-        PetscInt lxs = (xs == 0) ? xs + 1 : xs, lxe = (xe == mx) ? xe - 1 : xe;
-        PetscInt lys = (ys == 0) ? ys + 1 : ys, lye = (ye == my) ? ye - 1 : ye;
-        PetscInt lzs = (zs == 0) ? zs + 1 : zs, lze = (ze == mz) ? ze - 1 : ze;
-
-        // --- Get Arrays ---
-        ierr = DMDAVecGetArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->da, user->P, &p); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lCentx, &cent_x); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lCenty, &cent_y); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lCentz, &cent_z); CHKERRQ(ierr);
-
-        // --- Set INTERIOR cell-centered velocity (Ucat) ---
-        for (PetscInt k_cell = lzs; k_cell < lze; k_cell++) {
-            for (PetscInt j_cell = lys; j_cell < lye; j_cell++) {
-                for (PetscInt i_cell = lxs; i_cell < lxe; i_cell++) {
-                    const PetscReal cx = cent[k_cell][j_cell][i_cell].x, cy = cent[k_cell][j_cell][i_cell].y, cz = cent[k_cell][j_cell][i_cell].z;
-                    ucat[k_cell][j_cell][i_cell].x =  V0 * sin(k*cx) * cos(k*cy) * cos(k*cz) * vel_decay;
-                    ucat[k_cell][j_cell][i_cell].y = -V0 * cos(k*cx) * sin(k*cy) * cos(k*cz) * vel_decay;
-                    ucat[k_cell][j_cell][i_cell].z =  0.0;
-                }
-            }
-        }
-
-
-        // --- Set INTERIOR cell-centered pressure (P) ---
-        for (PetscInt k_cell = lzs; k_cell < lze; k_cell++) {
-            for (PetscInt j_cell = lys; j_cell < lye; j_cell++) {
-                for (PetscInt i_cell = lxs; i_cell < lxe; i_cell++) {
-                    const PetscReal cx = cent[k_cell][j_cell][i_cell].x, cy = cent[k_cell][j_cell][i_cell].y;
-                    p[k_cell][j_cell][i_cell] = p0 + (rho * V0 * V0 / 4.0) * (cos(2*k*cx) + cos(2*k*cy)) * prs_decay;
-                }
-            }
-        }
-        
-
-        // --- Set BOUNDARY condition vector for velocity (Ubcs) ---
-        if (xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) {
-            const PetscReal fcx=cent_x[k][j][xs].x, fcy=cent_x[k][j][xs].y, fcz=cent_x[k][j][xs].z;
-            ubcs[k][j][xs].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][j][xs].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][j][xs].z = 0.0;
-        }
-        if (xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) {
-            const PetscReal fcx=cent_x[k][j][xe-1].x, fcy=cent_x[k][j][xe-1].y, fcz=cent_x[k][j][xe-1].z;
-            ubcs[k][j][xe-1].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][j][xe-1].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][j][xe-1].z = 0.0;
-        }
-        if (ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) {
-            const PetscReal fcx=cent_y[k][ys][i].x, fcy=cent_y[k][ys][i].y, fcz=cent_y[k][ys][i].z;
-            ubcs[k][ys][i].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][ys][i].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][ys][i].z = 0.0;
-        }
-        if (ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) {
-            const PetscReal fcx=cent_y[k][ye-1][i].x, fcy=cent_y[k][ye-1][i].y, fcz=cent_y[k][ye-1][i].z;
-            ubcs[k][ye-1][i].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][ye-1][i].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[k][ye-1][i].z = 0.0;
-        }
-        if (zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) {
-            const PetscReal fcx=cent_z[zs][j][i].x, fcy=cent_z[zs][j][i].y, fcz=cent_z[zs][j][i].z;
-            ubcs[zs][j][i].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[zs][j][i].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[zs][j][i].z = 0.0;
-        }
-        if (ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) {
-            const PetscReal fcx=cent_z[ze-1][j][i].x, fcy=cent_z[ze-1][j][i].y, fcz=cent_z[ze-1][j][i].z;
-            ubcs[ze-1][j][i].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[ze-1][j][i].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[ze-1][j][i].z = 0.0;
-        }
-
-        // --- Restore all arrays ---
-        ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->da, user->P, &p); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentx, &cent_x); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCenty, &cent_y); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentz, &cent_z); CHKERRQ(ierr);
-
-        // Pre-Dummy cell update synchronization.
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);
-
-        // --- Finalize all ghost cell values ---
-        ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-
-        // Final Synchronization.
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);
-
-    }
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Set every analytical Eulerian field to the quiescent zero-flow reference state.
- */
-static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        UserCtx *user = &user_finest[bi];
-
-        ierr = VecZeroEntries(user->Ucat);     CHKERRQ(ierr);
-        ierr = VecZeroEntries(user->P);        CHKERRQ(ierr);
-        ierr = VecZeroEntries(user->Bcs.Ubcs); CHKERRQ(ierr);
-
-        // Ghost-cell finalization — identical sequence to TGV3D
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_UCAT);          CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_P);          CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT);         CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_P);         CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
-    }
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Fill the analytical Eulerian fields with the configured spatially uniform flow state.
- */
-static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
-    UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-    const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
-    const PetscReal u = uniform_velocity.x;
-    const PetscReal v = uniform_velocity.y;
-    const PetscReal w = uniform_velocity.z;
+    struct AnalyticalField *field;
+    PetscReal physical_time;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+    if (!simCtx->analyticalField) PetscCall(AnalyticalFieldCreate(simCtx));
+    field = simCtx->analyticalField;
+    if (field->evaluated && !field->time_dependent) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+    for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         UserCtx *user = &user_finest[bi];
-        DMDALocalInfo info = user->info;
-        PetscInt      xs = info.xs, xe = info.xs + info.xm;
-        PetscInt      ys = info.ys, ye = info.ys + info.ym;
-        PetscInt      zs = info.zs, ze = info.zs + info.zm;
-        PetscInt      mx = info.mx, my = info.my, mz = info.mz;
-
-        // --- Step 1: Set Ucont (contravariant flux) via Cart2Contra ---
-        ierr = UniformCart2Contra(user, u, v, w); CHKERRQ(ierr);
-
-        // --- Step 2: Set Ubcs at boundaries (physical Cartesian velocity) ---
-        Cmpnts ***ubcs;
-        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-        if (xs == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xs] = uniform_velocity;
-        if (xe == mx) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xe - 1] = uniform_velocity;
-        if (ys == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ys][i] = uniform_velocity;
-        if (ye == my) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ye - 1][i] = uniform_velocity;
-        if (zs == 0) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[zs][j][i] = uniform_velocity;
-        if (ze == mz) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[ze - 1][j][i] = uniform_velocity;
-        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-
-        // --- Step 3: Zero pressure ---
-        ierr = VecZeroEntries(user->P); CHKERRQ(ierr);
-
-        // --- Step 4: Finalize state — derive Ucat from Ucont via metric inversion ---
         const FieldId staggered_fields[] = {FIELD_ID_UCONT};
-        ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
-        ierr = Contra2Cart(user);                CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_UCAT);           CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_P);           CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT);          CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_P);          CHKERRQ(ierr);
-        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
+        if (field->source.bulk) {
+            PetscCall(VecSet(user->Ucat, 0.0));
+            PetscCall(PicurvSourceCellBulkFactor(user, &field->source, field->fraction[bi], field->length[bi], physical_time, &field->factor));
+        }
+        PetscCall(VecSet(user->Ucont, 0.0));
+        PetscCall(PicurvSourceAddFluxes(user, &field->source, field->fraction[bi], field->length[bi], physical_time, field->factor, PETSC_TRUE));
+        PetscCall(SetBoundaryVelocityFromSource(user, field, bi, physical_time));
+        PetscCall(SetCellFieldsFromSource(user, field, bi, physical_time));
+        PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+        if (field->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR) PetscCall(Contra2Cart(user));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
+        PetscCall(UpdateDummyCells(user, FIELD_ID_UCAT));
+        PetscCall(UpdateDummyCells(user, FIELD_ID_P));
+        PetscCall(SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields));
+        PetscCall(UpdateCornerNodes(user, FIELD_ID_UCAT));
+        PetscCall(UpdateCornerNodes(user, FIELD_ID_P));
+        PetscCall(SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
     }
-
+    field->evaluated = PETSC_TRUE;
     PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Evaluate Taylor--Green velocities at swarm particle positions and store them in `tempVec`.
- */
-static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
-    PetscInt nLocal;
-    PetscReal *data;
-    
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    // TGV3D parameters (matching your Eulerian implementation)
-    const PetscReal V0  = 1.0;
-    const PetscReal k   = 1.0;
-    const PetscReal nu  = (simCtx->ren > 0) ? (1.0 / simCtx->ren) : 0.0;
-    const PetscReal t   = simCtx->ti;
-    const PetscReal vel_decay = exp(-2.0 * nu * k * k * t);
-    
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "TGV3D Particles: t=%.4f, V0=%.4f, k=%.4f, nu=%.6f\n", t, V0, k, nu);
-    
-    ierr = VecGetLocalSize(tempVec, &nLocal); CHKERRQ(ierr);
-    ierr = VecGetArray(tempVec, &data); CHKERRQ(ierr);
-    
-    // Process particles: data is interleaved [x0,y0,z0, x1,y1,z1, ...]
-    for (PetscInt i = 0; i < nLocal; i += 3) {
-        const PetscReal x = data[i];
-        const PetscReal y = data[i+1];
-        const PetscReal z = data[i+2];
-        
-        // TGV3D velocity field
-        data[i]   =  V0 * sin(k*x) * cos(k*y) * cos(k*z) * vel_decay;  // u
-        data[i+1] = -V0 * cos(k*x) * sin(k*y) * cos(k*z) * vel_decay;  // v
-        data[i+2] =  0.0;                                                // w
-    }
-    
-    ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
-    
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Fill the particle velocity vector with the configured uniform analytical flow.
- */
-static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
-    PetscInt nLocal;
-    PetscReal *data;
-    const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    ierr = VecGetLocalSize(tempVec, &nLocal); CHKERRQ(ierr);
-    ierr = VecGetArray(tempVec, &data); CHKERRQ(ierr);
-    for (PetscInt i = 0; i < nLocal; i += 3) {
-        data[i] = uniform_velocity.x;
-        data[i + 1] = uniform_velocity.y;
-        data[i + 2] = uniform_velocity.z;
-    }
-    ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
-
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
  * @brief Implementation of \ref SetAnalyticalSolutionForParticles().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @details Only a pointwise source reaches here; see AnalyticalFieldSupportsInterpolationError().
  * @see SetAnalyticalSolutionForParticles()
  */
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
 {
-    PetscErrorCode ierr;
-    const char *analytical_type = simCtx->AnalyticalSolutionType[0] ? simCtx->AnalyticalSolutionType : "default";
+    const struct AnalyticalField *field = simCtx->analyticalField;
+    const ScalingCtx *scaling = &simCtx->scaling;
+    PetscInt nLocal;
+    PetscReal *data, values[PICURV_SOURCE_VAR_COUNT], physical_time;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Type: %s\n", analytical_type);
-    
-    // Check for specific analytical solution types
-    if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using TGV3D solution.\n");
-        ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
-        PROFILE_HELPER_END;
-        return 0;
+    PetscCheck(AnalyticalFieldSupportsInterpolationError(simCtx), PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "The analytical field cannot be evaluated at a particle: it needs a Cartesian source in x, y, z and t.");
+    PetscCall(PetscArrayzero(values, PICURV_SOURCE_VAR_COUNT));
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    PetscCall(VecGetLocalSize(tempVec, &nLocal));
+    PetscCall(VecGetArray(tempVec, &data));
+    /* Interleaved [x0,y0,z0, x1,y1,z1, ...], replaced by the velocity there. */
+    for (PetscInt i = 0; i < nLocal; i += 3) {
+        Cmpnts v;
+        values[PICURV_SOURCE_VAR_X] = data[i] * scaling->L_ref;
+        values[PICURV_SOURCE_VAR_Y] = data[i + 1] * scaling->L_ref;
+        values[PICURV_SOURCE_VAR_Z] = data[i + 2] * scaling->L_ref;
+        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
+        data[i] = v.x / scaling->U_ref;
+        data[i + 1] = v.y / scaling->U_ref;
+        data[i + 2] = v.z / scaling->U_ref;
     }
-    if (strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using UNIFORM_FLOW solution.\n");
-        ierr = SetAnalyticalSolutionForParticles_UniformFlow(tempVec, simCtx); CHKERRQ(ierr);
-        PROFILE_HELPER_END;
-        return 0;
-    }
-    
+    PetscCall(VecRestoreArray(tempVec, &data));
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

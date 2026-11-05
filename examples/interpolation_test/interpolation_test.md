@@ -39,7 +39,7 @@ Cell sizes: dx = dy ~ 0.196, dz ~ 0.020.
 ## Files in this Example
 
 - `interpolation_test.yml` -- case definition (physics, grid, BCs, run control)
-- `Analytical-TGV.yml` -- solver profile (analytical mode, TGV3D field, Trilinear interpolation)
+- `Analytical.yml` -- solver profile (analytical mode, the case's source as the field, Trilinear interpolation)
 - `Standard_Output.yml` -- monitor profile
 - `interpolation_analysis.yml` -- post-processor recipe (particle VTP output)
 - `execution.example.yml` -- optional site launcher example
@@ -52,7 +52,7 @@ Cell sizes: dx = dy ~ 0.196, dz ~ 0.020.
 # From project root
 ./bin/picurv run --solve --post-process -n 4 \
   --case  examples/interpolation_test/interpolation_test.yml \
-  --solver examples/interpolation_test/Analytical-TGV.yml \
+  --solver examples/interpolation_test/Analytical.yml \
   --monitor examples/interpolation_test/Standard_Output.yml \
   --post examples/interpolation_test/interpolation_analysis.yml
 ```
@@ -80,7 +80,7 @@ Recommended counts:
 For a workstation or quick debugging workflow, repeat the same run with
 different case variants. Keep:
 
-- `Analytical-TGV.yml`
+- `Analytical.yml`
 - `Standard_Output.yml`
 - `interpolation_analysis.yml`
 
@@ -96,7 +96,7 @@ Example local command:
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
   --case  examples/interpolation_test/interpolation_test_np_50000.yml \
-  --solver examples/interpolation_test/Analytical-TGV.yml \
+  --solver examples/interpolation_test/Analytical.yml \
   --monitor examples/interpolation_test/Standard_Output.yml \
   --post examples/interpolation_test/interpolation_analysis.yml
 ```
@@ -182,7 +182,7 @@ execution.
 ```bash
 ./bin/picurv validate \
   --case interpolation_test.yml \
-  --solver Analytical-TGV.yml \
+  --solver Analytical.yml \
   --monitor Standard_Output.yml \
   --post interpolation_analysis.yml
 ```
@@ -254,7 +254,7 @@ across 200 steps.
 
 ### L2 error larger than expected
 - Wrong interpolation method: verify `interpolation.method: "Trilinear"` in
-  `Analytical-TGV.yml`. The legacy `CornerAveraged` method is first-order and
+  `Analytical.yml`. The legacy `CornerAveraged` method is first-order and
   will show larger error.
 - Grid too coarse: at 16^3, errors roughly quadruple due to second-order convergence.
 
@@ -293,7 +293,7 @@ The ratio of errors between successive doublings should approach 4 (second order
 
 ## Comparing Interpolation Methods
 
-Switch `interpolation.method` in `Analytical-TGV.yml` between `"Trilinear"`
+Switch `interpolation.method` in `Analytical.yml` between `"Trilinear"`
 and `"CornerAveraged"` to compare methods:
 
 ```yaml
@@ -313,7 +313,7 @@ order 0.96, so it is not second order in either norm.
 This example is intentionally modular:
 
 - keep `interpolation_test.yml` when you want the same TGV3D particle setup,
-- swap `Analytical-TGV.yml` to test other analytical fields or interpolation methods,
+- swap `Analytical.yml` to test other analytical fields or interpolation methods,
 - reuse `Standard_Output.yml` or swap for a lighter/heavier monitor profile,
 - adapt `interpolation_analysis.yml` to extract additional particle fields.
 

@@ -441,3 +441,36 @@ def test_a_file_term_stages_a_field_and_may_be_summed():
                               initial_conditions={"source": {"sum": ["duct", flux]}})
     with pytest.raises(ValueError, match="curvilinear frame"):
         resolve_initial(case)
+
+
+def test_an_analytical_field_is_its_source(tmp_path):
+    """!
+    @brief The retired selectors name the source, and a source's pressure and leading minus reach
+           the runtime as a value PETSc reads as one option.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    source = {"components": "cartesian", "constants": {"nu": 0.01},
+              "expression": {"u": "sin(x)", "v": "-cos(y)*exp(-2*nu*t)"},
+              "pressure": "-0.25*cos(2*x)"}
+    resolved = CORE.resolve_velocity_source(source, {}, "src", allow_normal=False)
+    lines = CORE.velocity_source_control_lines("-ic_source", resolved, "src")
+    assert '-ic_source_expr_1 "(-cos(y)*exp(-2*(0.01)*t))"' in lines
+    assert '-ic_source_pressure "(-0.25*cos(2*x))"' in lines
+
+    case, solver, monitor = load_configs(initial_conditions={"source": source})
+    solver["operation_mode"] = {"eulerian_field_source": "analytical"}
+    validate(case, solver, monitor)
+    for refused, message in (
+            ({"source": DUCT_SEED}, "neither a generator or file term"),
+            ({"source": DUCT, "constraints": {"project": True}}, "neither a generator or file term")):
+        case, solver, monitor = load_configs(initial_conditions=refused)
+        solver["operation_mode"] = {"eulerian_field_source": "analytical"}
+        with pytest.raises(SystemExit):
+            validate(case, solver, monitor)
+    case, solver, monitor = load_configs(initial_conditions={"source": source})
+    with pytest.raises(SystemExit):  # pressure needs an analytical field
+        validate(case, solver, monitor)
+    case, solver, monitor = load_configs()
+    solver["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)

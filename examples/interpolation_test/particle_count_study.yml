@@ -1,6 +1,6 @@
 base_configs:
   case: "interpolation_test.yml"
-  solver: "Analytical-TGV.yml"
+  solver: "Analytical.yml"
   monitor: "Standard_Output.yml"
   post: "interpolation_analysis.yml"
 

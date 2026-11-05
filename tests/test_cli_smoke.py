@@ -618,13 +618,13 @@ def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_p
 
 @pytest.mark.parametrize(
     ("eulerian_source", "start_step"),
-    [("analytical", 0), ("load", 0), ("solve", 3)],
+    [("load", 0), ("solve", 3)],
 )
 def test_generate_solver_control_file_ignores_superseded_file_ic(
     tmp_path, capsys, eulerian_source, start_step
 ):
     """!
-    @brief Verify analytical, load, and restart authority suppress file IC staging.
+    @brief Verify load and restart authority suppress file IC staging.
     @param[in] tmp_path Pytest temporary-directory fixture.
     @param[in] capsys Pytest output-capture fixture.
     @param[in] eulerian_source Eulerian source selected for the test.
@@ -639,8 +639,6 @@ def test_generate_solver_control_file_ignores_superseded_file_ic(
     case_cfg["properties"]["initial_conditions"] = {"source": {"type": "file", "field": "Ucat", "path": str(source)}}
     case_cfg["run_control"]["start_step"] = start_step
     solver_cfg["operation_mode"]["eulerian_field_source"] = eulerian_source
-    if eulerian_source == "analytical":
-        solver_cfg["operation_mode"]["analytical_type"] = "ZERO_FLOW"
     case_path = tmp_path / "case.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
     run_dir = tmp_path / "run"
@@ -1641,7 +1639,6 @@ def test_removed_selector_aliases_are_rejected():
         (picurv.normalize_momentum_solver_type, "DUALTIME_PICARD_JAMESON_RK"),
         (picurv.normalize_momentum_solver_type, "Dual Time NK Arnoldi"),
         (picurv.normalize_particle_init_mode, "2"),
-        (picurv.normalize_analytical_type, "ZEROFLOW"),
         (picurv.normalize_statistics_task, "ComputeMSD"),
     ]
 
@@ -1720,15 +1717,6 @@ def test_newton_krylov_rejects_invalid_eisenstat_walker_version(version):
                 },
             }
         })
-
-
-def test_normalize_analytical_type_accepts_uniform_flow():
-    """!
-    @brief Test that normalize_analytical_type accepts the UNIFORM_FLOW selector.
-    """
-    picurv = load_picurv_module()
-
-    assert picurv.normalize_analytical_type("uniform flow") == "UNIFORM_FLOW"
 
 
 def test_picgrid_validation_requires_canonical_header(tmp_path):
@@ -2257,38 +2245,6 @@ def test_validate_refuses_a_rank_layout_the_coarsest_multigrid_level_cannot_hold
                          "--monitor", str(valid / "monitor.yml")])
     assert result.returncode != 0
     assert "grid.da_processors_x = 8 is too many ranks" in result.stdout + result.stderr
-
-
-def test_face_flux_interpolation_needs_the_face_fluxes(tmp_path):
-    """!
-    @brief FaceFlux maps to code 2, validates with the solved flow, and is refused with analytical TGV3D.
-    @details FaceFlux reads the face fluxes Ucont; TGV3D sets Ucat only, so the particle velocity
-             would come from fluxes that do not hold the flow.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    @return None.
-    """
-    picurv = load_picurv_module()
-    assert picurv.normalize_interpolation_method("FaceFlux") == 2
-    valid = FIXTURES / "valid"
-    solver = picurv.read_yaml_file(str(valid / "solver.yml"))
-    solver["interpolation"] = {"method": "FaceFlux"}
-
-    def validate(solver_cfg):
-        """!
-        @brief Validate the fixture trio with the given solver configuration.
-        @param[in] solver_cfg Solver configuration to write and validate.
-        @return Completed validate process.
-        """
-        path = tmp_path / "solver.yml"
-        path.write_text(yaml.safe_dump(solver_cfg), encoding="utf-8")
-        return run_picurv(["validate", "--case", str(valid / "case.yml"), "--solver", str(path),
-                           "--monitor", str(valid / "monitor.yml")])
-
-    assert validate(solver).returncode == 0
-    solver["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
-    refused = validate(solver)
-    assert refused.returncode != 0
-    assert "interpolation.method 'FaceFlux' needs the face fluxes" in refused.stdout + refused.stderr
 
 
 def test_validate_stability_mode_ic_in_2d_needs_i_as_the_normal_axis(tmp_path):

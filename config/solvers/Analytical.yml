@@ -1,7 +1,6 @@
-# Three-dimensional Taylor--Green vortex for interpolation and particle-advection verification.
+# Analytical field: nothing is solved; the case's properties.initial_conditions.source is the flow.
 operation_mode:
   eulerian_field_source: "analytical"
-  analytical_type: "TGV3D"
 
 interpolation:
   method: "Trilinear"

@@ -3753,8 +3753,6 @@ POISSON_KSP_REFUSED = {
     "bcgs": "is not flexible",
 }
 
-#: Analytical solution types the Eulerian source can impose.
-ANALYTICAL_SOLUTION_TYPES = ("TGV3D", "ZERO_FLOW", "UNIFORM_FLOW")
 
 
 #: Discrete operators the solenoidal projection may use.
@@ -8746,6 +8744,8 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 if "source" not in bc:
                     raise ValueError(f"{where}: handler 'prescribed_velocity' needs a 'source'.")
                 source = resolve_velocity_source(bc["source"], case_cfg, f"{where}.source", allow_normal=True)
+                if source.get("pressure"):
+                    raise ValueError(f"{where}.source: an inlet sets a velocity; pressure belongs to an analytical field.")
                 prepared_entry["source"] = apply_source_constraints(
                     source, bc.get("constraints"), f"{where}.constraints", allowed={"scale", "bulk_velocity"})
                 if source["data"] is not None:
@@ -8961,8 +8961,7 @@ _SOLVER_SCHEMA = {
         "pressure_solver", "interpolation", "petsc_passthrough_options", "verification",
         "scalar_transport",
     },
-    ("operation_mode",): {"eulerian_field_source", "analytical_type", "uniform_flow"},
-    ("operation_mode", "uniform_flow"): {"u", "v", "w"},
+    ("operation_mode",): {"eulerian_field_source"},
     ("strategy",): {"momentum_solver", "central_diff"},
     ("tolerances",): {
         "max_iterations", "absolute_tol", "relative_tol", "step_tol",
@@ -9334,10 +9333,6 @@ INPUT_QUANTITIES = {
     ("case", "solver_parameters"): (None, "passthrough"),
     # ----- solver.yml -----
     ("solver", "operation_mode", "eulerian_field_source"): NOT_A_QUANTITY,
-    ("solver", "operation_mode", "analytical_type"): NOT_A_QUANTITY,
-    ("solver", "operation_mode", "uniform_flow", "u"): (VELOCITY, "cli"),
-    ("solver", "operation_mode", "uniform_flow", "v"): (VELOCITY, "cli"),
-    ("solver", "operation_mode", "uniform_flow", "w"): (VELOCITY, "cli"),
     # Iteration controls act on residuals the solver forms in its own units.
     ("solver", "strategy"): NOT_A_QUANTITY,
     ("solver", "tolerances"): UNITLESS,
@@ -9999,8 +9994,6 @@ def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_
         changed.append("properties.initial_conditions.source (file payload)")
     if str(initial_term.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
         changed.append(f"properties.initial_conditions.source.params ({initial_term.get('generator')})")
-    if isinstance(operation, dict) and operation.get("uniform_flow"):
-        changed.append("operation_mode.uniform_flow")
     if ((solver_cfg or {}).get("verification") or {}).get("sources"):
         changed.append("verification.sources")
     if any(isinstance(window, dict) and ({"start_time", "end_time", "time_cadence"} & set(window))
@@ -10067,6 +10060,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         _print_validation_errors(errors)
 
     # A retired key is refused by name, with its replacement, not as an unknown key.
+    raw_operation = solver_cfg.get("operation_mode") if isinstance(solver_cfg, dict) else None
+    retired_operation = sorted(set(raw_operation or {}) & {"analytical_type", "uniform_flow"})
+    if retired_operation:
+        errors.append(f"  {solver_path}: operation_mode keys {retired_operation} are retired. With "
+                      "eulerian_field_source: analytical, the field is the case's "
+                      "properties.initial_conditions.source, re-evaluated at each step's t: a uniform flow is "
+                      "{expression: {u: 0.1}}, zero flow is {expression: {u: 0, v: 0, w: 0}}, and Taylor-Green is "
+                      "written out in docs/pages/32_Analytical_Solutions.md.")
+        _print_validation_errors(errors)
     raw_initial = (case_cfg.get("properties") or {}).get("initial_conditions")
     if isinstance(raw_initial, dict) and _retired_initial_condition_message(raw_initial):
         errors.append(f"  {case_path}: {_retired_initial_condition_message(raw_initial)}")
@@ -10213,13 +10215,14 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         # Keep IC validation independent of that diagnostic.
         ic_eulerian_source = "solve"
     ic_is_authoritative = ic_eulerian_source == "solve" and ic_start_step == 0
+    ic_is_analytical = ic_eulerian_source == "analytical"
     if not ic:
         errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
     elif not isinstance(ic, dict):
         errors.append(f"  {case_path}: 'properties.initial_conditions' must be a mapping.")
     elif 'source' not in ic:
         errors.append(f"  {case_path}: missing key 'properties.initial_conditions.source'.")
-    elif ic_is_authoritative:
+    elif ic_is_authoritative or ic_is_analytical:
         try:
             scaling_contract = resolve_fluid_scaling(case_cfg)
             resolved_ic = resolve_initial_condition_config(
@@ -10231,6 +10234,12 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
+    if resolved_ic and resolved_ic["source"].get("pressure") and not ic_is_analytical:
+        errors.append(f"  {case_path}: a source's pressure sets a prescribed field, so it needs "
+                      "operation_mode.eulerian_field_source: analytical.")
+    if ic_is_analytical and resolved_ic and (resolved_ic["kind"] != "source" or resolved_ic["source"]["project"]):
+        errors.append(f"  {case_path}: an analytical field is re-evaluated from its expressions every step, so its "
+                      "source takes neither a generator or file term nor project.")
     if ic_is_authoritative and resolved_ic and resolved_ic.get("kind") == "stability_mode_velocity":
         dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
                              .get("dimensionality", "3D"))).strip().upper()
@@ -10451,81 +10460,21 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {solver_path}: 'operation_mode' must be a mapping when provided.")
         elif isinstance(op_mode_cfg, dict):
             eulerian_source_mode = None
-            normalized_analytical_type = None
             if 'eulerian_field_source' in op_mode_cfg:
                 try:
                     eulerian_source_mode = normalize_eulerian_field_source(op_mode_cfg.get('eulerian_field_source'))
                 except ValueError as e:
                     errors.append(f"  {solver_path}: {e}")
 
-            analytical_type = op_mode_cfg.get('analytical_type')
-            if analytical_type is not None:
-                try:
-                    normalized_analytical_type = normalize_analytical_type(analytical_type)
-                except ValueError as e:
-                    errors.append(f"  {solver_path}: {e}")
-                else:
-                    uniform_flow_cfg = op_mode_cfg.get('uniform_flow')
-                    if uniform_flow_cfg is not None and not isinstance(uniform_flow_cfg, dict):
-                        errors.append(f"  {solver_path}: 'operation_mode.uniform_flow' must be a mapping when provided.")
-                    elif normalized_analytical_type == "UNIFORM_FLOW":
-                        if not isinstance(uniform_flow_cfg, dict):
-                            errors.append(
-                                f"  {solver_path}: operation_mode.uniform_flow is required when "
-                                "operation_mode.analytical_type is 'UNIFORM_FLOW'."
-                            )
-                        else:
-                            for coord in ("u", "v", "w"):
-                                if coord not in uniform_flow_cfg:
-                                    errors.append(
-                                        f"  {solver_path}: operation_mode.uniform_flow.{coord} is required for UNIFORM_FLOW."
-                                    )
-                                else:
-                                    try:
-                                        float(uniform_flow_cfg[coord])
-                                    except (TypeError, ValueError):
-                                        errors.append(
-                                            f"  {solver_path}: operation_mode.uniform_flow.{coord} must be numeric."
-                                        )
-                    elif uniform_flow_cfg is not None:
-                        errors.append(
-                            f"  {solver_path}: operation_mode.uniform_flow is only valid when "
-                            "operation_mode.analytical_type is 'UNIFORM_FLOW'."
-                        )
-
             if eulerian_source_mode == "analytical":
-                effective_analytical_type = normalized_analytical_type or "TGV3D"
-                if effective_analytical_type == "TGV3D":
-                    # programmatic_c: the solver assigns the [0, 2*pi] TGV domain itself.
-                    # file: the given grid is kept and the field is evaluated at its cell centres.
-                    if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
-                        errors.append(
-                            f"  {case_path}: analytical type '{effective_analytical_type}' requires grid.mode "
-                            "'programmatic_c' (solver-assigned TGV domain) or 'file' (a grid file the field "
-                            "is evaluated on)."
-                        )
-                    elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
-                        missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
-                        if missing_dims:
-                            errors.append(
-                                f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
-                                f"operation_mode.analytical_type resolves to '{effective_analytical_type}'."
-                            )
-                else:
-                    if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
-                        errors.append(
-                            f"  {case_path}: grid.mode '{grid_mode}' is not supported when "
-                            f"operation_mode.analytical_type is '{effective_analytical_type}'. "
-                            "Use 'programmatic_c' or 'file'."
-                        )
-                    elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
-                        missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
-                        if missing_dims:
-                            errors.append(
-                                f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
-                                f"operation_mode.analytical_type is '{effective_analytical_type}' and "
-                                "grid.mode is 'programmatic_c'."
-                            )
+                if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
+                    errors.append(f"  {case_path}: grid.mode '{grid_mode}' is not supported for an analytical field. "
+                                  "Use 'programmatic_c' or 'file'.")
+                elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
+                    missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
+                    if missing_dims:
+                        errors.append(f"  {case_path}: grid.programmatic_settings must include {missing_dims} for an "
+                                      "analytical field on a programmatic_c grid.")
 
         verification_cfg = solver_cfg.get('verification', {})
         if verification_cfg is not None and not isinstance(verification_cfg, dict):
@@ -10778,15 +10727,6 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             interp_code = normalize_interpolation_method(interp_cfg['method'])
         except ValueError as e:
             errors.append(f"  {solver_path}: {e}")
-        else:
-            # FaceFlux reads the face fluxes; the analytical types other than UNIFORM_FLOW set Ucat only.
-            op_mode = solver_cfg.get('operation_mode') if isinstance(solver_cfg.get('operation_mode'), dict) else {}
-            if (interp_code == 2 and str(op_mode.get('eulerian_field_source', 'solve')).strip().lower() == 'analytical'
-                    and str(op_mode.get('analytical_type', 'TGV3D')).strip().upper() != 'UNIFORM_FLOW'):
-                errors.append(
-                    f"  {solver_path}: interpolation.method 'FaceFlux' needs the face fluxes the flow is "
-                    f"built from, which analytical type '{op_mode.get('analytical_type', 'TGV3D')}' does not set; "
-                    "use 'Trilinear', or the UNIFORM_FLOW analytical type.")
 
     # --- monitor.yml: basic structure ---
     if not isinstance(monitor_cfg, dict) or not monitor_cfg:
@@ -14351,7 +14291,7 @@ SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L
 #: Component frames a velocity source may be written in, and the value names each takes; the
 #: normal frame takes one value, the speed into the domain through a face.
 SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"), "normal": None}
-_SOURCE_KEYS = {"expression", "components", "constants"}
+_SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
 _SOURCE_CONSTRAINTS = ("scale", "bulk_velocity")
 
 
@@ -14437,7 +14377,10 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
             raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
         texts = [_source_text(expression.get(name, 0), constants, SOURCE_EXPRESSION_NAMES,
                               f"{where}.expression.{name}", ic_gen) for name in components]
-    return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None}
+    pressure = None
+    if "pressure" in spec:
+        pressure = _source_text(spec["pressure"], constants, SOURCE_EXPRESSION_NAMES, f"{where}.pressure", ic_gen)
+    return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
 def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bool) -> dict:
@@ -14468,7 +14411,8 @@ def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bo
             "expressions": [" + ".join(f"({source['expressions'][c]})" for source in expressions)
                             for c in range(count)],
             "constants": {name: value for source in resolved for name, value in source["constants"].items()},
-            "data": data[0] if data else None}
+            "data": data[0] if data else None,
+            "pressure": next((source["pressure"] for source in resolved if source.get("pressure")), None)}
 
 
 def apply_source_constraints(source: dict, constraints, where: str, allowed: set) -> dict:
@@ -14507,6 +14451,19 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     return resolved
 
 
+def expression_control_value(text: str, where: str) -> str:
+    """!
+    @brief Guard an expression written into the control file as a quoted option value.
+    @details PETSc reads a value beginning with `-` and a letter as a second option on the line,
+             even in quotes, so such an expression is parenthesized.
+    @param[in] text Expression text.
+    @param[in] where Configuration path, for the newline guard.
+    @return Text safe to write as the value.
+    """
+    guarded = control_value(text, where)
+    return f"({guarded})" if guarded.lstrip().startswith("-") else guarded
+
+
 def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list:
     """!
     @brief Control-file options carrying a resolved velocity source to the runtime.
@@ -14518,13 +14475,15 @@ def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list
     # A data source reaches the runtime as the bcs file's source_file; only its target travels here.
     lines = [] if source.get("data") is not None else [f"{prefix}_frame {source['frame']}"]
     for component, text in enumerate(source["expressions"]):
-        lines.append(f"{prefix}_expr_{component} \"{control_value(text, where)}\"")
+        lines.append(f"{prefix}_expr_{component} \"{expression_control_value(text, where)}\"")
     if source.get("bulk_velocity"):
-        lines.append(f"{prefix}_bulk_velocity \"{control_value(source['bulk_velocity'], where)}\"")
+        lines.append(f"{prefix}_bulk_velocity \"{expression_control_value(source['bulk_velocity'], where)}\"")
     if "field_weight" in source:
         lines.append(f"{prefix}_field_weight {source['field_weight']!r}")
     if source.get("project"):
         lines.append(f"{prefix}_project true")
+    if source.get("pressure"):
+        lines.append(f"{prefix}_pressure \"{expression_control_value(source['pressure'], where)}\"")
     return lines
 
 
@@ -15601,25 +15560,6 @@ def unused_asset_kinds(case_cfg: dict, solver_cfg: dict) -> tuple:
     return () if initial_condition_is_authoritative(case_cfg, solver_cfg) else ("initial-condition",)
 
 
-def normalize_analytical_type(value: str) -> str:
-    """!
-    @brief Normalizes the analytical solution selector to the C-side canonical string.
-    @param[in] value Human-readable analytical solution selector.
-    @return Canonical string accepted by `-analytical_type`.
-    @throws ValueError if the input cannot be mapped.
-    """
-    # Canonical selector map for analytical solution selectors.
-    if value is None:
-        raise ValueError("analytical_type cannot be None")
-
-    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
-    if normalized not in ANALYTICAL_SOLUTION_TYPES:
-        raise ValueError(
-            f"Unknown operation_mode.analytical_type '{value}'. "
-            "Use one of: 'TGV3D', 'ZERO_FLOW', 'UNIFORM_FLOW'."
-        )
-    return normalized
-
 def normalize_particle_init_mode(value: str) -> int:
     """!
     @brief Maps canonical particle init mode names to C enum/int codes (-pinit).
@@ -16331,7 +16271,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
         for index, entry in enumerate(particle_fields):
             control_lines.append(f"-particle_fields_{index}_name {entry['name']}")
             for component, expression in enumerate(entry["expressions"]):
-                text = control_value(expression, f"models.physics.particles.fields.{entry['name']}")
+                text = expression_control_value(expression, f"models.physics.particles.fields.{entry['name']}")
                 control_lines.append(f"-particle_fields_{index}_expr_{component} \"{text}\"")
             print(f"  - Particle Field Initial Value: {entry['name']} = {' ; '.join(entry['expressions'])}")
 
@@ -16382,21 +16322,6 @@ def parse_solver_config(solver_cfg: dict, scales: dict = None, case_cfg: dict = 
         if 'eulerian_field_source' in op_mode:
             normalized_source = normalize_eulerian_field_source(op_mode.get('eulerian_field_source'))
             flags['-euler_field_source'] = f"\"{normalized_source}\""
-        if 'analytical_type' in op_mode and op_mode.get('analytical_type') is not None:
-            normalized_analytical_type = normalize_analytical_type(op_mode.get('analytical_type'))
-            flags['-analytical_type'] = f"\"{normalized_analytical_type}\""
-            if normalized_analytical_type == "UNIFORM_FLOW":
-                uniform_flow_cfg = op_mode.get('uniform_flow', {})
-                if not isinstance(uniform_flow_cfg, dict):
-                    raise ValueError("operation_mode.uniform_flow must be a mapping when analytical_type is 'UNIFORM_FLOW'.")
-                try:
-                    for component in ("u", "v", "w"):
-                        flags[f'-analytical_uniform_{component}'] = solver_value(
-                            ("operation_mode", "uniform_flow", component), uniform_flow_cfg[component])
-                except KeyError as exc:
-                    raise ValueError(f"operation_mode.uniform_flow.{exc.args[0]} is required when analytical_type is 'UNIFORM_FLOW'.") from exc
-                except (TypeError, ValueError) as exc:
-                    raise ValueError("operation_mode.uniform_flow.{u,v,w} must be numeric when analytical_type is 'UNIFORM_FLOW'.") from exc
 
     verification_cfg = solver_cfg.get('verification', {})
     if verification_cfg:
@@ -16930,7 +16855,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         start_step = int(run_ctrl.get("start_step", 0) or 0)
         ic_is_authoritative = eulerian_source == "solve" and start_step == 0
         ic_cli = []
-        if ic_is_authoritative:
+        if ic_is_authoritative or eulerian_source == "analytical":
             resolved_ic = resolve_initial_condition_config(
                 ic, prepared_blocks, fluid_scaling,
                 provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
@@ -18207,7 +18132,7 @@ def _study_parameter_label(key: str) -> str:
     exact = {
         "case.run_control.dt_physical": "Physical timestep, Δt",
         "case.models.physics.particles.count": "Particle count",
-        "solver.operation_mode.uniform_flow.u": "Uniform-flow velocity, u",
+        "case.properties.initial_conditions.source.constants.U": "Prescribed velocity, U",
         "case.grid.programmatic_settings.im": "Grid nodes in i, Nᵢ",
         "case.grid.programmatic_settings.jm": "Grid nodes in j, Nⱼ",
         "case.grid.programmatic_settings.km": "Grid nodes in k, Nₖ",
@@ -22279,8 +22204,6 @@ def _build_solver_overview(context: dict) -> dict:
         **operation_mode,
         "eulerian_field_source": normalize_eulerian_field_source(operation_mode.get("eulerian_field_source", "solve")),
     }
-    if operation_mode.get("analytical_type") is not None:
-        operation_mode["analytical_type"] = normalize_analytical_type(operation_mode["analytical_type"])
     passthrough = cfg.get("petsc_passthrough_options", {}) or {}
     return {
         "operation_mode": operation_mode,

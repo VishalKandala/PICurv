@@ -4,7 +4,7 @@
 
 Verify the deterministic `diffusivitygradient * dt` term in
 `UpdateParticlePosition` using a full analytical-runtime case. The carrier flow
-is `ZERO_FLOW`; the only deterministic motion comes from the verification-only
+is zero; the only deterministic motion comes from the verification-only
 linear diffusivity profile.
 
 ## Analytical Reference

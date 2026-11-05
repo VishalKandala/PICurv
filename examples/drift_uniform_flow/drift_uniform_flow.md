@@ -23,7 +23,7 @@ setting an effectively infinite Schmidt number.
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
   --case  examples/drift_uniform_flow/drift_uniform_flow.yml \
-  --solver examples/drift_uniform_flow/Analytical-UniformFlow.yml \
+  --solver examples/drift_uniform_flow/Analytical.yml \
   --monitor examples/drift_uniform_flow/Standard_Output.yml \
   --post examples/drift_uniform_flow/uniform_flow_analysis.yml
 ```

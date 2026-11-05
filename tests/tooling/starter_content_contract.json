@@ -50,13 +50,13 @@
     },
     {
       "case": "examples/brownian_motion/brownian_motion.yml",
-      "solver": "examples/brownian_motion/Analytical-Zero.yml",
+      "solver": "examples/brownian_motion/Analytical.yml",
       "monitor": "examples/brownian_motion/Standard_Output.yml",
       "post": "examples/brownian_motion/brownian_analysis.yml"
     },
     {
       "case": "examples/drift_uniform_flow/drift_uniform_flow.yml",
-      "solver": "examples/drift_uniform_flow/Analytical-UniformFlow.yml",
+      "solver": "examples/drift_uniform_flow/Analytical.yml",
       "monitor": "examples/drift_uniform_flow/Standard_Output.yml",
       "post": "examples/drift_uniform_flow/uniform_flow_analysis.yml"
     },
@@ -68,7 +68,7 @@
     },
     {
       "case": "examples/interpolation_test/interpolation_test.yml",
-      "solver": "examples/interpolation_test/Analytical-TGV.yml",
+      "solver": "examples/interpolation_test/Analytical.yml",
       "monitor": "examples/interpolation_test/Standard_Output.yml",
       "post": "examples/interpolation_test/interpolation_analysis.yml"
     },
@@ -80,7 +80,7 @@
     },
     {
       "case": "examples/search_robustness/search_robustness_cartesian.yml",
-      "solver": "examples/search_robustness/Analytical-Zero.yml",
+      "solver": "examples/search_robustness/Analytical.yml",
       "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
       "post": "examples/search_robustness/search_robustness_analysis.yml"
     },
@@ -92,13 +92,13 @@
     },
     {
       "case": "examples/search_robustness/search_robustness_cartesian_uniform.yml",
-      "solver": "examples/search_robustness/Analytical-UniformFlow.yml",
+      "solver": "examples/search_robustness/Analytical.yml",
       "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
       "post": "examples/search_robustness/search_robustness_analysis.yml"
     },
     {
       "case": "examples/search_robustness/search_robustness_curvilinear_uniform.yml",
-      "solver": "examples/search_robustness/Analytical-UniformFlow.yml",
+      "solver": "examples/search_robustness/Analytical.yml",
       "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
       "post": "examples/search_robustness/search_robustness_analysis.yml"
     },
@@ -304,19 +304,19 @@
     },
     {
       "case": "examples/brownian_motion/brownian_motion.yml",
-      "solver": "config/solvers/Analytical-Zero.yml",
+      "solver": "config/solvers/Analytical.yml",
       "monitor": "config/monitors/Standard_Output.yml",
       "post": "config/postprocessors/particle_msd.yml"
     },
     {
       "case": "examples/drift_uniform_flow/drift_uniform_flow.yml",
-      "solver": "config/solvers/Analytical-UniformFlow.yml",
+      "solver": "config/solvers/Analytical.yml",
       "monitor": "config/monitors/Standard_Output.yml",
       "post": "config/postprocessors/standard_analysis.yml"
     },
     {
       "case": "examples/interpolation_test/interpolation_test.yml",
-      "solver": "config/solvers/Analytical-TGV3D.yml",
+      "solver": "config/solvers/Analytical.yml",
       "monitor": "config/monitors/Standard_Output.yml",
       "post": "config/postprocessors/interpolation_verification.yml"
     },
@@ -334,7 +334,7 @@
     },
     {
       "case": "examples/search_robustness/search_robustness_cartesian_uniform.yml",
-      "solver": "config/solvers/Analytical-UniformFlow.yml",
+      "solver": "config/solvers/Analytical.yml",
       "monitor": "config/monitors/Search-Robustness.yml",
       "post": "config/postprocessors/particle_msd.yml"
     }
@@ -374,11 +374,9 @@
     "config/runtime/local_execution.example.yml",
     "config/schedulers/guide.md",
     "config/schedulers/slurm_default.yml",
-    "config/solvers/Analytical-TGV3D.yml",
-    "config/solvers/Analytical-UniformFlow.yml",
+    "config/solvers/Analytical.yml",
     "config/solvers/Analytical-Zero-Verification-LinearDiffusivity.yml",
     "config/solvers/Analytical-Zero-Verification-Scalar.yml",
-    "config/solvers/Analytical-Zero.yml",
     "config/solvers/Imp-MG-Standard.yml",
     "config/solvers/Newton-Krylov-Frozen-Momentum-Point-Block.yml",
     "config/solvers/Newton-Krylov-Standard.yml",

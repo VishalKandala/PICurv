@@ -607,55 +607,6 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `PopulateFinestUserGridResolutionFromOptions()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users, PetscInt nblk)
-{
-    PetscErrorCode ierr;
-    PetscBool      found;
-    PetscInt       *IMs = NULL, *JMs = NULL, *KMs = NULL;
-    SimCtx         *simCtx = NULL;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    if (!finest_users) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "finest_users cannot be NULL.");
-    }
-    if (nblk <= 0) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "nblk must be positive. Got %" PetscInt_FMT ".", nblk);
-    }
-    simCtx = finest_users[0].simCtx;
-
-    ierr = PetscMalloc3(nblk, &IMs, nblk, &JMs, nblk, &KMs); CHKERRQ(ierr);
-    for (PetscInt i = 0; i < nblk; ++i) {
-        IMs[i] = 10; JMs[i] = 10; KMs[i] = 10;
-    }
-
-    PetscInt count;
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-im", IMs, &count, &found); CHKERRQ(ierr);
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-jm", JMs, &count, &found); CHKERRQ(ierr);
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-km", KMs, &count, &found); CHKERRQ(ierr);
-
-    for (PetscInt bi = 0; bi < nblk; ++bi) {
-        finest_users[bi].IM = IMs[bi];
-        finest_users[bi].JM = JMs[bi];
-        finest_users[bi].KM = KMs[bi];
-        if (simCtx) {
-            LOG_ALLOW(LOCAL, LOG_DEBUG,
-                      "Rank %d: Preloaded analytical grid resolution for block %" PetscInt_FMT ": IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
-                      simCtx->rank, bi, finest_users[bi].IM, finest_users[bi].JM, finest_users[bi].KM);
-        }
-    }
-
-    ierr = PetscFree3(IMs, JMs, KMs); CHKERRQ(ierr);
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
  * @brief Internal helper implementation: `ReadGridFile()`.
  * @details Local to this translation unit.
  */
@@ -3010,7 +2961,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 }
             }
         } else if(strcmp(simCtx->eulerianSource,"analytical")==0){
-            ierr = PetscPrintf(PETSC_COMM_WORLD," Analytical Solution Type : %s\n", simCtx->AnalyticalSolutionType); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Eulerian State Source       : analytical (Source)\n"); CHKERRQ(ierr);
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);

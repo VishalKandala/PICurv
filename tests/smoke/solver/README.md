@@ -9,7 +9,7 @@ Solver profiles used in smoke tests are derived from initialized examples and th
 - `load` mode for restart branch coverage,
 - restart-equivalence split runs,
 - MPI particle restart behavior across `load` and `init` branches,
-- `analytical` mode (`ZERO_FLOW`) for Brownian verification.
+- `analytical` mode (a zero source) for Brownian verification.
 
 ## Design Rationale
 

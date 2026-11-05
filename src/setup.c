@@ -492,7 +492,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
     simCtx->invicid = 0;
     simCtx->TwoD = 0; simCtx->moveframe = 0; simCtx->rotateframe = 0;
-    strcpy(simCtx->AnalyticalSolutionType,"TGV3D");
 
     // --- Group 4: Immersed-body flux corrections (refused; see Group 3 parsing) ---
     simCtx->MHV=0; simCtx->LV=0;
@@ -529,9 +528,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->initialConditionStaged = PETSC_FALSE;
     simCtx->initialConditionField = IC_FIELD_UCAT;
     strcpy(simCtx->initialConditionDirectory, "config/initial_condition");
-    simCtx->AnalyticalUniformVelocity.x = 0.0;
-    simCtx->AnalyticalUniformVelocity.y = 0.0;
-    simCtx->AnalyticalUniformVelocity.z = 0.0;
     simCtx->fieldStatisticsEnabled = PETSC_FALSE;
     simCtx->fieldStatisticsWindowCount = 0;
     simCtx->fieldStatisticsWindows = NULL;
@@ -851,7 +847,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-TwoD", &simCtx->TwoD, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mframe", &simCtx->moveframe, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-rframe", &simCtx->rotateframe, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-analytical_type",simCtx->AnalyticalSolutionType,sizeof(simCtx->AnalyticalSolutionType),NULL);CHKERRQ(ierr);
 
     /* Immersed boundaries, moving bodies and moving reference frames are planned, not
        implemented. No body geometry is ever loaded, and the IBM interpolation the
@@ -1001,9 +996,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
               "Invalid value for -ic_field. Expected 0 (Ucat) or 1 (Ucont), got %d.",
               simCtx->initialConditionField);
     }
-    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_w", &simCtx->AnalyticalUniformVelocity.z, NULL); CHKERRQ(ierr);
     PetscBool verification_scalar_value_set = PETSC_FALSE;
     PetscBool verification_scalar_phi0_set = PETSC_FALSE;
     PetscBool verification_scalar_slope_x_set = PETSC_FALSE;
@@ -1224,10 +1216,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-interpolation_method", &temp_interp, NULL); CHKERRQ(ierr);
     simCtx->interpolationMethod = (InterpolationMethod)temp_interp;
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Interpolation method: %s\n", InterpolationMethodToString(simCtx->interpolationMethod));
-    PetscCheck(simCtx->interpolationMethod != INTERP_FACE_FLUX || strcmp(simCtx->eulerianSource, "analytical") != 0 ||
-               strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
-               "FaceFlux interpolation reads the face fluxes Ucont; analytical type '%s' sets Ucat only. "
-               "Use Trilinear, or UNIFORM_FLOW.", simCtx->AnalyticalSolutionType);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_x", &simCtx->psrc_x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_y", &simCtx->psrc_y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_z", &simCtx->psrc_z, NULL); CHKERRQ(ierr);
@@ -3607,47 +3595,6 @@ PetscErrorCode Cart2Contra(UserCtx *user)
  * overwritten later by ApplyBoundaryConditions.
  * The public header owns the rendered API contract.
  */
-PetscErrorCode UniformCart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w)
-{
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    DMDALocalInfo    info;
-    Cmpnts         ***ucont_arr;
-    const Cmpnts   ***csi_arr, ***eta_arr, ***zet_arr;
-
-    info = user->info;
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr);        CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr);       CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr);       CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr);       CHKERRQ(ierr);
-
-    const PetscInt xs = info.xs, xe = info.xs + info.xm;
-    const PetscInt ys = info.ys, ye = info.ys + info.ym;
-    const PetscInt zs = info.zs, ze = info.zs + info.zm;
-
-    for (PetscInt k = zs; k < ze; k++) {
-        for (PetscInt j = ys; j < ye; j++) {
-            for (PetscInt i = xs; i < xe; i++) {
-                ucont_arr[k][j][i].x = csi_arr[k][j][i].x * u + csi_arr[k][j][i].y * v + csi_arr[k][j][i].z * w;
-                ucont_arr[k][j][i].y = eta_arr[k][j][i].x * u + eta_arr[k][j][i].y * v + eta_arr[k][j][i].z * w;
-                ucont_arr[k][j][i].z = zet_arr[k][j][i].x * u + zet_arr[k][j][i].y * v + zet_arr[k][j][i].z * w;
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr);   CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr);   CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr);   CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont_arr);    CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Cart2Contra: set Ucont from Cartesian (%.3f, %.3f, %.3f).\n",
-              (double)u, (double)v, (double)w);
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
 /**
  * @brief Internal helper implementation: `SetupDomainCellDecompositionMap()`.
  * @details Local to this translation unit.
@@ -4345,6 +4292,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     ierr = DestroySolutionConvergenceState(simCtx); CHKERRQ(ierr);
     ierr = DestroyFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
     ierr = ParticleFieldPlanDestroy(&simCtx->particleFieldPlan); CHKERRQ(ierr);
+    ierr = AnalyticalFieldDestroy(simCtx); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%" PetscInt_FMT " levels)...\n",

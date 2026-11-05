@@ -17,25 +17,11 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
-    if (AnalyticalRunUsesCustomGeometry(simCtx)) {
-        ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
-    } else if (simCtx->generate_grid) {
-        if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
-                           "Rank %d: Analytical type '%s' uses programmatic grid ingestion for block %" PetscInt_FMT ".\n",
-                           simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
-        } else {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
-        }
+    if (simCtx->generate_grid) {
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is programmatically generated.\n", simCtx->rank, user->_this);
         ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
     } else {
-        if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
-                           "Rank %d: Analytical type '%s' uses file-based grid ingestion for block %" PetscInt_FMT ".\n",
-                           simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
-        } else {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is file-based. Calling file parser.\n", simCtx->rank, user->_this);
-        }
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is file-based.\n", simCtx->rank, user->_this);
         ierr = ReadGridFile(user); CHKERRQ(ierr);
     }
 
@@ -66,12 +52,6 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
     finest_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %" PetscInt_FMT " blocks...\n", nblk);
-    if (AnalyticalRunUsesCustomGeometry(simCtx)) {
-        LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "Analytical type '%s' requires custom geometry; preloading finest-grid IM/JM/KM once.\n",
-                  simCtx->AnalyticalSolutionType);
-        ierr = PopulateFinestUserGridResolutionFromOptions(finest_users, nblk); CHKERRQ(ierr);
-    }
 
     // Loop over each block to configure its grid dimensions and geometry.
     for (PetscInt bi = 0; bi < nblk; bi++) {

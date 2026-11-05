@@ -32,9 +32,9 @@ realistic setup.
   --post my_bent_case/standard_analysis.yml
 ```
 
-Analytical uniform-flow variant: `config/solvers/Analytical-UniformFlow.yml` needs
-`grid.mode: file` or `programmatic_c` - `grid_gen` is refused for any analytical carrier
-other than `TGV3D` (see `docs/pages/14_Config_Contract.md`). To pair it with this case's bent
+Analytical uniform-flow variant: `config/solvers/Analytical.yml` needs
+`grid.mode: file` or `programmatic_c` - `grid_gen` is refused for an analytical field
+(see `docs/pages/14_Config_Contract.md`). To pair it with this case's bent
 geometry, override `grid` in `bent_channel.yml` to `mode: file` pointing at a copy of
 `examples/search_robustness/bent_channel_coarse.picgrid` placed in the case directory
 (`source_file` resolves relative to the case root). `tests/smoke/run_smoke.sh`'s

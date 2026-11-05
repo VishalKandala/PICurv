@@ -1,6 +1,7 @@
 {
   "description": "Authoritative PETSc option ingress set parsed directly in the sources listed below. Literal names are listed in known_petsc_options; names constructed for variable-arity configuration are listed as patterns in known_petsc_option_families, where % marks a substituted index.",
   "sources": [
+    "src/AnalyticalSolutions.c",
     "src/setup.c",
     "src/io.c",
     "src/statistics_config.c",
@@ -14,10 +15,6 @@
     "-TwoD",
     "-allow_unsafe_log_dir",
     "-analysis_dir",
-    "-analytical_type",
-    "-analytical_uniform_u",
-    "-analytical_uniform_v",
-    "-analytical_uniform_w",
     "-averaging",
     "-bcs_files",
     "-central",
@@ -42,6 +39,7 @@
     "-ic_dir",
     "-ic_field",
     "-ic_source_field_weight",
+    "-ic_source_pressure",
     "-ic_source_project",
     "-iem_constant",
     "-im",

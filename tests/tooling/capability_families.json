@@ -896,59 +896,6 @@
       }
     },
     {
-      "id": "analytical.solution_type",
-      "title": "Analytical Solution Types",
-      "selector": "solver.yml -> operation_mode.analytical_type",
-      "public_surface": {
-        "kind": "python_constant",
-        "module": "picurv_cli.core",
-        "symbol": "ANALYTICAL_SOLUTION_TYPES"
-      },
-      "parity_sources": [],
-      "family_page": "32_Analytical_Solutions",
-      "entry_anchor_prefix": "p32_cap_",
-      "coverage_enforced": true,
-      "value_metadata": {
-        "ZERO_FLOW": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "production": [
-              "example:examples/drift_diffusivity_gradient"
-            ],
-            "analytical": [
-              "measurement:brownian-msd-2026-09-18"
-            ]
-          }
-        },
-        "UNIFORM_FLOW": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "production": [
-              "example:examples/drift_uniform_flow"
-            ],
-            "analytical": [
-              "measurement:curvilinear-gcl-2026-09-18",
-              "measurement:uniform-drift-2026-09-18"
-            ]
-          }
-        },
-        "TGV3D": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "production": [
-              "example:examples/interpolation_test"
-            ],
-            "analytical": [
-              "measurement:solution-monitoring-tgv3d-2026-09-18"
-            ]
-          }
-        }
-      }
-    },
-    {
       "id": "turbulence.wall_function",
       "title": "Wall Function Models",
       "selector": "case.yml -> models.physics.turbulence.wall_function.model",

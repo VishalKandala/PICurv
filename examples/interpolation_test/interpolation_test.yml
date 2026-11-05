@@ -25,8 +25,7 @@
 #    |u_max| * dt* / dx = 1.0 * 0.01 / 0.196 ~ 0.05  (well under 1)
 #
 #  DOMAIN NOTE:
-#  SetAnalyticalGridInfo overrides domain bounds for TGV3D to:
-#    X: [0, 2*pi],  Y: [0, 2*pi],  Z: [0, 0.2*pi]
+#  The grid below spans X: [0, 2*pi],  Y: [0, 2*pi],  Z: [0, 0.2*pi].
 #  The Z-extent is thin (~0.628). With km=32, dz ~ 0.02 vs dx ~ 0.20.
 #  TGV has w = 0, so particles do not drift in Z. The anisotropic grid
 #  means Z-interpolation error will be much smaller than X/Y error.
@@ -45,7 +44,14 @@ properties:
     density: 1.0            # kg/m^3
     viscosity: 0.01         # Pa.s  --> Re = rho*U*L/mu = 100
   initial_conditions:
-    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}  # Analytical mode overrides the Eulerian field.
+    # The prescribed field, at every step: the Taylor-Green vortex at Re = 100 (L = U = rho = 1).
+    source:
+      components: cartesian
+      constants: {nu: 0.01}
+      expression:
+        u: "sin(x)*cos(y)*cos(z)*exp(-2*nu*t)"
+        v: "-cos(x)*sin(y)*cos(z)*exp(-2*nu*t)"
+      pressure: "0.25*(cos(2*x) + cos(2*y))*exp(-4*nu*t)"
 
 run_control:
   start_step: 0
@@ -61,14 +67,13 @@ grid:
     im: 32
     jm: 32
     km: 32
-    # Domain bounds are overridden by SetAnalyticalGridInfo for TGV3D.
-    # These placeholders satisfy the YAML schema validator.
+    # One period of the vortex in x and y.
     xMins: 0.0
-    xMaxs: 6.2832
+    xMaxs: 6.283185307179586
     yMins: 0.0
-    yMaxs: 6.2832
+    yMaxs: 6.283185307179586
     zMins: 0.0
-    zMaxs: 0.6283
+    zMaxs: 0.6283185307179586
     rxs: 1.0                # Uniform grid -- no stretching
     rys: 1.0
     rzs: 1.0

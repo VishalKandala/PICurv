@@ -13,7 +13,8 @@ properties:
     # particles are carried by the uniform flow alone.
     schmidt_number: 1.0e12
   initial_conditions:
-    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}
+    # The prescribed field: a uniform stream, at every step.
+    source: {components: cartesian, constants: {U: 0.5}, expression: {u: U}}
 
 run_control:
   start_step: 0

@@ -45,7 +45,7 @@ properties:
     density: 1.0            # kg/m^3
     viscosity: 0.001        # Pa.s  --> Re = rho*U*L/mu = 1000
   initial_conditions:
-    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}  # Analytical mode overrides this IC.
+    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}  # The prescribed field: quiescent.
 
 run_control:
   start_step: 0
@@ -99,7 +99,7 @@ models:
 # and Gamma_eff = 1e-3, the particle cloud spreads only ~0.19 in 3sigma by t*=2.0.
 # The domain half-width is 0.5, so walls are ~8sigma away -- expected losses ~ 0.
 # Periodic BCs are not used because they do not wrap particles in the current solver.
-# ZERO_FLOW analytical mode means the no-slip condition is trivially satisfied
+# Zero analytical flow means the no-slip condition is trivially satisfied
 # (Eulerian velocity is zero everywhere by construction).
 boundary_conditions:
   - face: "-Xi"

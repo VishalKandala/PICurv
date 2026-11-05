@@ -30,7 +30,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
 | `case.sources`, a `prescribed_velocity` entry's `source`/`constraints`, `case.properties.initial_conditions.source` | `source_id` in the bcs row; `-inlet_source_<id>_frame`, `-inlet_source_<id>_expr_<c>`, `-inlet_source_<id>_bulk_velocity`, `-ic_source_frame`, `-ic_source_expr_<c>`, and for a `sum` or `project` `-ic_source_field_weight` (the staged generator field's scale, beside its `-ic_dir`) and `-ic_source_project` | `src/expression.c` (`PicurvVelocitySourceCreate`), `src/BC_Handlers.c` (bulk velocity), `src/initialcondition.c` (field weight, projection) | `src/BC_Handlers.c` (prescribed-velocity inlet), `src/initialcondition.c` (`IC_MODE_SOURCE`, `ProjectInitialVelocity`) |
-| `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type`, `-analytical_uniform_u/-v/-w` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
+| `solver.operation_mode.*` | `-euler_field_source` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
 | `solver.verification.sources.diffusivity.*` | `-verification_diffusivity_mode/-profile/-gamma0/-slope_x` | `src/setup.c` | `src/verification_sources.c`, `src/ParticlePhysics.c` |
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
@@ -107,11 +107,9 @@ Some launcher behaviors depend on other config selections before values ever rea
 - A `type: file` term validates and stages one `Ucat` or `Ucont` PETSc vector in the existing
   @ref ReadFieldData naming layout. With a file-backed grid it also refuses a vector sized for another grid.
 - `solver.operation_mode.eulerian_field_source` and `case.run_control.start_step` supersede IC
-  materialization when load, analytical, or restart state has authority.
-- `solver.operation_mode.eulerian_field_source: analytical`
-  routes through the analytical grid-ingestion split:
-  `TGV3D` still requires `case.grid.mode: programmatic_c`, while `ZERO_FLOW` and `UNIFORM_FLOW`
-  accept `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
+  materialization when load or restart state has authority.
+- `solver.operation_mode.eulerian_field_source: analytical` makes `case.properties.initial_conditions.source`
+  the field at every step, and accepts `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
 - `case.properties.initial_conditions.source` is an explicit launcher requirement. A `source` named by a string is
   looked up in the case's top-level `sources:`, and its `constants` are inlined into every
   expression before the options are written.

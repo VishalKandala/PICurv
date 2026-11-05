@@ -84,8 +84,6 @@ For each run, `picurv` generates:
 @section p14_solver_sec 4. Solver Contract Highlights
 
 - `operation_mode.eulerian_field_source` -> `-euler_field_source`
-- `operation_mode.analytical_type` -> `-analytical_type`
-- `operation_mode.uniform_flow.{u,v,w}` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` for `UNIFORM_FLOW`
 - `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
 - `verification.sources.scalar.*` -> `-verification_scalar_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
@@ -167,9 +165,7 @@ supported. Evidence and limits per value are at
 
 Analytical-mode compatibility rule:
 
-- when `operation_mode.eulerian_field_source: analytical` is selected, `TGV3D` still requires `case.yml -> grid.mode: programmatic_c`.
-- `ZERO_FLOW` and `UNIFORM_FLOW` support `case.yml -> grid.mode: programmatic_c` and `case.yml -> grid.mode: file`.
-- `grid_gen` remains outside the current documented analytical contract.
+- when `operation_mode.eulerian_field_source: analytical` is selected, `case.yml -> grid.mode` is `programmatic_c` or `file`, and the field is the case's `properties.initial_conditions.source` (@ref p32_activation_sec).
 
 Verification-pathway rule:
 

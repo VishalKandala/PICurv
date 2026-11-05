@@ -20,88 +20,36 @@
 #include "interpolation.h"  // All the different interpolation routines required 
 
 /**
- * @brief Sets the grid domain and resolution for analytical solution cases.
- *
- * @details This function is called when `eulerianSource` is "analytical". It is responsible for
- * automatically configuring the grid based on the chosen `AnalyticalSolutionType`.
- *
- * @par TGV3D Multi-Block Decomposition
- * If the analytical solution is "TGV3D", this function automatically decomposes the
- * required `[0, 2*PI]` physical domain among the available blocks.
- * - **Single Block (`nblk=1`):** The single block is assigned the full `[0, 2*PI]` domain.
- * - **Multiple Blocks (`nblk>1`):** It requires that the number of blocks be a **perfect square**
- *   (e.g., 4, 9, 16). It then arranges the blocks in a `sqrt(nblk)` by `sqrt(nblk)` grid in the
- *   X-Y plane, partitioning the `[0, 2*PI]` domain in X and Y accordingly. The Z domain for all
- *   blocks remains `[0, 2*PI]`. If `nblk` is not a perfect square, the simulation is aborted
- *   with an error.
- *
- * Grid resolution (`IM/JM/KM`) is expected to be pre-populated in `user`
- * before this function is called.
- *
- * @param user Pointer to the `UserCtx` for a specific block. The function will
- *             populate the geometric fields (`IM`, `JM`, `KM`, `Min_X`, `Max_X`, etc.)
- *             within this struct.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- */
-PetscErrorCode SetAnalyticalGridInfo(UserCtx *user);
-
-/**
- * @brief Reports whether an analytical type requires custom geometry/decomposition logic.
- *
- * Analytical types returning PETSC_TRUE are expected to route through
- * `SetAnalyticalGridInfo`. Types returning PETSC_FALSE should use the standard
- * programmatic grid parser fallback.
- *
- * @param analytical_type Analytical solution type string.
- * @return PETSC_TRUE if custom geometry is required, PETSC_FALSE otherwise.
- */
-PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type);
-
-/**
- * @brief Reports whether this run assigns the analytical type's own geometry.
- * @details True only in analytical mode, for a type that requires custom geometry, on a
- *          programmatic grid (`-grid`). A file-backed grid (`grid.mode: file`) keeps the
- *          geometry it was given, and the analytical field is evaluated at its cell centres.
- * @param simCtx Simulation context (reads eulerianSource, AnalyticalSolutionType, generate_grid).
- * @return PETSC_TRUE if SetAnalyticalGridInfo() defines the grid, PETSC_FALSE otherwise.
- */
-PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx);
-
-/**
- * @brief Reports whether an analytical type has a non-trivial velocity field
- *        for which interpolation error measurement is meaningful.
- *
- * Types with identically zero velocity (e.g. ZERO_FLOW) return PETSC_FALSE
- * because the interpolation error is trivially zero and uninformative.
- *
- * @param analytical_type Analytical solution type string.
- * @return PETSC_TRUE if interpolation error is meaningful, PETSC_FALSE otherwise.
- */
-PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type);
-
-/**
- * @brief Dispatches to the appropriate analytical solution function based on simulation settings.
- *
- * This function acts as a router. It reads the `AnalyticalSolutionType` from the
- * simulation context and calls the corresponding private implementation function
- * (e.g., for Taylor-Green Vortex, lid-driven cavity, etc.). This design keeps
- * the main simulation code clean and makes it easy to add new analytical test cases.
- *
+ * @brief Sets the Eulerian fields from the case's source (`-ic_source_*`) at the step's time.
+ * @details Sets the fluxes on every face, `Ubcs` on every boundary face, and `Ucat` and `P` at the
+ *          cell centres. A source that does not read `t` is evaluated once. Collective.
  * @param simCtx The main simulation context, containing configuration and state.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx);
 
 /**
-@brief Applies the analytical solution to particle velocity vector.
+ * @brief Release what AnalyticalSolutionEngine() keeps from step to step, if anything.
+ * @param simCtx Simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode AnalyticalFieldDestroy(SimCtx *simCtx);
 
-@details Dispatcher function that calls the appropriate analytical solution based on 
-         simCtx->AnalyticalSolutionType. Supports multiple solution types.
+/**
+ * @brief Reports whether the analytical field can be compared with interpolated particle velocities.
+ * @details It must be evaluable at any point, a Cartesian source reading only x, y, z and t, and
+ *          must vary in space: interpolating a uniform field has no error to measure.
+ * @param simCtx Simulation context, after AnalyticalSolutionEngine().
+ * @return PETSC_TRUE if interpolation error is meaningful, PETSC_FALSE otherwise.
+ */
+PetscBool AnalyticalFieldSupportsInterpolationError(const SimCtx *simCtx);
 
-@param tempVec The PETSc Vec containing particle positions which will be used to store velocities.
-@param simCtx The simulation context.
-@return PetscErrorCode Returns 0 on success.
-*/
+/**
+ * @brief Evaluates the analytical velocity at particle positions.
+ * @param tempVec The PETSc Vec containing particle positions, replaced by the velocities.
+ * @param simCtx The simulation context.
+ * @return PetscErrorCode Returns 0 on success.
+ */
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx);
 
 /**

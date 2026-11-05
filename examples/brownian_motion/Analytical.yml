@@ -4,9 +4,8 @@
 #
 #  CRITICAL SETTINGS:
 #  - eulerian_field_source: analytical  -->  bypasses NS solve entirely
-#  - analytical_type: ZERO_FLOW        -->  sets u = 0 everywhere, every step
 #
-#  With these settings the only active physics in the particle update is:
+#  The case's source sets u = 0, so the only active physics in the particle update is:
 #
 #    dX_i = sqrt(2 * Gamma_eff * dt) * xi_i        xi_i ~ N(0,1)
 #
@@ -15,7 +14,6 @@
 
 operation_mode:
   eulerian_field_source: "analytical"   # Bypasses NS/Poisson solve -- no momentum solver runs
-  analytical_type: "ZERO_FLOW"          # Sets Ucat = 0 identically every timestep
 
 interpolation:
   method: "Trilinear"

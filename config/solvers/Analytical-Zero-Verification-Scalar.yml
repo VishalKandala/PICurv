@@ -1,7 +1,6 @@
 # Zero-flow carrier field with a prescribed scalar truth for scatter verification.
 operation_mode:
   eulerian_field_source: "analytical"
-  analytical_type: "ZERO_FLOW"
 
 verification:
   sources:

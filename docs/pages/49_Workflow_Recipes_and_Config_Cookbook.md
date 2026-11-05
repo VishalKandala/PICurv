@@ -204,14 +204,14 @@ File-grid baseline:
 Analytical zero-flow Brownian verification:
 
 - case: `examples/brownian_motion/brownian_motion.yml`
-- solver: `examples/brownian_motion/Analytical-Zero.yml`
+- solver: `examples/brownian_motion/Analytical.yml`
 - monitor: `examples/brownian_motion/Standard_Output.yml`
 - post: `examples/brownian_motion/brownian_analysis.yml`
 
 Analytical uniform-flow deterministic drift verification:
 
 - case: `examples/drift_uniform_flow/drift_uniform_flow.yml`
-- solver: `examples/drift_uniform_flow/Analytical-UniformFlow.yml`
+- solver: `examples/drift_uniform_flow/Analytical.yml`
 - monitor: `examples/drift_uniform_flow/Standard_Output.yml`
 - post: `examples/drift_uniform_flow/uniform_flow_analysis.yml`
 
@@ -458,7 +458,7 @@ Choose `brownian_motion` when:
 
 - you want an analytical zero-flow validation case,
 - you want a particle-focused test with minimal flow complexity,
-- you want a reference for `ZERO_FLOW` analytical mode.
+- you want a reference for a zero-velocity analytical field.
 
 @section p49_scatter_recipe_sec 7. Scatter Verification Recipe
 
@@ -469,7 +469,7 @@ that truth end-to-end.
 Recommended pattern:
 
 - keep `operation_mode.eulerian_field_source: analytical`
-- use `analytical_type: ZERO_FLOW` for pure deposition checks
+- use a zero source with `eulerian_field_source: analytical` for pure deposition checks
 - choose a scalar profile under `verification.sources.scalar`
 - reuse the production scatter operator rather than adding a second deposition path
 - read the runtime metric from `<run.analysis.metrics>/scatter_metrics.csv`
@@ -479,7 +479,7 @@ Separation rules:
 - when `verification.sources.scalar` is absent, ordinary production runs are unchanged
 - only the particle `Psi` update is bypassed in verification mode
 - carrier-flow selection remains independent, so the same scalar truth can later
-  be paired with `UNIFORM_FLOW` or `TGV3D`
+  be paired with a uniform stream or the Taylor-Green vortex
 
 This pathway is useful for more than one study. It enables:
 

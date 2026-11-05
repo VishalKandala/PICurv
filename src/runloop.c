@@ -815,7 +815,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = WriteCheckpointBundle(simCtx, "cadence"); CHKERRQ(ierr);
             if (simCtx->np > 0) {
                 if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
-                    AnalyticalTypeSupportsInterpolationError(simCtx->AnalyticalSolutionType)) {
+                    AnalyticalFieldSupportsInterpolationError(simCtx)) {
                     LOG_INTERPOLATION_ERROR(user);
                 }
                 ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);

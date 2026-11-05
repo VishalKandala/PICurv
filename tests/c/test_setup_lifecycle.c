@@ -885,7 +885,6 @@ static PetscErrorCode TestSetupLifecycleScatterMetricsAtStepZero(void)
     PetscCall(BuildLifecycleContext(PETSC_TRUE, &simCtx, tmpdir, sizeof(tmpdir)));
     user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
-    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
     simCtx->StepsToRun = 0;
     simCtx->StartStep = 0;
     simCtx->verificationScalar.enabled = PETSC_TRUE;
