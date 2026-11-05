@@ -1,0 +1,1 @@
+- Inlets: `source: {type: generated}` and the `square_duct_poiseuille` generator are removed and refused. Write the profile as an expression with `constraints: {bulk_velocity: ...}`; the initial-conditions page gives the exact rectangular-duct series as `duct_poiseuille`. `generators/profile.gen` keeps `field-slice`.
