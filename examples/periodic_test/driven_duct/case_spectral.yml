@@ -21,7 +21,6 @@ properties:
             - i
             - j
             streamwise_axis: k
-            bulk_velocity: 0.0
             perturbation_rms: 0.1
             wall_modes: 3
             spectrum:
@@ -36,7 +35,8 @@ properties:
                 i: 63
                 j: 63
               subtract_mean: sample
-    constraints: {project: false}  # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    constraints: {bulk_velocity: 1.0, project: false}
 grid:
   mode: grid_gen
   generator:

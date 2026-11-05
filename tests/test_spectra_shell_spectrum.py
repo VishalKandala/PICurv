@@ -330,7 +330,7 @@ def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypa
     grid = tmp_path / 'inputs/grid/grid.run'
     grid.parent.mkdir(parents=True)
     write_picgrid(grid, nodes)
-    params_wall = {'seed':14,'wall_axes':['j'],'bulk_velocity':1.,'perturbation_rms':0.12,
+    params_wall = {'seed':14,'wall_axes':['j'],'perturbation_rms':0.12,
                   'initial_spectra':[{'task':task,'axes':axes,'fixed_indices':fixed,'subtract_mean':'sample'}]}
     faces = [{'face':sign+face,'type':'WALL' if face=='Eta' else 'PERIODIC',
               'handler':'noslip' if face=='Eta' else 'geometric'}

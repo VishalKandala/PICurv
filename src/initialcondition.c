@@ -226,9 +226,13 @@ static PetscErrorCode ReadStagedInitialField(UserCtx *user, const char *name, Ve
 }
 
 /**
- * @brief Evaluate the configured velocity source (`-ic_source_*`) at every owned cell centre
- *        into Ucat, then derive Ucont. With `-ic_source_field_weight w`, the source is added
- *        to w times the staged Ucat of a generator. Collective.
+ * @brief Evaluate the configured velocity source (`-ic_source_*`) and derive Ucont.
+ * @details A Cartesian source is evaluated at every owned cell centre into Ucat. A curvilinear
+ *          source sets each owned face's flux directly: its component along the grid line,
+ *          evaluated at the face centre, times the face area. With `-ic_source_field_weight w`,
+ *          it is added to w times the staged Ucat of a generator. With a bulk velocity, the
+ *          source is scaled so that the volume mean of the whole field along the source's own
+ *          direction equals it. Collective.
  */
 static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
 {
@@ -239,27 +243,30 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
     const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
     PicurvVelocitySource source;
-    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT], weight = 0.0;
-    PetscBool  add_field = PETSC_FALSE;
+    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT], weight = 0.0, factor = 1.0;
+    PetscReal  local[3] = {0.0, 0.0, 0.0};
+    PetscBool  add_field = PETSC_FALSE, on_faces;
     Vec        fraction, length;
-    const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet;
+    const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet, ***centx, ***centy, ***centz;
     const PetscReal ***aj;
-    Cmpnts ***ucat;
+    Cmpnts ***ucat, ***ucont;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(PicurvVelocitySourceCreate(PICURV_SOURCE_TARGET_INITIAL, 0, &source));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-ic_source_field_weight", &weight, &add_field));
+    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, add_field, &source));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
     PetscCall(DMCreateGlobalVector(user->fda, &fraction));
     PetscCall(DMCreateGlobalVector(user->fda, &length));
     PetscCall(ComputeGridLineFractions(user, fraction, length));
 
-    PetscCall(PetscOptionsGetReal(NULL, NULL, "-ic_source_field_weight", &weight, &add_field));
+    on_faces = (PetscBool)(source.frame == PICURV_SOURCE_FRAME_CURVILINEAR);
     if (add_field) {
         PetscCall(ReadStagedInitialField(user, "ufield00000_0", user->Ucat));
         PetscCall(VecScale(user->Ucat, weight));
+        if (on_faces) PetscCall(UcontFromInteriorUcat(user));
     } else {
-        PetscCall(VecSet(user->Ucat, 0.0));
+        PetscCall(VecSet(on_faces ? user->Ucont : user->Ucat, 0.0));
     }
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
     PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
@@ -268,28 +275,61 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentx, &centx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCenty, &centy));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentz, &centz));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
     values[PICURV_SOURCE_VAR_T] = physical_time;
-    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
-    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
-    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
-        Cmpnts edges[3], v;
-        values[PICURV_SOURCE_VAR_X] = cent[k][j][i].x * L_ref;
-        values[PICURV_SOURCE_VAR_Y] = cent[k][j][i].y * L_ref;
-        values[PICURV_SOURCE_VAR_Z] = cent[k][j][i].z * L_ref;
-        values[PICURV_SOURCE_VAR_XI] = frac[k][j][i].x;
-        values[PICURV_SOURCE_VAR_ETA] = frac[k][j][i].y;
-        values[PICURV_SOURCE_VAR_ZETA] = frac[k][j][i].z;
-        values[PICURV_SOURCE_VAR_L_XI] = len[k][j][i].x * L_ref;
-        values[PICURV_SOURCE_VAR_L_ETA] = len[k][j][i].y * L_ref;
-        values[PICURV_SOURCE_VAR_L_ZETA] = len[k][j][i].z * L_ref;
-        PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
-        PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
-        ucat[k][j][i].x += v.x / U_ref;
-        ucat[k][j][i].y += v.y / U_ref;
-        ucat[k][j][i].z += v.z / U_ref;
+    /* The first pass, only with a bulk target, measures the volume mean along the source. */
+    for (PetscInt pass = source.bulk ? 0 : 1; pass < 2; ++pass) {
+        for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
+        for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
+        for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+            Cmpnts edges[3], v;
+            PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], L_ref);
+            PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+            if (pass == 0) {
+                const PetscReal volume = 1.0 / PetscAbsReal(aj[k][j][i]);
+                PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
+                const PetscReal speed = PetscSqrtReal(v.x * v.x + v.y * v.y + v.z * v.z);
+                local[0] += speed * volume;
+                if (speed > 0.0) local[1] += U_ref * (ucat[k][j][i].x * v.x + ucat[k][j][i].y * v.y +
+                                                      ucat[k][j][i].z * v.z) / speed * volume;
+                local[2] += volume;
+            } else if (on_faces) {
+                const Cmpnts metric[3] = {csi[k][j][i], eta[k][j][i], zet[k][j][i]};
+                const Cmpnts face[3] = {centx[k][j][i], centy[k][j][i], centz[k][j][i]};
+                PetscReal flux[3];
+                for (PetscInt a = 0; a < 3; ++a) {
+                    const PetscReal area = PetscSqrtReal(metric[a].x * metric[a].x + metric[a].y * metric[a].y +
+                                                         metric[a].z * metric[a].z);
+                    const PetscReal ds = PetscSqrtReal(edges[a].x * edges[a].x + edges[a].y * edges[a].y +
+                                                       edges[a].z * edges[a].z);
+                    const PetscReal lengths[3] = {len[k][j][i].x, len[k][j][i].y, len[k][j][i].z};
+                    PetscReal value;
+                    PicurvSourceSetVariables(values, face[a], frac[k][j][i], len[k][j][i], L_ref);
+                    values[PICURV_SOURCE_VAR_XI + a] += 0.5 * ds / lengths[a];
+                    PetscCall(PicurvExpressionEvaluate(source.component[a], values, NULL, &value));
+                    flux[a] = factor * (value / U_ref) * user->GridOrientation * area;
+                }
+                ucont[k][j][i].x += flux[0];
+                ucont[k][j][i].y += flux[1];
+                ucont[k][j][i].z += flux[2];
+            } else if (source.count > 0) {
+                PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
+                ucat[k][j][i].x += factor * v.x / U_ref;
+                ucat[k][j][i].y += factor * v.y / U_ref;
+                ucat[k][j][i].z += factor * v.z / U_ref;
+            }
+        }
+        if (pass == 0) PetscCall(PicurvVelocitySourceBulkFactor(&source, physical_time, local, "The initial condition", &factor));
     }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentz, &centz));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCenty, &centy));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentx, &centx));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
@@ -300,7 +340,7 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     PetscCall(VecDestroy(&fraction));
     PetscCall(VecDestroy(&length));
     PetscCall(PicurvVelocitySourceDestroy(&source));
-    PetscCall(UcontFromInteriorUcat(user));
+    if (!on_faces) PetscCall(UcontFromInteriorUcat(user));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

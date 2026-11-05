@@ -180,6 +180,9 @@
     "-zMins"
   ],
   "known_petsc_option_families": [
+    "-%_bulk_velocity",
+    "-%_expr_%",
+    "-%_frame",
     "-field_statistics_%_%_covariance_%",
     "-field_statistics_%_%_covariance_count",
     "-field_statistics_%_%_field_%_moments",
@@ -193,11 +196,6 @@
     "-field_statistics_window_%_step_cadence",
     "-field_statistics_window_%_time_cadence",
     "-field_statistics_window_%_weighting",
-    "-ic_source_expr_%",
-    "-ic_source_frame",
-    "-inlet_source_%_bulk_velocity",
-    "-inlet_source_%_expr_%",
-    "-inlet_source_%_frame",
     "-particle_fields_%_expr_%",
     "-particle_fields_%_name",
     "-particle_fields_count"

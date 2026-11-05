@@ -418,11 +418,10 @@ def test_wall_seed_discrete_flux_and_stretched_grid(generator, walls):
         shape = [1,1,1]; shape[2-a] = n
         nodes[..., a] = coordinates.reshape(shape)
     options = {'wall_axes': walls, 'streamwise_axis': next(a for a in 'kij' if a not in walls),
-               'bulk_velocity': 1.2, 'perturbation_rms': 0.15, 'seed': 17}
+               'perturbation_rms': 0.15, 'seed': 17}
     full, summary = IC.generate_wall_spectral_velocity(nodes, options, generator)
     again, _ = IC.generate_wall_spectral_velocity(nodes, options, generator)
     assert np.array_equal(full, again)
-    assert summary['bulk_velocity'] == pytest.approx(1.2)
     assert summary['perturbation_rms'] == pytest.approx(0.15)
     assert summary['picurv_discrete_divergence_max'] < 1e-12
     assert np.max(np.abs(summary['perturbation_component_means'])) < 1e-14

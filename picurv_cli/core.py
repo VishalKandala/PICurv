@@ -8230,8 +8230,11 @@ def raw_inlet_data_sources(case_cfg: dict) -> list:
                 continue
             source = entry.get("source")
             source = named.get(source) if isinstance(source, str) else source
-            if isinstance(source, dict) and "type" in source:
-                found.append((block_index, entry, source))
+            terms = source.get("sum", [source]) if isinstance(source, dict) else []
+            for term in terms if isinstance(terms, list) else []:
+                term = named.get(term) if isinstance(term, str) else term
+                if isinstance(term, dict) and "type" in term:
+                    found.append((block_index, entry, term))
     return found
 
 
@@ -9597,7 +9600,7 @@ IC_PARAM_QUANTITIES["resampled_velocity"] = {
 IC_PARAM_QUANTITIES["channel_spectral_velocity"] = IC_PARAM_QUANTITIES["duct_spectral_velocity"] = {
     "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY,
     "wall_axes": NOT_A_QUANTITY, "wall_modes": NOT_A_QUANTITY, "initial_spectra": NOT_A_QUANTITY,
-    "bulk_velocity": (VELOCITY, "cli"), "perturbation_rms": (VELOCITY, "cli"),
+    "perturbation_rms": (VELOCITY, "cli"),
     "spectrum.type": NOT_A_QUANTITY,
     "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
 }
@@ -14626,6 +14629,8 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         where, spec = f"sources.{spec}", named[spec]
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources.")
+    if "sum" in spec:
+        return _resolve_source_sum(spec, case_cfg, where, allow_normal)
     if "type" in spec:
         if not allow_normal:
             raise ValueError(f"{where}: a '{spec['type']}' data source is a face's normal-speed profile, "
@@ -14665,6 +14670,37 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         texts = [_source_text(expression.get(name, 0), constants, SOURCE_EXPRESSION_NAMES,
                               f"{where}.expression.{name}", ic_gen) for name in components]
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None}
+
+
+def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bool) -> dict:
+    """!
+    @brief Add a source's `sum` terms: expressions in one frame, and at most one data term.
+    @param[in] spec Mapping with `sum`, a non-empty list of sources.
+    @param[in] case_cfg Case configuration holding `sources:`.
+    @param[in] where Configuration path of the sum.
+    @param[in] allow_normal Whether the target is a face.
+    @return The resolved source; see resolve_velocity_source().
+    """
+    terms = spec["sum"]
+    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+    resolved = [resolve_velocity_source(term, case_cfg, f"{where}.sum[{index}]", allow_normal)
+                for index, term in enumerate(terms)]
+    data = [source["data"] for source in resolved if source["data"] is not None]
+    if len(data) > 1:
+        raise ValueError(f"{where}.sum takes at most one data term.")
+    expressions = [source for source in resolved if source["data"] is None]
+    frames = {source["frame"] for source in expressions}
+    if len(frames) > 1:
+        raise ValueError(f"{where}.sum: its source terms mix the {sorted(frames)} frames; write them in one.")
+    if data and frames - {"normal"}:
+        raise ValueError(f"{where}.sum: expressions added to a data term must be in the normal frame.")
+    count = len(expressions[0]["expressions"]) if expressions else 0
+    return {"frame": expressions[0]["frame"] if expressions else "normal",
+            "expressions": [" + ".join(f"({source['expressions'][c]})" for source in expressions)
+                            for c in range(count)],
+            "constants": {name: value for source in resolved for name, value in source["constants"].items()},
+            "data": data[0] if data else None}
 
 
 def apply_source_constraints(source: dict, constraints, where: str, allowed: set) -> dict:
@@ -14959,46 +14995,37 @@ def initial_generator_term(ic: dict) -> dict:
 def _resolve_initial_source_sum(spec: dict, where: str, named_sources, prepared_blocks, scales: dict,
                                 provider_context):
     """!
-    @brief Split an initial `source: {sum: [...]}` into one source and at most one generator.
-    @details Source terms (names or mappings) must share a frame and are added term by term;
-             a `{generator, params}` term is resolved as the generated provider it names, whose
-             staged Ucat the runtime adds to the source.
+    @brief Split an initial `source: {sum: [...]}` into its source terms and at most one generator.
+    @details A `{generator, params}` term is resolved as the generated provider it names, whose
+             staged Ucat the runtime adds to the source; resolve_velocity_source() adds the rest.
     @param[in] spec Mapping with `sum`, a list of terms.
     @param[in] where Configuration path of the sum.
     @param[in] named_sources The case's `sources:` mapping.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales.
     @param[in] provider_context Optional conductor-derived provider context.
-    @return `(source mapping, resolved generator contract or None)`.
+    @return `(source specification, resolved generator contract or None)`.
     """
     terms = spec["sum"]
     if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
         raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    resolved, generated = [], None
+    rest, generated = [], None
     for index, term in enumerate(terms):
         at = f"{where}.sum[{index}]"
-        if isinstance(term, dict) and "generator" in term:
-            if generated is not None:
-                raise ValueError(f"{at}: a sum takes at most one generator term.")
-            unknown = sorted(set(term) - {"generator", "params"})
-            if unknown:
-                raise ValueError(f"{at}: unknown keys {unknown}; a generator term takes generator and params.")
-            generated = resolve_initial_condition_config(
-                {"mode": "generated", "generator": term["generator"], "params": term.get("params") or {}},
-                prepared_blocks, scales, provider_context)
-            if not is_generated_ic_provider(generated) or generated.get("field_code") != 0:
-                raise ValueError(f"{at}: generator '{term['generator']}' does not write a staged Ucat to add.")
+        if not (isinstance(term, dict) and "generator" in term):
+            rest.append(term)
             continue
-        resolved.append(resolve_velocity_source(term, {"sources": named_sources or {}}, at, allow_normal=False))
-    if not resolved:
-        return {"components": "cartesian", "expression": {}}, generated
-    frames = {source["frame"] for source in resolved}
-    if len(frames) > 1:
-        raise ValueError(f"{where}.sum: its source terms mix the {sorted(frames)} frames; write them in one.")
-    names = SOURCE_FRAMES[resolved[0]["frame"]]
-    total = {name: " + ".join(f"({source['expressions'][c]})" for source in resolved)
-             for c, name in enumerate(names)}
-    return {"components": resolved[0]["frame"], "expression": total}, generated
+        if generated is not None:
+            raise ValueError(f"{at}: a sum takes at most one generator term.")
+        unknown = sorted(set(term) - {"generator", "params"})
+        if unknown:
+            raise ValueError(f"{at}: unknown keys {unknown}; a generator term takes generator and params.")
+        generated = resolve_initial_condition_config(
+            {"mode": "generated", "generator": term["generator"], "params": term.get("params") or {}},
+            prepared_blocks, scales, provider_context)
+        if not is_generated_ic_provider(generated) or generated.get("field_code") != 0:
+            raise ValueError(f"{at}: generator '{term['generator']}' does not write a staged Ucat to add.")
+    return ({"sum": rest} if rest else {"components": "cartesian", "expression": {}}), generated
 
 
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
@@ -15037,7 +15064,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
             if not isinstance(project, bool):
                 raise ValueError("properties.initial_conditions.constraints.project must be true or false.")
         source = apply_source_constraints(source, constraints, "properties.initial_conditions.constraints",
-                                          allowed={"scale"})
+                                          allowed={"scale", "bulk_velocity"})
         source["project"] = project
         if generated is None:
             return {"finit": 5, "cli_params": {}, "kind": "source", "label": "source", "source": source}

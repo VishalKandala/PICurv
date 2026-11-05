@@ -282,10 +282,9 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self);
  *        velocity they last gave.
  */
 typedef struct {
-    PicurvVelocitySource source;             /* Normal frame with no expressions for a file. */
+    PicurvVelocitySource source;             /* Normal frame with no expressions for a file alone. */
     char                *source_file;        /* Staged PICSLICE of solver-unit normal speeds, or NULL. */
-    PicurvExpression    *bulk;               /* Target mean normal speed [m/s] in t, or NULL. */
-    PetscBool            bulk_time_dependent;
+    PetscReal           *profile;            /* The file's speed per slot when expressions add to it, or NULL. */
     PetscInt             slot_lo[2];         /* First tangential indices of the owned slots. */
     PetscInt             slot_n[2];          /* Owned slots along the two tangential axes. */
     PetscReal          (*values)[PICURV_SOURCE_VAR_COUNT]; /* Variables per slot; t is refreshed. */
@@ -592,9 +591,11 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
     }
     const PetscReal area = sqrt(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
     if (area <= 0.0) return velocity;
-    velocity.x = sign * data->factor * v.x * metric.x / area;
-    velocity.y = sign * data->factor * v.x * metric.y / area;
-    velocity.z = sign * data->factor * v.x * metric.z / area;
+    const PetscReal speed = data->factor * v.x +
+                            (data->profile ? data->profile[PrescribedSlot(data, face_id, i, j, k)] : 0.0);
+    velocity.x = sign * speed * metric.x / area;
+    velocity.y = sign * speed * metric.y / area;
+    velocity.z = sign * speed * metric.z / area;
     return velocity;
 }
 
@@ -742,8 +743,7 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     PetscReal  id = -1.0;
     PetscBool  found = PETSC_FALSE;
     const char *source_file = NULL;
-    char       option[96], text[4096];
-    static const char *const kTime[] = {"t"};
+    char       prefix[64];
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -753,27 +753,23 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     PetscCall(GetBCParamString(user->boundary_faces[ctx->face_id].params, "source_file", &source_file, &found));
     if (found && source_file && source_file[0] != '\0') {
         PetscCall(PetscStrallocpy(source_file, &data->source_file));
-        data->source.frame = PICURV_SOURCE_FRAME_NORMAL;
-    } else {
-        PetscCall(PicurvVelocitySourceCreate(PICURV_SOURCE_TARGET_INLET, (PetscInt)id, &data->source));
     }
-    PetscCall(PetscSNPrintf(option, sizeof(option), "-inlet_source_%d_bulk_velocity", (int)id));
-    PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
-    if (found) {
-        PetscCall(PicurvExpressionCompile(text, kTime, 1, PETSC_FALSE, &data->bulk));
-        PetscCall(PicurvExpressionUsesVariable(data->bulk, 0, &data->bulk_time_dependent));
-    }
+    PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "inlet_source_%d", (int)id));
+    PetscCall(PicurvVelocitySourceCreate(prefix, PETSC_TRUE, (PetscBool)(data->source_file != NULL), &data->source));
+    PetscCheck(!data->source_file || data->source.frame == PICURV_SOURCE_FRAME_NORMAL, PETSC_COMM_WORLD,
+               PETSC_ERR_USER_INPUT, "Face %s: expressions added to a profile file must be in the normal frame.",
+               BCFaceToString(ctx->face_id));
     data->factor = 1.0;
     data->evaluated_step = -1;
     if (data->source_file) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed normal speed from %s%s.\n",
-                  BCFaceToString(ctx->face_id), data->source_file, data->bulk ? ", bulk velocity" : "");
+                  BCFaceToString(ctx->face_id), data->source_file, data->source.bulk ? ", bulk velocity" : "");
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from -inlet_source_%d (%s frame%s%s).\n",
                   BCFaceToString(ctx->face_id), (int)id,
                   data->source.frame == PICURV_SOURCE_FRAME_NORMAL ? "normal" :
                   data->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR ? "curvilinear" : "cartesian",
-                  data->source.time_dependent ? ", time-dependent" : "", data->bulk ? ", bulk velocity" : "");
+                  data->source.time_dependent ? ", time-dependent" : "", data->source.bulk ? ", bulk velocity" : "");
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -841,19 +837,18 @@ static PetscErrorCode BuildPrescribedSlots(InletPrescribedVelocityData *data, Us
                 const Cmpnts X = coor[n_idx[2]][n_idx[1]][n_idx[0]];
                 centre.x += 0.25 * X.x; centre.y += 0.25 * X.y; centre.z += 0.25 * X.z;
             }
-            const PetscReal f[3] = {frac[ck][cj][ci].x, frac[ck][cj][ci].y, frac[ck][cj][ci].z};
-            const PetscReal l[3] = {len[ck][cj][ci].x, len[ck][cj][ci].y, len[ck][cj][ci].z};
-            v[PICURV_SOURCE_VAR_X] = centre.x * L_ref;
-            v[PICURV_SOURCE_VAR_Y] = centre.y * L_ref;
-            v[PICURV_SOURCE_VAR_Z] = centre.z * L_ref;
+            PicurvSourceSetVariables(v, centre, frac[ck][cj][ci], len[ck][cj][ci], L_ref);
             v[PICURV_SOURCE_VAR_T] = 0.0;
-            for (PetscInt d = 0; d < 3; ++d) {
-                /* On the face itself the fraction along the normal line is exactly 0 or 1. */
-                v[PICURV_SOURCE_VAR_XI + d] = (d == normal) ? (negative ? 0.0 : 1.0) : f[d];
-                v[PICURV_SOURCE_VAR_L_XI + d] = l[d] * L_ref;
-            }
+            /* On the face itself the fraction along the normal line is exactly 0 or 1. */
+            v[PICURV_SOURCE_VAR_XI + normal] = negative ? 0.0 : 1.0;
             PetscCall(ComputeCellEdgeVectors(aj[ck][cj][ci], csi[ck][cj][ci], eta[ck][cj][ci], zet[ck][cj][ci],
                                              data->edges[p + data->slot_n[0] * q]));
+            /* A curvilinear component is the speed through the grid face, as on every target,
+               so along the face's own axis it follows the face metric, not the cell's edge. */
+            const Cmpnts m = (normal == 0) ? csi[s_idx[2]][s_idx[1]][s_idx[0]]
+                           : (normal == 1) ? eta[s_idx[2]][s_idx[1]][s_idx[0]] : zet[s_idx[2]][s_idx[1]][s_idx[0]];
+            const Cmpnts through = {user->GridOrientation * m.x, user->GridOrientation * m.y, user->GridOrientation * m.z};
+            data->edges[p + data->slot_n[0] * q][normal] = through;
         }
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
@@ -879,8 +874,9 @@ static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, Us
     const DMDALocalInfo *info = &user->info;
     const PetscInt start[3] = {info->xs, info->ys, info->zs}, nodes[3] = {info->mx, info->my, info->mz};
     const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
-    const PetscReal sign = negative ? 1.0 : -1.0;
-    PetscReal local[2] = {0.0, 0.0}, global[2], target;
+    const PetscReal sign = negative ? 1.0 : -1.0, U_ref = user->simCtx->scaling.U_ref;
+    PetscReal local[3] = {0.0, 0.0, 0.0};
+    char      where[32];
     PetscInt  normal, a, b;
 
     PetscFunctionBeginUser;
@@ -903,32 +899,24 @@ static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, Us
             const Cmpnts m = metric_arr[s_idx[2]][s_idx[1]][s_idx[0]];
             const Cmpnts v = data->velocity[p + data->slot_n[0] * q];
             const PetscReal area = PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z);
-            local[0] += (data->source.frame == PICURV_SOURCE_FRAME_NORMAL) ? v.x * area
-                                                                          : sign * (v.x * m.x + v.y * m.y + v.z * m.z);
-            local[1] += area;
+            local[0] += U_ref * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
+                                 ? v.x * area : sign * (v.x * m.x + v.y * m.y + v.z * m.z));
+            if (data->profile) local[1] += U_ref * data->profile[p + data->slot_n[0] * q] * area;
+            local[2] += area;
         }
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, metric_vec, &metric_arr));
     }
-    PetscCallMPI(MPI_Allreduce(local, global, 2, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
-    PetscCheck(global[1] > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-               "Face %s has no open area to set a bulk velocity on.", BCFaceToString(face_id));
-    PetscCall(PicurvExpressionEvaluate(data->bulk, &physical_time, NULL, &target));
-    target /= user->simCtx->scaling.U_ref;
-    const PetscReal mean = global[0] / global[1];
-    PetscCheck(mean != 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-               "Face %s: the source's mean normal speed is zero, so it cannot be scaled to a bulk velocity.",
-               BCFaceToString(face_id));
-    *factor = target / mean;
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Face %s: bulk velocity %g (solver units), source mean %g, factor %g.\n",
-              BCFaceToString(face_id), (double)target, (double)mean, (double)*factor);
+    PetscCall(PetscSNPrintf(where, sizeof(where), "Face %s", BCFaceToString(face_id)));
+    PetscCall(PicurvVelocitySourceBulkFactor(&data->source, physical_time, local, where, factor));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Fill each owned slot's normal speed from the face's PICSLICE file. Every rank reads
- *        the file, so a malformed one fails on all of them.
+ * @brief Fill each owned slot's normal speed from the face's PICSLICE file, as the velocity
+ *        itself or, under expressions, as what they add to. Every rank reads the file, so a
+ *        malformed one fails on all of them.
  */
 static PetscErrorCode LoadPrescribedProfile(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
 {
@@ -943,8 +931,13 @@ static PetscErrorCode LoadPrescribedProfile(InletPrescribedVelocityData *data, U
     /* A PICSLICE row runs along the face's first tangential axis; rows step along the second. */
     for (PetscInt q = 0; q < data->slot_n[1]; ++q)
     for (PetscInt p = 0; p < data->slot_n[0]; ++p) {
-        const Cmpnts v = {profile[(data->slot_lo[1] + q - 1) * n2 + (data->slot_lo[0] + p - 1)], 0.0, 0.0};
-        data->velocity[p + data->slot_n[0] * q] = v;
+        const PetscReal speed = profile[(data->slot_lo[1] + q - 1) * n2 + (data->slot_lo[0] + p - 1)];
+        if (data->profile) {
+            data->profile[p + data->slot_n[0] * q] = speed;
+        } else {
+            const Cmpnts v = {speed, 0.0, 0.0};
+            data->velocity[p + data->slot_n[0] * q] = v;
+        }
     }
     PetscCall(PetscFree(profile));
     LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: PICSLICE %s, %" PetscInt_FMT " x %" PetscInt_FMT ", speed [%.6e, %.6e].\n",
@@ -974,12 +967,14 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
        defined at the step's time, so it is refreshed once. */
     if (data->built && data->evaluated_step == simCtx->step) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     const PetscBool evaluate = (PetscBool)(!data->built || data->source.time_dependent);
-    const PetscBool rescale = (PetscBool)(data->bulk && (evaluate || data->bulk_time_dependent));
+    const PetscBool rescale = (PetscBool)(data->source.bulk && (evaluate || data->source.bulk_time_dependent));
     if (!data->built) PetscCall(BuildPrescribedSlots(data, user, ctx->face_id));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
-    if (evaluate && data->source_file) {
+    if (!data->built && data->source_file) {
+        if (data->source.count > 0) PetscCall(PetscCalloc1(data->slot_n[0] * data->slot_n[1], &data->profile));
         PetscCall(LoadPrescribedProfile(data, user, ctx->face_id));
-    } else if (evaluate) {
+    }
+    if (evaluate && data->source.count > 0) {
         const PetscReal U_ref = simCtx->scaling.U_ref;
         for (PetscInt s = 0; s < data->slot_n[0] * data->slot_n[1]; ++s) {
             Cmpnts v;
@@ -1006,7 +1001,7 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
         InletPrescribedVelocityData *data = (InletPrescribedVelocityData*)self->data;
         PetscCall(PicurvVelocitySourceDestroy(&data->source));
         PetscCall(PetscFree(data->source_file));
-        PetscCall(PicurvExpressionDestroy(&data->bulk));
+        PetscCall(PetscFree(data->profile));
         PetscCall(PetscFree3(data->values, data->edges, data->velocity));
         PetscCall(PetscFree(self->data));
     }

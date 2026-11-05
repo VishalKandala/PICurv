@@ -435,7 +435,7 @@ static PetscErrorCode TestInletPicSliceSourceBehavior(void)
     user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
     user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
     user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_id", "0"));
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_id", "7"));
     PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", profile_path));
 
     PetscCall(VecSet(user->Ucont, 0.0));
@@ -461,6 +461,71 @@ static PetscErrorCode TestInletPicSliceSourceBehavior(void)
     PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "profile inlet should not add to outflow"));
 
     PetscCall(DestroyBoundaryHandler(&bc));
+    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
+    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
+    remove(profile_path);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests expressions added to a profile file: a bulk velocity scales the expressions and
+ *        leaves the file's data as measured, as it does a generator's field in the interior.
+ */
+static PetscErrorCode TestInletSourceAddsToPicSlice(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL;
+    char profile_path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(PetscSNPrintf(profile_path, sizeof(profile_path), "/tmp/picurv_unit_sum_%d.picslice", (int)getpid()));
+    PetscCall(WritePicSliceForTests(profile_path, user->JM - 1, user->IM - 1, 2.0));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "1.0"));
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", profile_path));
+    PetscCall(VecSet(user->Ucont, 0.0));
+    PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(3.0, ucont[0][1][1].z, 1.0e-12, "the expression adds to the file's first speed"));
+    PetscCall(PicurvAssertRealNear(36.0, ucont[0][4][4].z, 1.0e-12, "the expression adds to the file's last speed"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DestroyBoundaryHandler(&bc));
+
+    /* A bulk of the file's mean plus 2 asks the expression, of value 1, for a factor of 2. */
+    {
+        PetscReal mean = 0.0;
+        PetscInt  slots = 0;
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+        for (PetscInt j = 1; j < user->JM; ++j) for (PetscInt i = 1; i < user->IM; ++i) { mean += ucont[0][j][i].z - 1.0; ++slots; }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+        mean /= (PetscReal)slots;
+        char bulk[64];
+        PetscCall(PetscSNPrintf(bulk, sizeof(bulk), "%.17g", (double)(mean + 2.0)));
+        PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_bulk_velocity", bulk));
+    }
+    PetscCall(VecSet(user->Ucont, 0.0));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(4.0, ucont[0][1][1].z, 1.0e-10, "a bulk velocity scales the expression, not the file"));
+    PetscCall(PicurvAssertRealNear(37.0, ucont[0][4][4].z, 1.0e-10, "the file's speeds keep their measured differences"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_bulk_velocity"));
+    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_frame"));
+    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_expr_0"));
     FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
     user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
     remove(profile_path);
@@ -1938,6 +2003,7 @@ int main(int argc, char **argv)
         {"inlet-parabolic-source-face-matrix", TestInletParabolicSourceFaceMatrix},
         {"inlet-one-axis-source-uniform-along-the-other", TestInletOneAxisSourceIsUniformAlongTheOther},
         {"inlet-picslice-source-behavior", TestInletPicSliceSourceBehavior},
+        {"inlet-source-adds-to-picslice", TestInletSourceAddsToPicSlice},
         {"inlet-source-follows-time-and-bulk-velocity", TestInletSourceFollowsTimeAndBulkVelocity},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},

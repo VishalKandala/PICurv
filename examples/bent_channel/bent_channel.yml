@@ -21,9 +21,7 @@ properties:
     density: 200.0      # [kg/m^3]
     viscosity: 1.0      # [Pa.s] -> results in Re = (200*1*1)/1 = 200
   initial_conditions:
-    # A uniform speed along a curved grid line is not discretely divergence-free, so project it.
     source: {components: curvilinear, expression: {u_zeta: 1.0}}  # streamwise speed [m/s]
-    constraints: {project: true}
 
 # --- Grid Definition ---
 grid:

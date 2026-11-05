@@ -92,8 +92,6 @@ particle `fields`.
 | `case.yml: grid.source_file` | LENGTH | staging | L |
 | `case.yml: initial_conditions.params.base_profile (stability_mode_velocity)` | VELOCITY | provider | U |
 | `case.yml: initial_conditions.params.box_length (resampled_velocity)` | LENGTH | cli | L |
-| `case.yml: initial_conditions.params.bulk_velocity (channel_spectral_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.bulk_velocity (duct_spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.config_file (ic_gen)` | PAYLOAD | provider | by payload field |
 | `case.yml: initial_conditions.params.filter.cutoff (resampled_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.filter.width (resampled_velocity)` | LENGTH | cli | L |

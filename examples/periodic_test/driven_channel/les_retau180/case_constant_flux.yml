@@ -36,7 +36,6 @@ properties:
             seed: 12345
             wall_axes: [j]
             streamwise_axis: k
-            bulk_velocity: 0.0
             perturbation_rms: 0.1
             wall_modes: 3
             spectrum: {type: k4_exponential, k0: 2.0, k_cut: 5.0}
@@ -44,7 +43,8 @@ properties:
               - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 4}, subtract_mean: sample}
               - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 16}, subtract_mean: sample}
               - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
-    constraints: {project: false}  # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    constraints: {bulk_velocity: 1.0, project: false}
 
 grid:
   mode: grid_gen

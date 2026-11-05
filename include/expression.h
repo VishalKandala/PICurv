@@ -143,32 +143,73 @@ typedef enum {
     PICURV_SOURCE_FRAME_NORMAL = 2       /**< One value: the speed into the domain through a face. */
 } PicurvSourceFrame;
 
-/** @brief Where a velocity source is applied, which names its options. */
-typedef enum {
-    PICURV_SOURCE_TARGET_INITIAL = 0, /**< The Eulerian initial condition: `-ic_source_*`. */
-    PICURV_SOURCE_TARGET_INLET = 1    /**< An inlet face: `-inlet_source_<id>_*`; the normal frame is allowed. */
-} PicurvSourceTarget;
-
-/** @brief A prescribed velocity: one compiled expression per value, and the frame they are in. */
+/**
+ * @brief A prescribed velocity, for any target: one compiled expression per value, the frame
+ *        they are in, and the bulk velocity it is scaled to, if any. A target differs only in
+ *        the points it evaluates the source at and the weight it takes a mean with.
+ */
 typedef struct {
     PicurvSourceFrame frame;
-    PetscInt          count;          /**< 1 for the normal frame, otherwise 3. */
+    PetscInt          count;          /**< 1 for the normal frame, otherwise 3; 0 for staged data alone. */
     PicurvExpression *component[3];
     PetscBool         time_dependent; /**< Some component reads `t`. */
+    PicurvExpression *bulk;           /**< Target mean speed [m/s] in `t`, or NULL. */
+    PetscBool         bulk_time_dependent;
 } PicurvVelocitySource;
 
 /**
  * @brief Read and compile a velocity source from the options database.
- * @details Reads the target's `_frame` option (`cartesian`, `curvilinear`, or, on an
- *          inlet, `normal`) and one expression per value, `_expr_<c>`, written in physical
- *          units over the names of #PicurvSourceVariable. Random draws are not available.
- * @param[in]  target Target whose options are read.
- * @param[in]  id     Inlet source index (`-inlet_source_<id>_*`); ignored for the initial condition.
- * @param[out] source Compiled source; release it with PicurvVelocitySourceDestroy().
+ * @details Reads `-<prefix>_frame` (`cartesian`, `curvilinear`, or, on a face, `normal`), one
+ *          expression per value, `-<prefix>_expr_<c>`, written in physical units over the names
+ *          of #PicurvSourceVariable, and the optional `-<prefix>_bulk_velocity`, an expression
+ *          in `t`. Random draws are not available.
+ * @param[in]  prefix   Option prefix without its dash, e.g. `ic_source` or `inlet_source_0`.
+ * @param[in]  on_face  Whether the target is a face, where the normal frame means something.
+ * @param[in]  has_data Whether the target also has staged data, which makes the expressions
+ *                      optional; without a frame, data on a face is a normal speed.
+ * @param[out] source   Compiled source; release it with PicurvVelocitySourceDestroy().
  * @return Zero on success; `PETSC_ERR_USER_INPUT` for a missing option or unknown frame,
  *         `PETSC_ERR_ARG_WRONG` for a malformed expression.
  */
-PetscErrorCode PicurvVelocitySourceCreate(PicurvSourceTarget target, PetscInt id, PicurvVelocitySource *source);
+PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face, PetscBool has_data,
+                                          PicurvVelocitySource *source);
+
+/**
+ * @brief Factor on a source's expressions that makes a target's whole mean equal its bulk velocity.
+ * @details Solves `factor * expressions + data = bulk`, over the target's points and weight.
+ *          Collective.
+ * @param[in]  source        Source with a bulk velocity.
+ * @param[in]  physical_time Time the bulk velocity is read at [s].
+ * @param[in]  local         This rank's weighted sums, physical: the expressions' speed, the
+ *                           staged data's speed along it, and the weight.
+ * @param[in]  where         The target, for the error messages.
+ * @param[out] factor        Factor on the expressions.
+ * @return Zero on success; `PETSC_ERR_ARG_WRONGSTATE` for no weight or a zero mean.
+ */
+PetscErrorCode PicurvVelocitySourceBulkFactor(const PicurvVelocitySource *source, PetscReal physical_time,
+                                              const PetscReal local[3], const char *where, PetscReal *factor);
+
+/**
+ * @brief Fill a source's position and grid-line variables at one point.
+ * @param[out] values   Array of #PICURV_SOURCE_VAR_COUNT; `t` is left to the caller.
+ * @param[in]  point    Solver-unit position.
+ * @param[in]  fraction Grid-line fractions there, from ComputeGridLineFractions().
+ * @param[in]  length   Solver-unit grid-line lengths there.
+ * @param[in]  L_ref    Length reference [m].
+ */
+static inline void PicurvSourceSetVariables(PetscReal *values, Cmpnts point, Cmpnts fraction, Cmpnts length,
+                                            PetscReal L_ref)
+{
+    values[PICURV_SOURCE_VAR_X] = point.x * L_ref;
+    values[PICURV_SOURCE_VAR_Y] = point.y * L_ref;
+    values[PICURV_SOURCE_VAR_Z] = point.z * L_ref;
+    values[PICURV_SOURCE_VAR_XI] = fraction.x;
+    values[PICURV_SOURCE_VAR_ETA] = fraction.y;
+    values[PICURV_SOURCE_VAR_ZETA] = fraction.z;
+    values[PICURV_SOURCE_VAR_L_XI] = length.x * L_ref;
+    values[PICURV_SOURCE_VAR_L_ETA] = length.y * L_ref;
+    values[PICURV_SOURCE_VAR_L_ZETA] = length.z * L_ref;
+}
 
 /**
  * @brief Evaluate a source at one point.
@@ -183,7 +224,7 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
                                             const Cmpnts edges[3], Cmpnts *value);
 
 /**
- * @brief Free a source's compiled expressions.
+ * @brief Free a source's compiled expressions and bulk velocity.
  * @param[in,out] source Source to release; left empty.
  * @return Zero on success.
  */

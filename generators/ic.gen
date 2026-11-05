@@ -1330,7 +1330,7 @@ def generate_resampled_velocity(nodes, params, context=None):
 
 
 #: Parameters the channel and duct seeds accept.
-WALL_SPECTRAL_PARAMS = frozenset({"field", "seed", "streamwise_axis", "wall_axes", "bulk_velocity",
+WALL_SPECTRAL_PARAMS = frozenset({"field", "seed", "streamwise_axis", "wall_axes",
                                   "perturbation_rms", "wall_modes", "spectrum", "initial_spectra"})
 
 
@@ -1341,6 +1341,9 @@ def validate_wall_spectral_params(raw, generator):
     @param[in] generator Channel or duct provider identifier.
     @return Normalized wall-seed parameters.
     """
+    if isinstance(raw, dict) and "bulk_velocity" in raw:
+        raise ValueError("wall spectral IC generates fluctuations only: remove bulk_velocity and add a mean with "
+                         "source: {sum: [mean, generator]} and constraints: {bulk_velocity: ...}.")
     if not isinstance(raw, dict) or set(raw) - WALL_SPECTRAL_PARAMS:
         raise ValueError("wall spectral IC has unsupported parameters.")
     if raw.get("field", "Ucat") != "Ucat":
@@ -1363,8 +1366,6 @@ def validate_wall_spectral_params(raw, generator):
         raise ValueError("wall_modes must be a positive integer.")
     return {"field": "Ucat", "seed": common["seed"], "spectrum": common["spectrum"],
             "wall_axes": walls, "streamwise_axis": stream, "wall_modes": modes,
-            # Zero adds no mean: the perturbation alone, to be summed with a mean of its own.
-            "bulk_velocity": _finite_number(raw.get("bulk_velocity", 1.0), "bulk_velocity", nonnegative=True),
             "perturbation_rms": _finite_number(raw.get("perturbation_rms", 0.1), "perturbation_rms", positive=True),
             **({"initial_spectra": raw["initial_spectra"]} if "initial_spectra" in raw else {})}
 
@@ -1487,7 +1488,7 @@ def wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodi
 
 def generate_wall_spectral_velocity(nodes, raw_params, generator):
     """!
-    @brief Generate a seeded discrete-curl perturbation and flux-normalized startup mean.
+    @brief Generate a seeded discrete-curl perturbation, a velocity fluctuation with no added mean.
     @param[in] nodes PICGRID node coordinates in k/j/i/component order.
     @param[in] raw_params Raw wall-seed parameters.
     @param[in] generator Channel or duct provider identifier.
@@ -1506,11 +1507,6 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     centers = [0.5*(a[:-1]+a[1:]) for a in axes]
     velocity, derivative = wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodic,
                                                   params["seed"], params["spectrum"], params["wall_modes"])
-    mean = np.ones(cells)
-    for a in walls:
-        t = (centers[a]-axes[a][0])/lengths[a]
-        sh = [1, 1, 1]; sh[2-a] = len(t)
-        mean *= (4*t*(1-t)).reshape(sh)
     volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
     rms = np.sqrt(np.sum(volume*np.sum(velocity**2, axis=-1))/(3*np.sum(volume)))
     if not np.isfinite(rms) or rms <= 0:
@@ -1519,9 +1515,6 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     divergence = sum(derivative(velocity[..., a], a) for a in range(3))
     perturbation_means = np.sum(velocity*volume[..., None], axis=(0,1,2))/np.sum(volume)
     component_rms = [float(np.sqrt(np.sum(volume*velocity[..., a]**2)/np.sum(volume))) for a in range(3)]
-    mean *= params["bulk_velocity"]*np.sum(volume)/np.sum(mean*volume)  # zero bulk: no mean
-    stream = "ijk".index(params["streamwise_axis"])
-    velocity[..., stream] += mean
     full = with_dummy_layers(velocity, periodic)
     return full, {"generator": generator, "field": "Ucat", "params": params,
         "vector_shape": list(full.shape), "scalar_count": int(full.size),
@@ -1529,8 +1522,6 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
         "perturbation_rms": float(np.sqrt(np.mean(np.square(component_rms)))),
         "perturbation_component_means": perturbation_means.tolist(),
         "picurv_discrete_divergence_max": float(np.max(np.abs(divergence))),
-        "bulk_velocity": float(np.sum(volume*velocity[..., stream])/np.sum(volume)),
-        "mean_profile": "flux_normalized_product_parabola_startup",
         "spectrum_applies_to": "vector_potential_periodic_modes",
         "measurement_state": "generated_Ucat_before_runtime_reconstruction"}
 

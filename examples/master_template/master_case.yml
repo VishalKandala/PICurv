@@ -82,7 +82,7 @@ properties:
     # --- Source: a velocity written as expressions, evaluated at every cell centre. ---
     # The same source language as a prescribed_velocity inlet (see boundary_conditions),
     # in the cartesian or curvilinear frame, inline or named under a top-level `sources:`.
-    # Constraints: scale, and project (make it divergence-free before step 1).
+    # Constraints: scale, bulk_velocity, and project (make it divergence-free before step 1).
     source: {components: cartesian, expression: {w: 1.0}}   # [m/s]
 
     # A shaped source, in the frame of the grid lines:
@@ -97,9 +97,10 @@ properties:
     # source:
     #   sum:
     #     - duct_flow                              # a source named under top-level `sources:`
-    #     - generator: duct_spectral_velocity      # bulk_velocity 0: fluctuations only
-    #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k, bulk_velocity: 0.0,
+    #     - generator: duct_spectral_velocity      # fluctuations only
+    #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k,
     #                perturbation_rms: 0.1, initial_spectra: [...]}
+    # constraints: {bulk_velocity: 1.0}             # [m/s] rescales the sources, not the generator
     #
     # A generator alone, staged as it writes it; project defaults to false:
     # source:
@@ -222,7 +223,6 @@ properties:
     #   seed: 12345
     #   wall_axes: [j]              # channel default [j]; duct default [i, j]
     #   streamwise_axis: k          # Must be periodic
-    #   bulk_velocity: 1.0          # [m/s] Mean of the startup profile
     #   perturbation_rms: 0.1       # [m/s]
     #   wall_modes: 3               # Wall-normal modes; wall_modes + 1 <= cells/2 per wall axis
     #   spectrum: { type: k4_exponential, k0: 4.0, k_cut: 8.0 }   # wavenumbers in [1/m]

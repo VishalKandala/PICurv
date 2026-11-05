@@ -152,7 +152,7 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, {"handler": "prescribed_velocity", "source": DUCT, "constraints": {"project": True}}, None,
      "not constraints of this target"),
     (None, None, {"source": {"components": "normal", "expression": "1"}}, "expected one of"),
-    ({"duct": DUCT}, None, {"source": "duct", "constraints": {"bulk_velocity": 1.0}},
+    ({"duct": DUCT}, None, {"source": "duct", "constraints": {"target_flux": 1.0}},
      "not constraints of this target"),
     ({"duct": DUCT}, None, {"source": "duct", "mode": "generated"}, "takes 'source'"),
 ])
@@ -209,7 +209,7 @@ def test_a_data_source_is_staged_and_scaled(tmp_path):
 
 
 DUCT_SEED = {"generator": "duct_spectral_velocity",
-             "params": {"seed": 7, "bulk_velocity": 0.0, "perturbation_rms": 0.05,
+             "params": {"seed": 7, "perturbation_rms": 0.05,
                         "initial_spectra": [{"task": "line_spectrum", "axes": ["k"],
                                              "fixed_indices": {"i": 3, "j": 3}}]}}
 
@@ -235,7 +235,7 @@ def test_a_sum_adds_a_generator_to_a_source_and_projects():
         initial_conditions={"source": {"sum": ["duct", DUCT_SEED]}, "constraints": {"scale": 2.0}})
     ic = resolve_initial(case)
     assert ic["finit"] == 5 and ic["kind"] == "duct_spectral_velocity"
-    assert CORE.is_generated_ic_provider(ic) and ic["params"]["bulk_velocity"] == 0.0
+    assert CORE.is_generated_ic_provider(ic) and "bulk_velocity" not in ic["params"]
     assert ic["source"]["expressions"][2] == "((36*(1.5)*xi*(1-xi)*eta*(1-eta)))*(2.0)"
     lines = CORE.velocity_source_control_lines("-ic_source", ic["source"], "src")
     assert lines[-2:] == ["-ic_source_field_weight 2.0", "-ic_source_project true"]
@@ -336,3 +336,68 @@ def test_the_asset_graph_plans_a_generator_inside_a_source(source, provider, exe
     graph = CORE.build_case_asset_graph(case, str(FIXTURES / "case.yml"))
     planned = next(item for item in graph["providers"] if item["kind"] == "initial-condition")
     assert (planned["provider"], planned["execution"]) == (provider, execution)
+
+
+def test_every_target_takes_the_same_sum_and_bulk_velocity():
+    """!
+    @brief A sum of expressions and a bulk velocity mean the same on an inlet and in the interior.
+    """
+    terms = {"sum": ["duct", {"components": "curvilinear", "expression": {"u_zeta": "0.1*sin(2*pi*t)"}}]}
+    constraints = {"bulk_velocity": 1.5}
+    case, _, _ = load_configs(sources={"duct": DUCT},
+                              inlet={"handler": "prescribed_velocity", "source": terms, "constraints": constraints},
+                              initial_conditions={"source": terms, "constraints": constraints})
+    inlet = CORE.validate_and_prepare_boundary_conditions(case)[0][4]["source"]
+    initial = resolve_initial(case)["source"]
+    assert inlet["expressions"] == initial["expressions"]
+    assert inlet["bulk_velocity"] == initial["bulk_velocity"] == "1.5"
+    assert CORE.velocity_source_control_lines("-ic_source", initial, "src")[-1] == "-ic_source_project true"
+    assert '-ic_source_bulk_velocity "1.5"' in CORE.velocity_source_control_lines("-ic_source", initial, "src")
+
+
+def test_an_inlet_sum_adds_expressions_to_data(tmp_path):
+    """!
+    @brief A pulsation added to a measured profile: the profile is staged, the expressions travel
+           as options, and the bcs file names both.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    profile = tmp_path / "inlet.picslice"
+    pulse = {"components": "normal", "expression": "0.1*sin(2*pi*t)"}
+    case, _, _ = load_configs(inlet={"handler": "prescribed_velocity",
+                                     "source": {"sum": [{"type": "file", "path": str(profile)}, pulse]}})
+    jm, im = (case["grid"]["programmatic_settings"][key] for key in ("jm", "im"))
+    profile.write_text("PICSLICE\n1\n%d %d\n%s\n" % (jm, im, "\n".join(["1.0"] * (jm * im))), encoding="utf-8")
+    inlet = CORE.validate_and_prepare_boundary_conditions(case)[0][4]
+    assert CORE.profile_data_source(inlet)["type"] == "file"
+    assert inlet["source"]["expressions"] == ["(0.1*sin(2*pi*t))"]
+    found = CORE.raw_inlet_data_sources(case)
+    assert [term["type"] for _, _, term in found] == ["file"]
+
+
+@pytest.mark.parametrize("terms, message", [
+    ([{"type": "file", "path": "a.picslice"}, {"type": "file", "path": "b.picslice"}], "at most one data term"),
+    ([{"type": "file", "path": "a.picslice"}, DUCT], "must be in the normal frame"),
+    ([DUCT, {"components": "normal", "expression": "1"}], "mix the"),
+])
+def test_invalid_inlet_sums_are_refused(terms, message, capsys):
+    """!
+    @brief Two data terms, data with a non-normal expression, and mixed frames are refused.
+    @param[in] terms Sum terms.
+    @param[in] message Expected fragment of the error.
+    @param[in] capsys Pytest output capture.
+    """
+    case, _, _ = load_configs(inlet={"handler": "prescribed_velocity", "source": {"sum": terms}})
+    with pytest.raises((SystemExit, ValueError)) as caught:
+        CORE.validate_and_prepare_boundary_conditions(case)
+    assert message in capsys.readouterr().err + str(caught.value)
+
+
+def test_a_wall_generator_has_no_mean_of_its_own():
+    """!
+    @brief The retired `bulk_velocity` parameter names its replacement.
+    """
+    seed = {"generator": "duct_spectral_velocity",
+            "params": dict(DUCT_SEED["params"], bulk_velocity=1.0)}
+    case, _, _ = load_configs(initial_conditions={"source": {"sum": [DUCT, seed]}})
+    with pytest.raises(ValueError, match="fluctuations only"):
+        resolve_initial(case)

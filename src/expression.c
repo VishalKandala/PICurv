@@ -809,38 +809,68 @@ const char *const kPicurvSourceVariableNames[PICURV_SOURCE_VAR_COUNT] = {
  * @brief Implementation of \ref PicurvVelocitySourceCreate().
  * @see PicurvVelocitySourceCreate()
  */
-PetscErrorCode PicurvVelocitySourceCreate(PicurvSourceTarget target, PetscInt id, PicurvVelocitySource *source)
+PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face, PetscBool has_data,
+                                          PicurvVelocitySource *source)
 {
+    static const char *const kTime[] = {"t"};
     char      option[PETSC_MAX_PATH_LEN], frame[32], text[PICURV_SOURCE_EXPRESSION_LENGTH];
     PetscBool found = PETSC_FALSE;
-    const PetscBool allow_normal = (PetscBool)(target == PICURV_SOURCE_TARGET_INLET);
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     PetscCall(PetscMemzero(source, sizeof(*source)));
-    if (target == PICURV_SOURCE_TARGET_INLET) PetscCall(PetscSNPrintf(option, sizeof(option), "-inlet_source_%d_frame", (int)id));
-    else PetscCall(PetscSNPrintf(option, sizeof(option), "-ic_source_frame"));
+    PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_frame", prefix));
     PetscCall(PetscOptionsGetString(NULL, NULL, option, frame, sizeof(frame), &found));
-    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "Velocity source option %s is required.", option);
+    PetscCheck(found || has_data, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "Velocity source option %s is required.", option);
+    if (!found) PetscCall(PetscStrncpy(frame, on_face ? "normal" : "cartesian", sizeof(frame)));
     if (!strcmp(frame, "cartesian")) source->frame = PICURV_SOURCE_FRAME_CARTESIAN;
     else if (!strcmp(frame, "curvilinear")) source->frame = PICURV_SOURCE_FRAME_CURVILINEAR;
-    else if (!strcmp(frame, "normal") && allow_normal) source->frame = PICURV_SOURCE_FRAME_NORMAL;
+    else if (!strcmp(frame, "normal") && on_face) source->frame = PICURV_SOURCE_FRAME_NORMAL;
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "%s is '%s'; expected cartesian, curvilinear%s.",
-                 option, frame, allow_normal ? ", or normal" : "");
+                 option, frame, on_face ? ", or normal" : "");
     source->count = (source->frame == PICURV_SOURCE_FRAME_NORMAL) ? 1 : 3;
     for (PetscInt c = 0; c < source->count; ++c) {
         PetscBool uses_t = PETSC_FALSE;
-        if (target == PICURV_SOURCE_TARGET_INLET)
-            PetscCall(PetscSNPrintf(option, sizeof(option), "-inlet_source_%d_expr_%d", (int)id, (int)c));
-        else PetscCall(PetscSNPrintf(option, sizeof(option), "-ic_source_expr_%d", (int)c));
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_expr_%d", prefix, (int)c));
         PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
+        if (!found && has_data && c == 0) { source->count = 0; break; }
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "Velocity source option %s is required.", option);
         PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_COUNT, PETSC_FALSE,
                                           &source->component[c]));
         PetscCall(PicurvExpressionUsesVariable(source->component[c], PICURV_SOURCE_VAR_T, &uses_t));
         source->time_dependent = (PetscBool)(source->time_dependent || uses_t);
     }
+    PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_bulk_velocity", prefix));
+    PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
+    if (found) {
+        PetscCall(PicurvExpressionCompile(text, kTime, 1, PETSC_FALSE, &source->bulk));
+        PetscCall(PicurvExpressionUsesVariable(source->bulk, 0, &source->bulk_time_dependent));
+    }
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvVelocitySourceBulkFactor().
+ * @see PicurvVelocitySourceBulkFactor()
+ */
+PetscErrorCode PicurvVelocitySourceBulkFactor(const PicurvVelocitySource *source, PetscReal physical_time,
+                                              const PetscReal local[3], const char *where, PetscReal *factor)
+{
+    PetscReal global[3], target;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCheck(global[2] > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "%s has no open area or volume to set a bulk velocity on.", where);
+    PetscCheck(global[0] != 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "%s: the source's mean speed is zero, so it cannot be scaled to a bulk velocity.", where);
+    PetscCall(PicurvExpressionEvaluate(source->bulk, &physical_time, NULL, &target));
+    *factor = (target * global[2] - global[1]) / global[0];
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "%s: bulk velocity %g, source mean %g, data mean %g, factor %g.\n", where,
+              (double)target, (double)(global[0] / global[2]), (double)(global[1] / global[2]), (double)*factor);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -890,6 +920,7 @@ PetscErrorCode PicurvVelocitySourceDestroy(PicurvVelocitySource *source)
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (PetscInt c = 0; c < 3; ++c) PetscCall(PicurvExpressionDestroy(&source->component[c]));
+    PetscCall(PicurvExpressionDestroy(&source->bulk));
     source->count = 0;
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);

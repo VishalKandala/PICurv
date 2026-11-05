@@ -52,13 +52,13 @@ properties:
             seed: 12345
             wall_axes: [i, j]
             streamwise_axis: k
-            bulk_velocity: 0.0
             perturbation_rms: 0.1
             wall_modes: 3
             spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
             initial_spectra:
               - {task: line_spectrum, axes: [k], fixed_indices: {i: 64, j: 64}, subtract_mean: sample}
-    constraints: {project: false}  # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    # A streamwise-uniform mean plus a discrete curl is already divergence-free.
+    constraints: {bulk_velocity: 1.0, project: false}
 
 grid:
   mode: grid_gen

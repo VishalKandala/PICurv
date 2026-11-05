@@ -267,7 +267,7 @@ the shared expression language, in physical units, over `x y z` [m], `t` [s], th
 arc-length fractions `xi eta zeta` (0 at a line's negative face, 1 at its positive face,
 proportional to distance along the grid line) and the line lengths `L_xi L_eta L_zeta`
 [m]. Its values are read in one of three frames: `cartesian` (`u v w`), `curvilinear`
-(`u_xi u_eta u_zeta` along the unit grid-line directions; omitted components are zero) or
+(`u_xi u_eta u_zeta`, each the speed through the grid face normal to its axis; omitted components are zero) or
 `normal` (one speed into the domain). Each face slot is evaluated at its face centre, with
 the fractions and directions of the interior cell behind it. A source without `t` is
 evaluated once; with `t`, once per step at the step's end time, not on every boundary
@@ -321,7 +321,9 @@ Unknown keys are rejected with the allowed set named. `output_file` is refused f
 `constraints` - optional, applied in order: `scale` multiplies every value (for a data
 source the profile is multiplied as it is staged, so `scale` must be positive);
 `bulk_velocity` [m/s], a number or an expression in `t`, rescales the face each step it
-changes so the area-weighted mean normal speed equals it.
+changes so the area-weighted mean normal speed equals it. A `sum` of sources is added, as in the
+interior (@ref p33_source): expressions in one frame, and at most one data term, which the
+expressions in the normal frame add to and `bulk_velocity` leaves as measured.
 
 **Interactions.** The same named expression source can set the initial condition
 (@ref p33_source "source initial condition"), so the interior and the inlet agree at

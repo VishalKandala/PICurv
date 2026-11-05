@@ -482,6 +482,63 @@ static PetscErrorCode TestSourceInitialConditionProjection(void)
 }
 
 /**
+ * @brief Checks that an initial source reaches its bulk velocity whatever its amplitude, and
+ *        that a curvilinear source sets each face's flux to the speed times the face area.
+ */
+static PetscErrorCode TestSourceInitialConditionBulkAndFaces(void)
+{
+    const char *frames[] = {
+        "-finit 5\n-ic_source_frame cartesian\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+        "-ic_source_expr_2 \"7*eta*(1-eta)\"\n-ic_source_bulk_velocity 2.0\n",
+        "-finit 5\n-ic_source_frame curvilinear\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+        "-ic_source_expr_2 3\n-ic_source_bulk_velocity 2.0\n"};
+
+    PetscFunctionBeginUser;
+    for (PetscInt n = 0; n < 2; ++n) {
+        SimCtx  *simCtx = NULL;
+        UserCtx *user = NULL;
+        char     tmpdir[PETSC_MAX_PATH_LEN];
+        const Cmpnts ***ucat, ***ucont, ***zet;
+        const PetscReal ***aj;
+        PetscReal local[2] = {0.0, 0.0}, global[2];
+        const DMDALocalInfo *info;
+
+        PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, frames[n], &simCtx, &user,
+                                                           tmpdir, sizeof(tmpdir)));
+        PetscCall(InitializeEulerianState(simCtx));
+        info = &user->info;
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+        for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, info->mz - 1); ++k)
+        for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, info->my - 1); ++j)
+        for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, info->mx - 1); ++i) {
+            /* Step-0 Ucat next to a zeta boundary reflects the boundary face, so measure inside. */
+            if (k >= 2 && k <= info->mz - 3) {
+                const PetscReal volume = 1.0 / PetscAbsReal(aj[k][j][i]);
+                local[0] += ucat[k][j][i].z * volume;
+                local[1] += volume;
+            }
+            if (n == 1 && k < info->mz - 2) {
+                const Cmpnts m = zet[k][j][i];
+                PetscCall(PicurvAssertRealNear(2.0 * PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z), ucont[k][j][i].z,
+                                               1.0e-12, "a curvilinear source sets the flux from the face area"));
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+        PetscCallMPI(MPI_Allreduce(local, global, 2, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCall(PicurvAssertRealNear(2.0, global[0] / global[1], 1.0e-12, "the source reaches its bulk velocity"));
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks configured IEM relaxation through the production swarm update.
  * @details Each particle must relax toward the mean of the particles now in its cell, at the
  *          configured rate. A zero constant switches micromixing off, and must leave Psi
@@ -1112,6 +1169,7 @@ int main(int argc, char **argv)
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
         {"source-initial-condition-projection", TestSourceInitialConditionProjection},
+        {"source-initial-condition-bulk-and-faces", TestSourceInitialConditionBulkAndFaces},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
         {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
