@@ -147,10 +147,6 @@
       "classification": "not_public",
       "reason": "Normalizes a config block; its selectors are separate surfaces."
     },
-    "picurv_cli.core::normalize_flow_direction_token": {
-      "classification": "not_public",
-      "reason": "Axis/face direction tokens (+Xi/-Xi and so on), not a choice between behaviours. They also collide under the entry-anchor slug rule, which the coverage audit reports. Consistent with BC_FACE_MAP being classified the same way."
-    },
     "picurv_cli.core::normalize_les_averaging_directions": {
       "classification": "parameter_of_entry",
       "owner": "turbulence.les_averaging_mode::homogeneous",
