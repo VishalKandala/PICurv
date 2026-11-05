@@ -493,20 +493,11 @@ boundary_conditions:
     #   type: file
     #   path: inputs/inlet_profiles/inlet.picslice  # via `picurv inputs import inlet-profile`
     #
-    # From the analytical square-duct Poiseuille series:
-    # source:
-    #   type: generated
-    #   generator: square_duct_poiseuille
-    #   script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen
-    #   params:
-    #     bulk_velocity: 1.5
-    #     n_terms: 101
-    #
     # Sliced from an old Cartesian Ucat field. The target grid must be file or grid_gen.
     # Import the old run's files first, e.g.
     #   picurv inputs import reference-field <old_run>/output/checkpoints/<step>/eulerian/block_0000/Ucat.dat --mode reference
     #   picurv inputs import grid <old_run>/inputs/grid/grid.run --name old_grid.run
-    # Generated profiles are written under <run.inputs>/inlet_profiles/; output_file is refused.
+    # Sliced profiles are written under <run.inputs>/inlet_profiles/; output_file is refused.
     # source:
     #   type: field_slice
     #   script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen

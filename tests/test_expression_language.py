@@ -194,16 +194,18 @@ def test_the_documented_duct_series_is_the_duct_solution():
     @brief On a square section the cosh-cosine series equals `profile.gen`'s double sine series,
            both at unit bulk velocity, and its own normalization gives a unit area mean.
     """
-    loader = importlib.machinery.SourceFileLoader("picurv_profile_generator",
-                                                  str(REPO_ROOT / "generators" / "profile.gen"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    profile = importlib.util.module_from_spec(spec)
-    loader.exec_module(profile)
     xi, eta = np.meshgrid((np.arange(64) + 0.5) / 64, (np.arange(64) + 0.5) / 64)
     expression = IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": 1.0})
     IC_GEN.validate_expression(expression, {"xi", "eta"})
     series = IC_GEN.evaluate_values(expression, {"xi": xi, "eta": eta})
-    shape, mean = profile._evaluate_square_duct_poiseuille_shape(xi, eta, 601)
+    # An independent form of the same solution: the double sine series, normalized to its own mean.
+    shape = np.zeros_like(xi)
+    mean = 0.0
+    for m in range(1, 601, 2):
+        for n in range(1, 601, 2):
+            coefficient = 1.0 / (m * n * (m * m + n * n))
+            shape += coefficient * np.sin(m * np.pi * xi) * np.sin(n * np.pi * eta)
+            mean += coefficient * 4.0 / (np.pi * np.pi * m * n)
     assert np.max(np.abs(series - shape / mean)) < 1e-5
     for beta in (0.25, 8.0):  # wide and tall sections: finite, with the requested mean
         other = IC_GEN.evaluate_values(IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": beta}),

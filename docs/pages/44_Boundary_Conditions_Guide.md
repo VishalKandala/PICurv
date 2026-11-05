@@ -299,9 +299,9 @@ wall-bounded tangential directions is
 
 **When to choose it.** Every inlet. Choose an expression for any profile with a closed
 form and for every time-dependent profile; written in arc-length fractions it is the
-physical profile on a stretched or curved grid. Choose a data source for the exact
-square-duct solution (`generated`), a measured profile (`file`), or a developed plane
-from a precursor run (`field_slice`).
+physical profile on a stretched or curved grid. Choose a data source for a measured profile
+(`file`) or a developed plane from a precursor run (`field_slice`). The exact rectangular-duct
+solution is an expression (@ref p33_closed_form_ssec).
 
 **Parameters it owns.** `source` - required: the name of an entry of the case's top-level
 `sources:`, or a mapping. An expression source takes `expression` (required),
@@ -311,12 +311,10 @@ expressions and the constraints). A data source takes `type` and that type's key
 | `type` | Required keys | Optional keys | Use when |
 |---|---|---|---|
 | `file` | `path` | - | You already have a PICSLICE profile file |
-| `generated` | `generator` | `script`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
 | `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `slice` | You are extracting a plane from an existing solution |
 
 Unknown keys are rejected with the allowed set named. `output_file` is refused for
-`generated` and `field_slice`: `picurv` writes generated profiles under
-`<run.inputs>/inlet_profiles/`.
+`field_slice`: `picurv` writes sliced profiles under `<run.inputs>/inlet_profiles/`.
 
 `constraints` - optional, applied in order: `scale` multiplies every value (for a data
 source the profile is multiplied as it is staged, so `scale` must be positive);
@@ -349,16 +347,12 @@ source on every face, a PICSLICE file, a source in `t` evaluated once per step, 
 checks the fractions and lengths against arc length on a stretched grid across ranks.
 Integration verified - `tests/test_velocity_sources.py` covers resolution, the emitted
 options, data-source staging and scaling, and the refusals; `tests/test_config_regressions.py`
-and `tests/test_cli_smoke.py` exercise the three data-source types and the
-face-dimension validation, and `tests/test_workspace_lifecycle.py` checks that a
-generated profile on a stretched `programmatic_c` grid is normalized on its face areas.
+and `tests/test_cli_smoke.py` exercise the data-source types and the face-dimension validation.
 Production exercised in `examples/flat_channel`.
 
 **Limitations.** Random draws are not available in a source. On a multi-block case the
 fractions run from 0 to 1 within each block. A data source is steady; only its
-`bulk_velocity` may vary in time. A generated profile on `programmatic_c` is sampled on
-the single-block bridge grid, so a multi-block `programmatic_c` case with a generated
-profile is refused at validation.
+`bulk_velocity` and any expressions added to it may vary in time.
 
 @subsection p44_cap_conservation_sub conservation
 
@@ -668,11 +662,10 @@ coordinates and time and divides the velocity by `velocity_ref`.
 @subsection p44_picslice_ssec 6.1 Prescribed Inlet Profile Files
 
 A data source of `prescribed_velocity` uses a face-scoped canonical `PICSLICE` file. It
-can be supplied directly with `type: file`, generated analytically with
-`type: generated`, or sliced from an old `ufield*.dat` with `type: field_slice`. The Python conductor resolves the face/grid context
-and delegates dimensional profile writes to `generators/profile.gen`. Generated and
-field-sliced sources may set optional `script` to a compatible case-relative
-or absolute override:
+can be supplied directly with `type: file`, or sliced from an old `ufield*.dat` with
+`type: field_slice`. The Python conductor resolves the face/grid context and delegates dimensional profile writes to
+`generators/profile.gen`. Field-sliced sources may set optional `script` to a compatible
+case-relative or absolute override:
 
 ```text
 PICSLICE
@@ -714,22 +707,6 @@ boundary_conditions:
 Each face can reference its own `.picslice`; `picurv` stages one solver-scale file
 per face and writes `source_file=...` into the run's `bcs.run`.
 
-Generated profiles currently support analytical square-duct Poiseuille flow:
-
-```yaml
-boundary_conditions:
-  - face: "-Zeta"
-    type: INLET
-    handler: prescribed_velocity
-    source:
-      type: generated
-      generator: square_duct_poiseuille
-      # script: tools/custom_profile.py  # optional
-      params:
-        bulk_velocity: 1.0
-        n_terms: 101
-```
-
 The face selects the two transverse dimensions automatically:
 
 - `-Xi/+Xi`: `(KM - 1, JM - 1)`, ordered `(k, j)`
@@ -738,22 +715,9 @@ The face selects the two transverse dimensions automatically:
 
 For `grid.mode: grid_gen`, `picurv run --solve` generates the grid first, then
 reads the generated `PICGRID` header to size the profile. For `grid.mode: file`,
-it reads the source `PICGRID` header. Generated dimensional profiles and
+it reads the source `PICGRID` header. Sliced dimensional profiles and
 `profile.info` are written under `<run.inputs>/inlet_profiles/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
-
-For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
-`picurv` evaluates the analytical profile at the target inlet face centers and
-rescales it using geometric quad face areas so `sum(u * area) / sum(area)` matches
-`bulk_velocity`. The target is the grid file for `file`, the generated grid for
-`grid_gen`, and for `programmatic_c` the bridge `PICGRID` built from
-`programmatic_settings` with the formula the solver uses, so its stretching is honoured.
-`profile.info` records the normalization mode, sampling mode, area-weighted mean before
-and after normalization, total inlet area, face-area range, and discrete sample mean.
-Only `profile.gen` run by hand without `--target-grid` falls back to continuous-area
-normalization on uniform logical sample points, and `profile.info` then says so. The
-areas are geometric quad areas computed from the target grid coordinates, not the C
-metric face-area vectors.
 
 Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 
@@ -863,7 +827,7 @@ Important contributor note:
 - C enums include additional BC categories and handlers (moving walls, far field, characteristic),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
 - a `field_slice` data source is Python-side preprocessing only: it creates the
-  same staged `source_file` contract used by file-backed and generated profiles.
+  same staged `source_file` contract used by file-backed profiles.
 
 If you add a new BC mode, update all three layers in one change:
 

@@ -59,8 +59,8 @@ For each run, `picurv` generates:
 - `grid.generator.cli_args` is a raw token list passed through to `grid.gen`, but closed-choice values inside it (a `--cross-section` value, or the segment kinds inside `--wall-j-lo`/`--path`/`--transforms`/etc.) are checked at validation time against the same sets `grid.gen` itself enforces, so a misspelled selector fails before the run rather than partway into it. See @ref p48_grammar_ssec.
 - `boundary_conditions` is a list of six face entries.
 - `INLET` takes `prescribed_velocity`, whose `source` is an expression or data:
-  `type: file`, `type: generated`, or `type: field_slice`. Generated square-duct Poiseuille
-  profiles and old-field slices are produced by Python, written under `<run.inputs>/`,
+  `type: file` or `type: field_slice`, or a `sum` of expressions and at most one of those.
+  Old-field slices are produced by Python, written under `<run.inputs>/`,
   summarized in `profile.info`, then staged into the C-side `source_file` contract. An
   expression source and its `bulk_velocity` reach C as quoted `-inlet_source_<id>_*`
   control options.
@@ -72,7 +72,7 @@ For each run, `picurv` generates:
   The repository generator evaluates `[expression]` configs in physical units - coordinates are the staged
   single-block PICGRID times `length_ref`, values are physical velocities or fluxes - and writes solver units;
   `programmatic_c` cases materialize this bridge grid from scalar `programmatic_settings`.
-- generated and field-sliced inlet data sources default to `generators/profile.gen`
+- field-sliced inlet data sources default to `generators/profile.gen`
   and accept optional `source.script`.
 - `type: file` requires `field: Ucat|Ucont` and `path`. The payload is physical unless it
   names `source_case`, or `velocity_scale` (and `length_scale` for `Ucont`), for a field an earlier

@@ -164,7 +164,7 @@ sources:
 along `xi` and height along `eta`, `beta` = height / width, at bulk velocity `U`: the
 cosh-cosine series of the exact solution over its own area mean, both to 100 odd terms, with
 `cosh(a)/cosh(b)` written so that it cannot overflow. On a square section it matches the
-double sine series of the `square_duct_poiseuille` generator to 1e-5 of `U`; written in the
+double sine series of the same solution to 1e-5 of `U`; written in the
 arc-length fractions, it is the physical profile on a stretched grid. `womersley` is the flow in
 a pipe of radius `R` along `z`, centred on the axis: a Poiseuille mean of bulk `U` plus the
 exact oscillatory part driven by `-(1/rho) dp/dz = K cos(omega t)` [m/s^2], with Womersley

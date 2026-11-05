@@ -18,21 +18,6 @@ boundary_conditions:
       path: profiles/inlet.picslice
 ```
 
-Generated square-duct Poiseuille profile:
-
-```yaml
-boundary_conditions:
-  - face: "-Zeta"
-    type: INLET
-    handler: prescribed_velocity
-    source:
-      type: generated
-      generator: square_duct_poiseuille
-      params:
-        bulk_velocity: 1.0
-        n_terms: 101
-```
-
 Field-sliced profile from an old PICurv `ufield*.dat`:
 
 ```yaml
@@ -55,14 +40,9 @@ and target `PICGRID` files, projects to positive normal speed magnitudes, and
 writes the same canonical `PICSLICE` format as the other source types. V1
 requires exact slice dimension matches; it does not interpolate or resample.
 
-`picurv run --solve` automatically materializes generated and sliced profiles under
+`picurv run --solve` automatically materializes sliced profiles under
 `<run.config>/`, writes `profile.info`, stages a nondimensional solver
 copy, and passes the staged `source_file` to the C runtime.
-
-For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed
-of the truncated analytical sine series. The generator reports both
-`area_mean_speed` and `discrete_mean_speed` in its summary so coarse face samples
-do not hide the normalization convention.
 
 Use `picurv precompute --case case.yml --only inlet-profiles` when you want to
 generate and inspect profile artifacts before launching the solver; they are
@@ -73,12 +53,6 @@ published in the workspace asset store and reused by the run that follows.
 `generators/profile.gen` is the low-level generator:
 
 ```bash
-python3 generators/profile.gen square_duct_poiseuille \
-  --output inlet.picslice \
-  --dims 63 63 \
-  --bulk-velocity 1.0 \
-  --n-terms 101
-
 python3 generators/profile.gen field-slice \
   --output inlet_from_old_run.picslice \
   --field-file old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat \
@@ -98,14 +72,14 @@ from `case.yml`, `grid.mode`, block index, and BC face.
 Profile sources intentionally converge on one artifact contract: a dimensional
 canonical `PICSLICE` that `picurv` can validate, nondimensionalize, stage, and
 wire into `bcs.run` as `source_file`. This keeps the C handler source-agnostic:
-hand-authored files, analytical generators, and old-field slices all reach the
+hand-authored files and old-field slices both reach the
 solver through the same path.
 
 `profile.gen` is the standalone engine for profile-producing operations.
 `picurv precompute` is the orchestration command for materializing configured
 grid/profile artifacts before a solve, and `picurv run --solve` performs the
-same materialization automatically when generator-style sources are selected.
-Future canonical profiles or derived-profile sources should extend
+same materialization automatically when a sliced source is selected.
+Future derived-profile sources should extend
 `profile.gen` first, then be exposed as a `prescribed_velocity` data source
 using the same artifact pipeline. A profile with a closed form needs neither: write it as
 an expression source.

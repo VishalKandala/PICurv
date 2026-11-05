@@ -325,29 +325,27 @@ grid:
 PICurv will validate and non-dimensionalize that source file into the new run's
 own `<run.config>/grid.run`.
 
-Generated square-duct Poiseuille inlet profile:
+Exact rectangular-duct inlet profile, at a bulk velocity the runtime holds on the actual face:
 
 ```yaml
+sources:
+  duct_poiseuille:                        # the series of @ref p33_closed_form_ssec
+    components: normal
+    constants: {U: 1.0, beta: 1.0}
+    expression: >-
+      U*sum(k, 0, 99, (-1)**k/(2*k+1)**3
+      *(1 - (exp(abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2)
+      + exp(-abs((2*k+1)*pi*beta*(eta - 0.5)) - (2*k+1)*pi*beta/2))/(1 + exp(-(2*k+1)*pi*beta)))
+      *cos((2*k+1)*pi*(xi - 0.5)))
+      / sum(k, 0, 99, 2/(pi*(2*k+1)**4)*(1 - 2*tanh((2*k+1)*pi*beta/2)/((2*k+1)*pi*beta)))
+
 boundary_conditions:
   - face: "-Zeta"
     type: INLET
     handler: prescribed_velocity
-    source:
-      type: generated
-      generator: square_duct_poiseuille
-      params:
-        bulk_velocity: 1.0
-        n_terms: 101
+    source: duct_poiseuille
+    constraints: {bulk_velocity: 1.0}
 ```
-
-`picurv run --solve` writes the dimensional generated profile and
-`profile.info` under `<run.config>/`, stages the solver-scale
-`.picslice`, and writes that staged path into `bcs.run`.
-For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
-When a target `PICGRID` is available, generated profiles are sampled at inlet
-face centers and normalized by geometric quad face areas; `profile.info` reports
-the area-weighted mean before and after normalization, total area, face-area
-range, discrete sampled mean, and `Umax/Ubulk`.
 
 File-backed prescribed inlet profile:
 

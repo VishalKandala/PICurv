@@ -105,8 +105,8 @@ likely to matter:
   keyed Brownian continuation and weak scaling, decomposition-independent statistics
   ensembles, the 2D Newton--Krylov mixing layer, the 2026-09-22 wall-seed measurement
   taken on the former `sin(pi t)^4` envelope (superseded by `wall-spectral-ic-2026-09-24`),
-  and `programmatic-inlet-flux-fixed-2026-09-21`, whose generated profile is now a data
-  source of `prescribed_velocity` and has not been re-measured through it.
+  and `programmatic-inlet-flux-fixed-2026-09-21`, whose generated profile is now an
+  expression source of `prescribed_velocity` and has not been re-measured through it.
   The three `reference` records are all the wall-modelled Re_tau = 1000 channel against
   Lee & Moser (2015), judged against criteria fixed before the runs, on one grid:
   `wmles-channel-retau1000-werner-2026-10-09` backs `werner` and the dynamic-Smagorinsky

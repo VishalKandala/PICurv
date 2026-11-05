@@ -446,14 +446,6 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
             {
                 "handler": "prescribed_velocity",
                 "source": {
-                        "type": "generated",
-                        "generator": "square_duct_poiseuille",
-                        "script": "tools/profile.py",
-                    },
-            },
-            {
-                "handler": "prescribed_velocity",
-                "source": {
                         "type": "field_slice",
                         "script": "tools/profile.py",
                         "field_file": "old/ufield.dat",
@@ -468,11 +460,10 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
 
     source_dir = case_path.parent
     ic = case_cfg["properties"]["initial_conditions"]["source"]["params"]
-    generated = case_cfg["boundary_conditions"][0]["source"]
-    field_slice = case_cfg["boundary_conditions"][1]["source"]
+    field_slice = case_cfg["boundary_conditions"][0]["source"]
     assert ic["script"] == str(source_dir / "tools" / "ic.py")
     assert ic["config_file"] == str(source_dir / "config" / "ic.yml")
-    assert generated["script"] == str(source_dir / "tools" / "profile.py")
+    assert field_slice["script"] == str(source_dir / "tools" / "profile.py")
     assert field_slice["field_file"] == str(source_dir / "old" / "ufield.dat")
     assert field_slice["grid_file"] == str(source_dir / "old" / "grid.run")
     assert field_slice["source_case"] == str(source_dir / "old" / "case.yml")
@@ -1804,73 +1795,11 @@ def test_picslice_validation_rejects_bad_shape_and_values(tmp_path):
         picurv.validate_and_nondimensionalize_picslice(str(wrong_dims), str(dest), 1.0, expected_dims=(2, 3))
 
 
-def test_square_duct_poiseuille_generator_writes_normalized_picslice_and_info(tmp_path):
-    """!
-    @brief Test generated square-duct Poiseuille profiles and profile.info summary.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    output = tmp_path / "config" / "profile.generated.picslice"
-
-    summary = picurv.generate_square_duct_poiseuille_picslice(
-        str(output),
-        (5, 7),
-        {"bulk_velocity": 1.25, "n_terms": 31},
-    )
-    info = picurv.write_profile_info(str(tmp_path / "config"), [dict(summary, block=0, face="-Eta")])
-
-    assert output.is_file()
-    lines = output.read_text(encoding="utf-8").splitlines()
-    assert lines[:3] == ["PICSLICE", "1", "5 7"]
-    values = [float(value) for value in lines[3:]]
-    assert len(values) == 35
-    assert min(values) >= 0.0
-    assert summary["area_mean_speed"] == pytest.approx(1.25)
-    assert summary["mean_speed"] == pytest.approx(1.25)
-    assert summary["discrete_mean_speed"] == pytest.approx(sum(values) / len(values))
-    assert max(values) > 1.25
-    info_text = Path(info).read_text(encoding="utf-8")
-    assert "generator = square_duct_poiseuille" in info_text
-    assert "face = -Eta" in info_text
-    assert "area_mean_speed" in info_text
-    assert "discrete_mean_speed" in info_text
-
-
-def test_square_duct_poiseuille_generator_accepts_case_relative_script_override(tmp_path):
-    """!
-    @brief Test generated profiles accept a case-relative profile.gen-compatible script.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    marker = tmp_path / "profile-wrapper.used"
-    write_profile_generator_wrapper(tmp_path / "custom_profile.py", marker)
-    case_path = tmp_path / "case.yml"
-    case_path.write_text("{}\n", encoding="utf-8")
-
-    picurv.generate_square_duct_poiseuille_picslice(
-        str(tmp_path / "profile.picslice"),
-        (3, 3),
-        {"bulk_velocity": 1.0, "n_terms": 31},
-        script="custom_profile.py",
-        case_path=str(case_path),
-    )
-
-    assert marker.is_file()
-
-
 def test_prescribed_profile_sources_accept_script_override():
     """!
     @brief Test generated and field-sliced profile sources retain optional script overrides.
     """
     picurv = load_picurv_module()
-    generated = picurv._normalize_profile_source(
-        {
-            "type": "generated",
-            "generator": "square_duct_poiseuille",
-            "script": "tools/custom_profile.py",
-        },
-        "source",
-    )
     field_slice = picurv._normalize_profile_source(
         {
             "type": "field_slice",
@@ -1883,7 +1812,6 @@ def test_prescribed_profile_sources_accept_script_override():
         "source",
     )
 
-    assert generated["script"] == "tools/custom_profile.py"
     assert field_slice["script"] == "tools/custom_profile.py"
 
 
@@ -1970,117 +1898,6 @@ def test_ic_gen_rejects_unsafe_expression(tmp_path):
     )
     assert result.returncode == 1
     assert "is not an available function" in result.stderr
-
-
-def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
-    """!
-    @brief Test standalone profile.gen writes a canonical square-duct PICSLICE.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    output = tmp_path / "profile.picslice"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(PROFILE_GEN),
-            "square_duct_poiseuille",
-            "--output",
-            str(output),
-            "--dims",
-            "5",
-            "7",
-            "--bulk-velocity",
-            "1.25",
-            "--n-terms",
-            "31",
-        ],
-        cwd=str(REPO_ROOT),
-        text=True,
-        capture_output=True,
-        timeout=60,
-        check=False,
-            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
-    )
-
-    assert result.returncode == 0, result.stderr
-    summary = json.loads(result.stdout)
-    assert summary["dims"] == [5, 7]
-    assert summary["mean_speed"] == pytest.approx(1.25)
-    assert summary["area_mean_speed"] == pytest.approx(1.25)
-    assert "discrete_mean_speed" in summary
-    assert output.is_file()
-
-
-def test_profile_gen_square_duct_poiseuille_grid_aware_normalization(tmp_path):
-    """!
-    @brief Test grid-aware generated profiles area-normalize on stretched inlet faces.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    grid = write_stretched_picgrid(tmp_path / "grid.picgrid", dims=(5, 5, 3))
-    output = tmp_path / "profile_grid_aware.picslice"
-    baseline = tmp_path / "profile_uniform.picslice"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(PROFILE_GEN),
-            "square_duct_poiseuille",
-            "--output",
-            str(output),
-            "--dims",
-            "4",
-            "4",
-            "--bulk-velocity",
-            "1.25",
-            "--n-terms",
-            "31",
-            "--target-grid",
-            str(grid),
-            "--target-face=-Zeta",
-        ],
-        cwd=str(REPO_ROOT),
-        text=True,
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
-    baseline_result = subprocess.run(
-        [
-            sys.executable,
-            str(PROFILE_GEN),
-            "square_duct_poiseuille",
-            "--output",
-            str(baseline),
-            "--dims",
-            "4",
-            "4",
-            "--bulk-velocity",
-            "1.25",
-            "--n-terms",
-            "31",
-        ],
-        cwd=str(REPO_ROOT),
-        text=True,
-        capture_output=True,
-        timeout=60,
-        check=False,
-            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert baseline_result.returncode == 0, baseline_result.stderr
-    summary = json.loads(result.stdout)
-    values = [float(value) for value in output.read_text(encoding="utf-8").splitlines()[3:]]
-    baseline_values = [float(value) for value in baseline.read_text(encoding="utf-8").splitlines()[3:]]
-    xs = [(float(i) / 4.0) ** 2.0 for i in range(5)]
-    ys = [(float(j) / 4.0) ** 1.7 for j in range(5)]
-    areas = [(ys[j + 1] - ys[j]) * (xs[i + 1] - xs[i]) for j in range(4) for i in range(4)]
-    weighted_mean = sum(value * area for value, area in zip(values, areas)) / sum(areas)
-
-    assert summary["normalization"] == "geometric_area"
-    assert summary["sampling"] == "grid_face_centers"
-    assert summary["dims"] == [4, 4]
-    assert summary["area_weighted_mean_after_normalization"] == pytest.approx(1.25)
-    assert weighted_mean == pytest.approx(1.25)
-    assert any(abs(value - baseline) > 1.0e-8 for value, baseline in zip(values, baseline_values))
 
 
 def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
@@ -2282,87 +2099,6 @@ def test_inlet_profile_profile_dims_match_cell_counts():
     assert picurv._bc_profile_expected_dims("-Eta", (65, 65, 1025)) == (1024, 64)
 
 
-def test_inlet_profile_bcs_generation_materializes_generated_source(tmp_path):
-    """!
-    @brief Test generated inlet profiles are materialized and staged for bcs.run.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    valid = FIXTURES / "valid"
-    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    case_cfg["boundary_conditions"][4] = {
-        "face": "-Zeta",
-        "type": "INLET",
-        "handler": "prescribed_velocity",
-        "source": {
-                "type": "generated",
-                "generator": "square_duct_poiseuille",
-                "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            },
-    }
-    run_dir = tmp_path / "run"
-    config_dir = run_dir / "config"
-    config_dir.mkdir(parents=True)
-    case_path = config_dir / "case.yml"
-    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-
-    generated = picurv.generate_multi_block_bcs(
-        str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
-    )
-
-    bcs_text = Path(generated[0]).read_text(encoding="utf-8")
-    assert "prescribed_velocity" in bcs_text
-    assert "source_file=" in bcs_text
-    profile_dir = run_dir / "inputs" / "inlet_profiles"
-    dimensional = profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice"
-    staged = profile_dir / "inlet_profile_block0_negZeta.picslice"
-    assert dimensional.is_file()
-    assert staged.is_file()
-    assert (profile_dir / "profile.info").is_file()
-    staged_lines = staged.read_text(encoding="utf-8").splitlines()
-    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
-
-
-def test_inlet_profile_generated_source_uses_target_grid_geometry(tmp_path):
-    """!
-    @brief Test generated inlet profiles use target PICGRID geometry when available.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    valid = FIXTURES / "valid"
-    grid = write_stretched_picgrid(tmp_path / "target.picgrid", dims=(9, 9, 17))
-    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
-    case_cfg["boundary_conditions"][4] = {
-        "face": "-Zeta",
-        "type": "INLET",
-        "handler": "prescribed_velocity",
-        "source": {
-                "type": "generated",
-                "generator": "square_duct_poiseuille",
-                "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            },
-    }
-    run_dir = tmp_path / "run"
-    config_dir = run_dir / "config"
-    config_dir.mkdir(parents=True)
-    case_path = config_dir / "case.yml"
-    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-
-    generated = picurv.generate_multi_block_bcs(
-        str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
-    )
-
-    profile_dir = run_dir / "inputs" / "inlet_profiles"
-    info_text = (profile_dir / "profile.info").read_text(encoding="utf-8")
-    staged_lines = (profile_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
-    assert generated
-    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
-    assert "normalization = geometric_area" in info_text
-    assert "sampling = grid_face_centers" in info_text
-    assert "area_weighted_mean_after_normalization" in info_text
-
-
 def test_inlet_profile_bcs_generation_materializes_field_slice_source(tmp_path):
     """!
     @brief Test field_slice inlet profiles are sliced and staged for bcs.run.
@@ -2432,7 +2168,7 @@ def test_inlet_profile_rejects_unsupported_source_type():
         "source": {"type": "unknown", "path": "old.dat"},
     }
 
-    with pytest.raises(ValueError, match="type must be 'file', 'generated', or 'field_slice'"):
+    with pytest.raises(ValueError, match="type must be 'file' or 'field_slice'"):
         picurv.validate_and_prepare_boundary_conditions(case_cfg)
 
 
@@ -3265,21 +3001,27 @@ def test_grid_gen_hyphenated_generator_keys_warn_without_aliasing(tmp_path):
     assert not (run_dirs[0] / "config" / "grid.generated.info").exists()
 
 
-def test_dry_run_generated_profile_lists_planned_artifacts(tmp_path):
+def test_dry_run_sliced_profile_lists_planned_artifacts(tmp_path):
     """!
-    @brief Test dry-run previews generated profile artifacts.
+    @brief Test dry-run previews sliced profile artifacts.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    field_file, grid_file = tmp_path / "ufield.dat", tmp_path / "grid.picgrid"
+    field_file.write_bytes(b"")
+    write_canonical_picgrid(grid_file)
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid_file)}
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
         "handler": "prescribed_velocity",
         "source": {
-                "type": "generated",
-                "generator": "square_duct_poiseuille",
-                "params": {"bulk_velocity": 1.0, "n_terms": 31},
+                "type": "field_slice",
+                "field_file": str(field_file),
+                "grid_file": str(grid_file),
+                "velocity_scale": 1.0,
+                "slice": {"face": "+Zeta"},
             },
     }
     case_path = tmp_path / "case_generated_profile.yml"
@@ -3308,7 +3050,7 @@ def test_dry_run_generated_profile_lists_planned_artifacts(tmp_path):
     artifacts = {Path(path) for path in payload["artifacts"]}
 
     profile_dir = run_dir / "inputs" / "inlet_profiles"
-    assert profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice" in artifacts
+    assert profile_dir / "inlet_profile_block0_negZeta.sliced.dimensional.picslice" in artifacts
     assert profile_dir / "inlet_profile_block0_negZeta.picslice" in artifacts
     assert profile_dir / "profile.info" in artifacts
     assert not run_dir.exists()
@@ -3363,41 +3105,6 @@ def test_local_no_submit_solve_stages_grid_gen_without_executing(tmp_path):
     assert solve_meta["submitted"] is False
     assert "command" in solve_meta
     assert solve_meta["log_file"].endswith("_solver.log")
-
-
-def test_precompute_generates_profile_artifacts_from_case(tmp_path):
-    """!
-    @brief Test precompute materializes generated inlet profiles.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    case_cfg["boundary_conditions"][4] = {
-        "face": "-Zeta",
-        "type": "INLET",
-        "handler": "prescribed_velocity",
-        "source": {
-                "type": "generated",
-                "generator": "square_duct_poiseuille",
-                "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            },
-    }
-    workspace = make_workspace(tmp_path)
-    case_path = workspace / "config" / "case.yml"
-    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-
-    result = run_picurv(
-        ["precompute", "--case", str(case_path), "--only", "inlet-profiles"],
-        cwd=workspace,
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = published_asset_payload(workspace, "inlet-profiles")
-    profile_dir = payload / "inputs" / "inlet_profiles"
-    assert (profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice").is_file()
-    summary = read_profile_info(payload)["profile_0"]
-    assert summary["face"] == "-Zeta"
-    assert summary["dimensions"] == "8 8"
 
 
 def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
@@ -3455,60 +3162,6 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
     assert summary["generator"] == "field_slice"
     assert float(summary["normal_dot"]) == pytest.approx(-1.0)
     assert float(summary["velocity_scale"]) == pytest.approx(2.0)
-
-
-def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
-    """!
-    @brief Test grid_gen output is available before generated profile dimensions are resolved.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    case_cfg["grid"] = {
-        "mode": "grid_gen",
-        "generator": {
-            "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid_type": "box",
-            "cli_args": ["--ncells-i", "3", "--ncells-j", "4", "--ncells-k", "5", "--no-show-stats", "--no-write-vtk"],
-        },
-    }
-    case_cfg["boundary_conditions"][4] = {
-        "face": "-Zeta",
-        "type": "INLET",
-        "handler": "prescribed_velocity",
-        "source": {
-                "type": "generated",
-                "generator": "square_duct_poiseuille",
-                "params": {"bulk_velocity": 1.0, "n_terms": 31},
-            },
-    }
-    case_path = tmp_path / "case_grid_profile.yml"
-    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-
-    result = run_picurv(
-        [
-            "run",
-            "--solve",
-            "--case",
-            str(case_path),
-            "--solver",
-            str(valid / "solver.yml"),
-            "--monitor",
-            str(valid / "monitor.yml"),
-            "--no-submit",
-        ],
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 0, result.stderr
-    run_dirs = sorted((tmp_path / "runs").glob("case_grid_profile_*"))
-    assert len(run_dirs) == 1
-    run_dir = run_dirs[0]
-    assert (run_dir / "inputs" / "grid" / "grid.generated.picgrid").is_file()
-    profile_dir = run_dir / "inputs" / "inlet_profiles"
-    assert (profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice").is_file()
-    staged_lines = (profile_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
-    assert staged_lines[:3] == ["PICSLICE", "1", "4 3"]
 
 
 def test_local_no_submit_materializes_field_slice_profile(tmp_path):

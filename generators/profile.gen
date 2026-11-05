@@ -80,130 +80,6 @@ def require_numpy():
             sys.path = original_path
 
 
-def _evaluate_square_duct_poiseuille_shape(coord1, coord2, n_terms: int):
-    """!
-    @brief Evaluate the unscaled square-duct Poiseuille sine-series shape.
-    @param[in] coord1 First normalized tangential coordinate array.
-    @param[in] coord2 Second normalized tangential coordinate array.
-    @param[in] n_terms Positive odd number of sine modes.
-    @return Tuple `(shape, continuous_area_mean)`.
-    """
-    numpy = require_numpy()
-    u = numpy.zeros_like(coord1, dtype=float)
-    u_area_mean = 0.0
-
-    for m in range(1, n_terms + 1, 2):
-        sin_m = numpy.sin(m * numpy.pi * coord2)
-        for n in range(1, n_terms + 1, 2):
-            coeff = 16.0 / (numpy.pi ** 4 * m * n * (m ** 2 + n ** 2))
-            u += coeff * sin_m * numpy.sin(n * numpy.pi * coord1)
-            u_area_mean += coeff * 4.0 / (m * n * numpy.pi ** 2)
-
-    return u, u_area_mean
-
-
-def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity: float,
-                                    n_terms: int, target_grid: str = None,
-                                    target_block: int = 0, target_face: str = None) -> dict:
-    """!
-    @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
-    @param[in] output_path Output `.picslice` path.
-    @param[in] dims PICSLICE dimensions in storage order `(n1, n2)`.
-    @param[in] bulk_velocity Desired continuous area-mean speed.
-    @param[in] n_terms Number of odd sine modes to include.
-    @param[in] target_grid Optional canonical target PICGRID for grid-aware sampling.
-    @param[in] target_block Target block index when `target_grid` is provided.
-    @param[in] target_face Target inlet face when `target_grid` is provided.
-    @return Summary dictionary with dimensions and speed statistics.
-    """
-    n1, n2 = tuple(dims)
-    if n1 <= 0 or n2 <= 0:
-        raise ValueError(f"dimensions must be positive, got {(n1, n2)}.")
-    if bulk_velocity <= 0.0:
-        raise ValueError("bulk_velocity must be positive.")
-    if n_terms <= 0 or n_terms % 2 == 0:
-        raise ValueError("n_terms must be a positive odd integer.")
-
-    numpy = require_numpy()
-    geometry = None
-    if target_grid:
-        if not target_face:
-            raise ValueError("target_face is required when target_grid is provided.")
-        geometry = target_face_geometry_from_picgrid(target_grid, int(target_block), target_face, dims)
-        coord_1 = geometry["coord1"]
-        coord_2 = geometry["coord2"]
-    else:
-        coord_2_nodes = numpy.arange(1, n2 + 1, dtype=float) / float(n2 + 1)
-        coord_1_nodes = numpy.arange(1, n1 + 1, dtype=float) / float(n1 + 1)
-        coord_2, coord_1 = numpy.meshgrid(coord_2_nodes, coord_1_nodes, indexing="xy")
-
-    u, u_area_mean = _evaluate_square_duct_poiseuille_shape(coord_1, coord_2, n_terms)
-
-    if u_area_mean <= 0.0 or not math.isfinite(float(u_area_mean)):
-        raise ValueError("generated profile has invalid continuous area mean speed.")
-    if geometry is not None:
-        areas = geometry["areas"]
-        total_area = float(numpy.sum(areas))
-        weighted_mean_before = float(numpy.sum(u * areas) / total_area)
-        if weighted_mean_before <= 0.0 or not math.isfinite(weighted_mean_before):
-            raise ValueError("generated profile has invalid geometric area-weighted mean speed.")
-        u *= bulk_velocity / weighted_mean_before
-        normalization = "geometric_area"
-        sampling = "grid_face_centers"
-        area_weighted_mean_before = weighted_mean_before
-        area_weighted_mean_after = float(numpy.sum(u * areas) / total_area)
-        total_inlet_area = total_area
-        face_area_min = float(numpy.min(areas))
-        face_area_max = float(numpy.max(areas))
-    else:
-        u *= bulk_velocity / float(u_area_mean)
-        normalization = "continuous_area"
-        sampling = "uniform_logical"
-        area_weighted_mean_before = None
-        area_weighted_mean_after = None
-        total_inlet_area = None
-        face_area_min = None
-        face_area_max = None
-    u = numpy.maximum(u, 0.0)
-
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    with open(output_path, "w") as fout:
-        fout.write("PICSLICE\n")
-        fout.write("1\n")
-        fout.write(f"{n1} {n2}\n")
-        for row in range(n1):
-            for col in range(n2):
-                fout.write(f"{float(u[row, col]):.16e}\n")
-
-    min_speed = float(numpy.min(u))
-    max_speed = float(numpy.max(u))
-    discrete_mean_speed = float(numpy.mean(u))
-    summary = {
-        "generator": "square_duct_poiseuille",
-        "path": os.path.abspath(output_path),
-        "dims": [n1, n2],
-        "bulk_velocity": bulk_velocity,
-        "n_terms": n_terms,
-        "mean_speed": bulk_velocity,
-        "area_mean_speed": bulk_velocity,
-        "discrete_mean_speed": discrete_mean_speed,
-        "min_speed": min_speed,
-        "max_speed": max_speed,
-        "umax_over_ubulk": max_speed / bulk_velocity,
-        "normalization": normalization,
-        "sampling": sampling,
-    }
-    if geometry is not None:
-        summary.update({
-            "area_weighted_mean_before_normalization": area_weighted_mean_before,
-            "area_weighted_mean_after_normalization": area_weighted_mean_after,
-            "total_inlet_area": total_inlet_area,
-            "face_area_min": face_area_min,
-            "face_area_max": face_area_max,
-        })
-    return summary
-
-
 BC_FACE_MAP = {
     "-xi": "-Xi",
     "+xi": "+Xi",
@@ -293,8 +169,7 @@ PETSC_INDEX_BYTES = 4
 def read_petsc_vec_binary(path: str):
     """!
     @brief Read a PETSc binary VecView payload written by PICurv, at PETSC_INDEX_BYTES.
-    @details Imported when a field is read rather than when this file loads, so a copy of
-             this script used elsewhere for `square_duct_poiseuille` keeps working without it.
+    @details Imported when a field is read rather than when this file loads.
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
@@ -733,25 +608,10 @@ def build_parser():
     @return Configured argparse parser.
     """
     parser = argparse.ArgumentParser(
-        description="Generate dimensional canonical PICSLICE inlet profiles.",
+        description="Extract dimensional canonical PICSLICE inlet profiles from old fields.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    square = subparsers.add_parser(
-        "square_duct_poiseuille",
-        help="Generate analytical fully developed square-duct Poiseuille flow.",
-    )
-    square.add_argument("--output", required=True, help="Output `.picslice` path.")
-    square.add_argument("--dims", nargs=2, type=int, metavar=("N1", "N2"), required=True,
-                        help="PICSLICE dimensions in face storage order.")
-    square.add_argument("--bulk-velocity", type=float, default=1.0,
-                        help="Desired continuous area-mean scalar speed.")
-    square.add_argument("--n-terms", type=int, default=101,
-                        help="Positive odd number of sine modes.")
-    square.add_argument("--target-grid", help="Optional target canonical PICGRID for grid-aware sampling.")
-    square.add_argument("--target-block", type=int, default=0, help="Target block index for --target-grid.")
-    square.add_argument("--target-face", help="Target inlet face token for --target-grid.")
-    square.add_argument("--summary-json", help="Optional path for generator summary JSON.")
     field_slice = subparsers.add_parser(
         "field-slice",
         help="Extract a canonical PICSLICE profile from an existing Ucat field slice.",
@@ -792,17 +652,7 @@ def main(argv=None) -> int:
     global PETSC_INDEX_BYTES
     PETSC_INDEX_BYTES = getattr(args, "petsc_index_bytes", 4)
     try:
-        if args.command == "square_duct_poiseuille":
-            summary = generate_square_duct_poiseuille(
-                args.output,
-                tuple(args.dims),
-                args.bulk_velocity,
-                args.n_terms,
-                args.target_grid,
-                args.target_block,
-                args.target_face,
-            )
-        elif args.command == "field-slice":
+        if args.command == "field-slice":
             if args.slice_face:
                 source_slice = {"face": args.slice_face}
             else:

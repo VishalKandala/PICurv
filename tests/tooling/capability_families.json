@@ -64,8 +64,7 @@
           "evidence": {
             "unit": [
               "make:unit-boundaries",
-              "make:unit-mpi",
-              "file:tests/test_workspace_lifecycle.py"
+              "make:unit-mpi"
             ],
             "integration": [
               "file:tests/test_velocity_sources.py",

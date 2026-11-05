@@ -1220,10 +1220,9 @@ Supported type/handler combinations:
   - expression: `source.expression` with `components: normal | cartesian | curvilinear`
     and optional `constants`
   - file-backed: `source.type: file`, `source.path`
-  - generated: `source.type: generated`, `source.generator: square_duct_poiseuille`
   - field-sliced: `source.type: field_slice`, `source.field_file`, `source.grid_file`, `source.slice`
-  - generated and field-sliced sources default to `generators/profile.gen`; optional
-    `source.script` selects a compatible override
+  - field-sliced sources default to `generators/profile.gen`; optional `source.script`
+    selects a compatible override
   - `source` may instead name an entry of the top-level `sources:` mapping, which an
     initial condition can share
 - `OUTLET` + `conservation`
@@ -1251,21 +1250,9 @@ Pulsatile expression example:
   constraints: {bulk_velocity: "1.0*(1 + 0.3*sin(2*pi*t))"}
 ```
 
-Generated profile example:
+The exact rectangular-duct profile is an expression too: @ref p33_closed_form_ssec gives its series.
 
-```yaml
-- face: "-Zeta"
-  type: INLET
-  handler: prescribed_velocity
-  source:
-    type: generated
-    generator: square_duct_poiseuille
-    params:
-      bulk_velocity: 1.0
-      n_terms: 101
-```
-
-`picurv run --solve` generates the dimensional `.picslice`, writes
+For a `field_slice` source, `picurv run --solve` extracts the dimensional `.picslice`, writes
 `profile.info`, stages the solver-scale `.picslice`, and passes the existing
 `source_file` key to the C runtime. Use `picurv precompute --case ...` to create
 the same deterministic artifacts without launching the solver.

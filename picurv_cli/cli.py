@@ -294,7 +294,7 @@ def _add_precompute_parser(subparsers):
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Generate configured deterministic artifacts, such as grid_gen grids,\n"
-            "generated inlet profiles, and ic_gen initial conditions,\n"
+            "sliced inlet profiles, and ic_gen initial conditions,\n"
             "as immutable objects in the initialized workspace asset store.\n\n"
             "Examples:\n"
             "  picurv precompute --case config/case.yml\n"
