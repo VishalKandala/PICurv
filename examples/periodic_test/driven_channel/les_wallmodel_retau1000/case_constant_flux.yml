@@ -37,21 +37,24 @@ properties:
     viscosity: 5.0e-5   # -> Re = 20000 = U_b * delta / nu
   initial_conditions:
     # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a parabolic mean
-    # normalized to U_b. The streamwise spacing bounds k_cut at 16.
-    mode: generated
-    generator: channel_spectral_velocity
-    params:
-      field: Ucat
-      seed: 12345
-      wall_axes: [j]
-      streamwise_axis: k
-      bulk_velocity: 1.0
-      perturbation_rms: 0.1
-      wall_modes: 3
-      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
-      initial_spectra:
-        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 2}, subtract_mean: sample}
-        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 9}, subtract_mean: sample}
+    # of bulk U_b. The streamwise spacing bounds k_cut at 16.
+    source:
+      sum:
+        - {components: cartesian, expression: {w: "6*eta*(1-eta)"}}
+        - generator: channel_spectral_velocity
+          params:
+            field: Ucat
+            seed: 12345
+            wall_axes: [j]
+            streamwise_axis: k
+            bulk_velocity: 0.0
+            perturbation_rms: 0.1
+            wall_modes: 3
+            spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+            initial_spectra:
+              - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 2}, subtract_mean: sample}
+              - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 9}, subtract_mean: sample}
+    constraints: {project: false}  # A streamwise-uniform mean plus a discrete curl is already divergence-free.
 
 grid:
   mode: grid_gen

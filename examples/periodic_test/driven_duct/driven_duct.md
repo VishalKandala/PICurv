@@ -54,7 +54,9 @@ while Gavrilakis quotes it on the hydraulic diameter `D = 2a`.
 
 `case_initial_flux.yml` runs the same case under the `initial_flux` handler, and
 `solver_newton_krylov.yml` under the matrix-free Newton--Krylov momentum solver.
-Both campaign cases seed with `duct_spectral_velocity`. `case_spectral.yml` (with
+Both campaign cases start from a `source` sum: the product-parabola mean
+`36*xi*(1-xi)*eta*(1-eta)` and the fluctuation of `duct_spectral_velocity`.
+`case_spectral.yml` (with
 `grid_spectral.cfg` and `post_spectral.yml`) is a short 1000-step seeded startup
 for inspecting that seed and its spectra, not a campaign case.
 `target_flux` is a volumetric flux: `U_b * Lx * Ly = 1 * 2 * 2 = 4.0`.
@@ -112,7 +114,7 @@ the first cells' resolved gradient, which the shipped `y+ ~ 0.5` spacing support
 Neither blocker once listed here stands. The pseudo-time momentum stall on periodic
 wall-bounded flow was re-characterized on 2026-09-18 and does not reproduce (see
 `examples/periodic_test/driven_channel/driven_channel.md` section 6 and
-`docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7). The duct cases now
+`docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7). The duct cases
 seed with `duct_spectral_velocity`, a wall-respecting divergence-free perturbation
 of RMS `0.1 U_b`.
 

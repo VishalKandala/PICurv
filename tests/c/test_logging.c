@@ -509,6 +509,8 @@ static PetscErrorCode TestStringConversionHelpers(void)
     PetscFunctionBeginUser;
     PetscCall(PicurvAssertBool(strcmp(BCFaceToString(BC_FACE_NEG_X), "-Xi (I-Min)") == 0,
                                "BCFaceToString should report the negative-x face"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_SOURCE), "Source") == 0,
+                               "InitialConditionModeToString should report the source mode"));
     PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_ZERO), "Zero") == 0,
                                "InitialConditionModeToString should report the zero mode"));
     PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_CONSTANT_CARTESIAN), "Cartesian Constant") == 0,

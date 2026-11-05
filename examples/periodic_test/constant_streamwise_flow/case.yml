@@ -15,11 +15,7 @@ properties:
     density: 1.0
     viscosity: 0.0
   initial_conditions:
-    mode: "generated"
-    generator: "streamwise_constant"
-    params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+    source: {components: curvilinear, expression: {u_zeta: 1.0}}  # streamwise speed [m/s]
 
 grid:
   mode: programmatic_c

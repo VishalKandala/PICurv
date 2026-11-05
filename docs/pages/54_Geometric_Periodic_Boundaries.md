@@ -335,8 +335,8 @@ hand.
 `duct_spectral_velocity` providers generate wall-bounded discrete-curl perturbations;
 see @ref p33_cap_gen_channel_spectral_velocity and @ref p33_cap_gen_duct_spectral_velocity.
 The `turbulent_channel` example and every turbulent and LES case under
-`periodic_test/driven_channel/` and `periodic_test/driven_duct/` seed with them; only
-the laminar channel starts from `streamwise_constant`. The perturbation grows linearly
+`periodic_test/driven_channel/` and `periodic_test/driven_duct/` add one to a parabolic
+mean source (@ref p33_source); only the laminar channel starts from a uniform source. The perturbation grows linearly
 from the wall, as a developed near-wall field does: on the `Re_tau = 180` DNS grid its
 wall-parallel RMS is about `0.013 U_b` at `y+ ~ 5` and `0.031 U_b` at `y+ ~ 13`, against
 `0.13 U_b` at the centreline (developed turbulence peaks near `0.17 U_b` at `y+ ~ 13`).

@@ -6999,8 +6999,8 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
             source_file = ic.get("source_file")
             if isinstance(source_file, str):
                 ic["source_file"] = resolve_path(case_anchor_path, source_file)
-        elif str(ic.get("generator", "")).strip().lower() == "ic_gen":
-            params = ic.get("params", {})
+        elif str(initial_generator_term(ic).get("generator", "")).strip().lower() == "ic_gen":
+            params = initial_generator_term(ic).get("params", {})
             if isinstance(params, dict):
                 for key in ("script", "config_file"):
                     value = params.get(key)
@@ -14940,6 +14940,22 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
+def initial_generator_term(ic: dict) -> dict:
+    """!
+    @brief Find the mapping that names an initial condition's generator.
+    @param[in] ic Raw `properties.initial_conditions` mapping.
+    @return The mapping itself, its source when that is a generator, the generator term of a
+            source's `sum`, or an empty mapping when a source has no generator.
+    """
+    if "source" not in ic:
+        return ic
+    source = ic["source"]
+    terms = source.get("sum", [source]) if isinstance(source, dict) else []
+    if not isinstance(terms, list):
+        return {}
+    return next((term for term in terms if isinstance(term, dict) and "generator" in term), {})
+
+
 def _resolve_initial_source_sum(spec: dict, where: str, named_sources, prepared_blocks, scales: dict,
                                 provider_context):
     """!
@@ -15009,13 +15025,13 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
                              f"remove {others}.")
         where = "properties.initial_conditions.source"
         spec, generated = ic["source"], None
-        if isinstance(spec, dict) and "sum" in spec:
-            spec, generated = _resolve_initial_source_sum(spec, where, named_sources, prepared_blocks, scales,
-                                                          provider_context)
+        project = isinstance(spec, dict) and "sum" in spec
+        if isinstance(spec, dict) and ("sum" in spec or "generator" in spec):
+            spec, generated = _resolve_initial_source_sum(spec if "sum" in spec else {"sum": [spec]}, where,
+                                                          named_sources, prepared_blocks, scales, provider_context)
         source = resolve_velocity_source(spec, {"sources": named_sources or {}}, where, allow_normal=False)
         constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
             else ic.get("constraints")
-        project = generated is not None
         if isinstance(constraints, dict) and "project" in constraints:
             project = constraints.pop("project")
             if not isinstance(project, bool):
@@ -19882,7 +19898,8 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
         ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
     )
     initial_mode = str(initial.get("mode", "generated")).strip().lower()
-    initial_generator = str(initial.get("generator", "constant")).strip().lower()
+    initial_generator = str(initial_generator_term(initial).get(
+        "generator", "source" if "source" in initial else "constant")).strip().lower()
     generated_python = (
         initial_mode == "generated"
         and initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS

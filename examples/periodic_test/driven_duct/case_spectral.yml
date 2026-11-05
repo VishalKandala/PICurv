@@ -11,29 +11,32 @@ properties:
     density: 1.0
     viscosity: 0.00045351474
   initial_conditions:
-    mode: generated
-    generator: duct_spectral_velocity
-    params:
-      seed: 12345
-      wall_axes:
-      - i
-      - j
-      streamwise_axis: k
-      bulk_velocity: 1.0
-      perturbation_rms: 0.1
-      wall_modes: 3
-      spectrum:
-        type: k4_exponential
-        k0: 4.0
-        k_cut: 8.0
-      initial_spectra:
-      - task: line_spectrum
-        axes:
-        - k
-        fixed_indices:
-          i: 63
-          j: 63
-        subtract_mean: sample
+    source:
+      sum:
+        - {components: cartesian, expression: {w: "36*xi*(1-xi)*eta*(1-eta)"}}
+        - generator: duct_spectral_velocity
+          params:
+            seed: 12345
+            wall_axes:
+            - i
+            - j
+            streamwise_axis: k
+            bulk_velocity: 0.0
+            perturbation_rms: 0.1
+            wall_modes: 3
+            spectrum:
+              type: k4_exponential
+              k0: 4.0
+              k_cut: 8.0
+            initial_spectra:
+            - task: line_spectrum
+              axes:
+              - k
+              fixed_indices:
+                i: 63
+                j: 63
+              subtract_mean: sample
+    constraints: {project: false}  # A streamwise-uniform mean plus a discrete curl is already divergence-free.
 grid:
   mode: grid_gen
   generator:

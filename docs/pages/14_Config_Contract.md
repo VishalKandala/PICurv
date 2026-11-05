@@ -65,7 +65,8 @@ For each run, `picurv` generates:
   expression source and its `bulk_velocity` reach C as quoted `-inlet_source_<id>_*`
   control options.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
-- `properties.initial_conditions.mode` is `generated` or `file`.
+- `properties.initial_conditions.mode` is `generated` or `file`; `source` replaces it with an
+  expression source, a `sum`, or a generator alone (@ref p33_source).
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`; their
   inputs live under `params`.
 - `generator: ic_gen` requires `params.field` and `params.config_file`, defaults to

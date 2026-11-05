@@ -98,6 +98,9 @@ These keys are consumed by `picurv` orchestration only:
 
 Some launcher behaviors depend on other config selections before values ever reach C:
 
+- A generator inside `case.properties.initial_conditions.source` is resolved like one under
+  `mode: generated` and planned for precompute the same way; the runtime then adds the source to
+  its staged field.
 - `case.properties.initial_conditions.mode: generated` resolves `generator` and `params` into
   built-in C flags or a staged Python-generated PETSc vector. Channel/duct providers
   validate wall topology and measure selected initial spectra through `spectra.gen`.

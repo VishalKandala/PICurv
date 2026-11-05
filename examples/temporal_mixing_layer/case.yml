@@ -13,20 +13,20 @@ properties:
   # Sc = 1 (Colucci et al.): the scalar's molecular diffusivity is nu.
   fluid: {density: 1.0, viscosity: 0.01132, schmidt_number: 1.0}
   initial_conditions:
-    mode: generated
-    generator: stability_mode_velocity
-    params:
-      field: Ucat
-      streamwise_axis: k
-      cross_axis: j
-      # U = tanh(y/delta), delta = delta_v0/2, between streams at -1 and +1.
-      base_profile: "tanh(y/1.415)"
-      # The most unstable mode (two wavelengths in the box) and its subharmonic, each
-      # peaking at 1% of the velocity difference, so the two vortices roll up and pair.
-      modes:
-        - {harmonic: 2, amplitude: 0.01}
-        - {harmonic: 1, amplitude: 0.01}
-      noise: {rms: 0.02, seed: 1, planar: true, spectrum: {type: white}, wall_modes: 8}
+    source:
+      generator: stability_mode_velocity
+      params:
+        field: Ucat
+        streamwise_axis: k
+        cross_axis: j
+        # U = tanh(y/delta), delta = delta_v0/2, between streams at -1 and +1.
+        base_profile: "tanh(y/1.415)"
+        # The most unstable mode (two wavelengths in the box) and its subharmonic, each
+        # peaking at 1% of the velocity difference, so the two vortices roll up and pair.
+        modes:
+          - {harmonic: 2, amplitude: 0.01}
+          - {harmonic: 1, amplitude: 0.01}
+        noise: {rms: 0.02, seed: 1, planar: true, spectrum: {type: white}, wall_modes: 8}
 
 grid:
   mode: grid_gen

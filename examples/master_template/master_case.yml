@@ -79,23 +79,52 @@ properties:
   # The state of the fluid at the start of the simulation (t=0).
   # Values are in physical units [m/s].
   initial_conditions:
+    # --- Source: a velocity written as expressions, evaluated at every cell centre. ---
+    # The same source language as a prescribed_velocity inlet (see boundary_conditions),
+    # in the cartesian or curvilinear frame, inline or named under a top-level `sources:`.
+    # Constraints: scale, and project (make it divergence-free before step 1).
+    source: {components: cartesian, expression: {w: 1.0}}   # [m/s]
+
+    # A shaped source, in the frame of the grid lines:
+    # source:
+    #   components: curvilinear
+    #   constants: {U: 1.0}
+    #   expression: {u_zeta: "36*U*xi*(1-xi)*eta*(1-eta)"}  # [m/s], peak 2.25*U
+    # constraints: {scale: 1.0, project: false}
+    #
+    # A sum adds sources (one frame) and at most one generator that writes a Ucat, e.g. a mean
+    # plus turbulent fluctuations; project defaults to true for a sum:
+    # source:
+    #   sum:
+    #     - duct_flow                              # a source named under top-level `sources:`
+    #     - generator: duct_spectral_velocity      # bulk_velocity 0: fluctuations only
+    #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k, bulk_velocity: 0.0,
+    #                perturbation_rms: 0.1, initial_spectra: [...]}
+    #
+    # A generator alone, staged as it writes it; project defaults to false:
+    # source:
+    #   generator: spectral_random_velocity
+    #   params: {...}                              # see "Spectral random velocity" below
+    #
+    # Python generators run in picurv before the solve (single block, staged grid):
+    #   ic_gen | spectral_random_velocity | resampled_velocity | channel_spectral_velocity
+    #   | duct_spectral_velocity | stability_mode_velocity
+    # They need a grid picurv can read before launch: `file` or `grid_gen`, or
+    # `programmatic_c` for ic_gen only. Their payload is always written to
+    # <run.inputs>/initial_condition/; destination keys (output_file, summary_json,
+    # spectrum_csv) are refused. `picurv precompute` builds it without running the solver.
+
+    # --- mode: generated, the same generators and the solver's built-ins. ---
     # Built into the solver:  zero | constant | streamwise_constant | poiseuille
-    # Python providers run by picurv before the solve (single block, staged grid):
-    #   ic_gen | spectral_random_velocity | resampled_velocity | channel_spectral_velocity | duct_spectral_velocity
-    # Python providers need a grid picurv can read before launch: `file` or
-    # `grid_gen`, or `programmatic_c` for ic_gen only. Their payload is always
-    # written to <run.inputs>/initial_condition/; destination keys (output_file,
-    # summary_json, spectrum_csv) are refused. `picurv precompute` builds it
-    # without running the solver.
-    mode: generated
-    generator: constant
-    params:
-      u_physical: 0.0   # [m/s]
-      v_physical: 0.0
-      w_physical: 1.0
+    # mode: generated
+    # generator: constant
+    # params:
+    #   u_physical: 0.0   # [m/s]
+    #   v_physical: 0.0
+    #   w_physical: 1.0
 
     # --- Generator: streamwise_constant ---
-    # Sets every cell to the same scalar speed along the dominant flow axis.
+    # Sets every cell's flux along the dominant flow axis from one scalar speed.
     # Infers flow_direction from the INLET face when one exists; otherwise,
     # flow_direction is required.
     # mode: generated
@@ -116,25 +145,6 @@ properties:
     # params:
     #   peak_velocity_physical: 1.5   # [m/s] Centerline (maximum) velocity
     #   flow_direction: "+Zeta"       # Same options as streamwise_constant
-
-    # --- Source: a velocity written as expressions, evaluated at every cell centre. ---
-    # The same source language as a prescribed_velocity inlet (see boundary_conditions),
-    # in the cartesian or curvilinear frame, inline or named under a top-level `sources:`.
-    # It replaces mode/generator. Constraints: scale.
-    # source:
-    #   components: curvilinear
-    #   constants: {U: 1.0}
-    #   expression: {u_zeta: "36*U*xi*(1-xi)*eta*(1-eta)"}  # [m/s], peak 2.25*U
-    # constraints: {scale: 1.0, project: false}   # project: make it divergence-free before step 1
-    #
-    # A sum adds sources (one frame) and at most one generator that writes a Ucat, e.g. a mean
-    # plus turbulent fluctuations; project defaults to true for a sum:
-    # source:
-    #   sum:
-    #     - duct_flow                              # a source named under top-level `sources:`
-    #     - generator: duct_spectral_velocity      # bulk_velocity 0: fluctuations only
-    #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k, bulk_velocity: 0.0,
-    #                perturbation_rms: 0.1, initial_spectra: [...]}
 
     # --- File IC: one PETSc .dat velocity field, staged for ReadFieldData. ---
     # The payload is physical ([m/s] for Ucat, [m^3/s] per face for Ucont) and is divided

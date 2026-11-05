@@ -59,6 +59,8 @@ Profile-generation note:
 
 Initial-condition note:
 
+- `initial_conditions.source` is an expression source, a `sum` of sources and one generator,
+  or a generator alone; every shipped example uses it.
 - `initial_conditions.mode: generated` selects a solver built-in (`zero`, `constant`,
   `streamwise_constant`, `poiseuille`) or a Python provider (`ic_gen`,
   `spectral_random_velocity`, `channel_spectral_velocity`, `duct_spectral_velocity`).

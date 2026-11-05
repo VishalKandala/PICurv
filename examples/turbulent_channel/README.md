@@ -13,11 +13,12 @@ spacings must be recomputed from the achieved wall stress; grid/time convergence
 is still required. The viscosity gives U_b*h/nu=2800. Re_tau is an outcome of
 constant-flux driving, not an input imposed by the Reynolds-number setting.
 
-`channel_spectral_velocity` generates a discrete-curl perturbation using seeded
-random Fourier content in the periodic directions and smooth basis functions in
-the wall-normal direction. Its volume-weighted component-equivalent RMS is 0.1 U_b.
-The parabolic mean is normalized to discrete bulk velocity 1; the driven target
-flux is 4*pi. There is no recurring perturbation injection. Transition is not
+The initial condition is a `source` sum of a mean and a fluctuation. The mean is the
+expression `6*eta*(1-eta)`, whose bulk velocity is 1 up to the midpoint rule's error
+(4.5e-5 on this grid); the driven target flux is 4*pi. `channel_spectral_velocity`,
+with `bulk_velocity: 0`, generates the fluctuation: a discrete-curl perturbation using
+seeded random Fourier content in the periodic directions and smooth basis functions in
+the wall-normal direction. Its volume-weighted component-equivalent RMS is 0.1 U_b. There is no recurring perturbation injection. Transition is not
 guaranteed by this amplitude; monitor fluctuation energy and Reynolds shear stress.
 
 ## Momentum solver
@@ -41,8 +42,8 @@ picurv precompute --case config/case.yml
 
 Precompute publishes the grid and IC as workspace assets. Their payload retains the canonical grid, initial-condition, metrics, and spectra
 locations; staging a run materializes those existing assets.
-The IC summary reports realized bulk velocity, perturbation RMS, and discrete
-divergence. Initial plane spectra sample zero-based physical wall-normal cells
+The IC summary describes the generated fluctuation: its mean, RMS, and discrete
+divergence. `<run.analysis.metrics>/driven_flow.csv` reports the bulk velocity. Initial plane spectra sample zero-based physical wall-normal cells
 8, 32, and 63. Each has a CSV and a JSON summary recording the actual location,
 mean subtraction, normalization and Parseval residual. Indices exclude dummy cells.
 

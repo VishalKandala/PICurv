@@ -1467,7 +1467,7 @@ def _write_spectral_ic_case(workspace: Path):
         (REPO_ROOT / "examples" / "decaying_isotropic_turbulence" / "case.yml").read_text(encoding="utf-8")
     )
     case["grid"]["generator"]["config_file"] = "config/grids/box16.cfg"
-    case["properties"]["initial_conditions"]["params"]["spectrum"] = {
+    case["properties"]["initial_conditions"]["source"]["params"]["spectrum"] = {
         "type": "k4_exponential", "k0": 2.0, "k_cut": 4.0,
     }
     case_path = workspace / "config" / "case.yml"

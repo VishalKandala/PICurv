@@ -26,6 +26,9 @@ properties:
       config_file: config/initial_conditions/expression.cfg
 ```
 
+A generator that writes `Ucat` may equally be given as `source: {generator: ..., params: ...}`,
+or as a term of a `source` sum (`docs/pages/33_Initial_Conditions.md`).
+
 For `Ucat`, `u`, `v`, and `w` are Cartesian velocity components evaluated at
 actual cell centers, including extrapolated dummy-cell centers. For `Ucont`,
 define `u_xi`, `u_eta`, and `u_zeta`; each component is evaluated at its own

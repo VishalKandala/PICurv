@@ -558,9 +558,6 @@
             "integration": [
               "make:smoke-periodic"
             ],
-            "production": [
-              "example:examples/flat_channel"
-            ],
             "analytical": [
               "measurement:initial-conditions-2026-09-21"
             ]

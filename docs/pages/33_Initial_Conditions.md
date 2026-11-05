@@ -147,6 +147,9 @@ properties:
     constraints: {scale: 1.0, project: true}
 ```
 
+A generator may also stand alone, `source: {generator, params}`. Nothing is added to its field,
+so the velocity is the one `mode: generated` stages for the same generator, bit for bit.
+
 `constraints` apply to the whole field, in order. `scale` multiplies it. `project`, which
 defaults to true for a sum and false otherwise, makes it divergence-free before the first step
 with the time step's own pressure projection: one Poisson solve for the initial `Ucont`, whose
@@ -155,6 +158,16 @@ faces. The potential is discarded, so pressure keeps its initial value, and the 
 convergence record is overwritten by the first step's. Without `project`, the first step's
 projection makes the field divergence-free instead, after one momentum step on the field as
 given.
+
+A source and a built-in give the same field where the velocity is uniform and the grid Cartesian:
+`{components: cartesian, expression: {w: 1.0}}` matches `generator: constant`,
+`{components: curvilinear, expression: {u_zeta: 1.0}}` matches `generator: streamwise_constant`,
+and zero components match `generator: zero`. On a curved grid `streamwise_constant` sets the flux
+of each face directly, while a source reaches the faces by interpolating cell-centre velocities,
+which leaves a divergence (3e-6 per cell on a 20 x 20 x 32 bend), so such a source needs
+`project: true`. A mean added to a wall seed of `bulk_velocity: 0` is not normalized as the seed's
+own mean is: its bulk velocity carries the midpoint rule's error, `1 + h^2/2` for `6*eta*(1-eta)`
+on `n` uniform cells of relative width `h = 1/n`.
 
 @subsection p33_closed_form_ssec Closed-form profiles: series and special functions
 

@@ -263,8 +263,7 @@ Minimal zero-flow startup:
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: zero
+    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}
 ```
 
 Constant cartesian velocity (channel with explicit components):
@@ -272,12 +271,7 @@ Constant cartesian velocity (channel with explicit components):
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: constant
-    params:
-      u_physical: 0.0
-      v_physical: 0.0
-      w_physical: 1.0
+    source: {components: cartesian, expression: {w: 1.0}}
 ```
 
 Constant streamwise velocity for a periodic box (no INLET face):
@@ -285,11 +279,7 @@ Constant streamwise velocity for a periodic box (no INLET face):
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: streamwise_constant
-    params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+    source: {components: curvilinear, expression: {u_zeta: 1.0}}
 ```
 
 Poiseuille with a clear scalar input (INLET face present — no `flow_direction` needed):

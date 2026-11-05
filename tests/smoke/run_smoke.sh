@@ -2995,7 +2995,7 @@ with open(f"{root}/config/grids/box16.cfg", "w") as handle:
                  "periodic = i j k\nshow_stats = no\nwrite_vtk = no\n")
 def case(cfg):
     cfg["grid"]["generator"]["config_file"] = "config/grids/box16.cfg"
-    cfg["properties"]["initial_conditions"]["params"]["spectrum"] = {"type": "k4_exponential", "k0": 2.0, "k_cut": 4.0}
+    cfg["properties"]["initial_conditions"]["source"]["params"]["spectrum"] = {"type": "k4_exponential", "k0": 2.0, "k_cut": 4.0}
     cfg["run_control"]["total_steps"] = 4
 def solver(cfg):
     mg = cfg["poisson_solver"]["multigrid"]; mg["levels"] = 2
@@ -3189,6 +3189,7 @@ run_geometric_periodic_smoke() {
     "constant_uniform_geometric_periodic"
   require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.csv" "geometric-periodic continuity metrics log"
   require_file_contains "${LAST_SOLVER_LOG}" "Periodic Axes (BC-derived)  : I=YES, J=YES, K=YES" "BC-derived periodic axes"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : initial condition (Source)" "source-IC banner source"
   source_ufield="${LAST_RUN_DIR}/output/checkpoints/step_000000000000/eulerian/block_0000/Ucat.dat"
   require_file "${source_ufield}" "file-IC source Ucat"
 
@@ -3220,6 +3221,20 @@ PY
   require_file_contains "${LAST_SOLVER_LOG}" "Initial Velocity File       : field=Ucat" "file-IC banner field"
 
   cp -R "${repo_root}/examples/periodic_test/constant_streamwise_flow" "${streamwise_case}"
+  python3 - "${streamwise_case}/case.yml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["properties"]["initial_conditions"] = {
+    "mode": "generated",
+    "generator": "streamwise_constant",
+    "params": {"velocity_physical": 1.0, "flow_direction": "+Zeta"},
+}
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+PY
   run_case_workflow \
     "${streamwise_case}" \
     "${streamwise_case}/case.yml" \
@@ -3245,7 +3260,7 @@ grid.write_text(grid.read_text().replace("ncells_i = 64", "ncells_i = 16")
                 .replace("ncells_j = 64", "ncells_j = 16").replace("ncells_k = 64", "ncells_k = 16"))
 case_cfg = yaml.safe_load((case_dir / "case.yml").read_text())
 case_cfg["run_control"]["total_steps"] = 2
-case_cfg["properties"]["initial_conditions"]["params"]["spectrum"].update(k0=2.0, k_cut=4.0)
+case_cfg["properties"]["initial_conditions"]["source"]["params"]["spectrum"].update(k0=2.0, k_cut=4.0)
 # Particles crossing the rank boundary exercise the migration-newcomer cross-check too.
 case_cfg["models"]["physics"]["particles"].update(count=2000, init_mode="Volume")
 (case_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False))

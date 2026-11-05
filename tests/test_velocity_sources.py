@@ -251,6 +251,8 @@ def test_source_terms_add_and_project_is_optional():
         initial_conditions={"source": {"sum": ["duct", swirl]}, "constraints": {"project": False}})
     ic = resolve_initial(case)
     assert ic["kind"] == "source" and not ic["source"]["project"]
+    case, _, _ = load_configs(sources={"duct": DUCT}, initial_conditions={"source": {"sum": ["duct", swirl]}})
+    assert resolve_initial(case)["source"]["project"] is True
     assert ic["source"]["expressions"][0] == "(0.0) + (0.1*zeta)"
     plain, _, _ = load_configs(initial_conditions={"source": "duct", "constraints": {"project": True}},
                                sources={"duct": DUCT})
@@ -274,3 +276,63 @@ def test_invalid_sums_are_refused(terms, message):
     case, _, _ = load_configs(initial_conditions={"source": {"sum": terms}})
     with pytest.raises(ValueError, match=message):
         resolve_initial(case)
+
+
+def test_a_lone_generator_is_a_source_and_is_not_projected():
+    """!
+    @brief A generator alone is staged as it writes it: nothing is added and no projection runs
+           unless asked for.
+    """
+    case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED})
+    ic = resolve_initial(case)
+    assert ic["finit"] == 5 and ic["kind"] == "duct_spectral_velocity"
+    assert ic["source"]["expressions"] == ["0.0", "0.0", "0.0"] and ic["source"]["project"] is False
+    case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED, "constraints": {"project": True}})
+    assert resolve_initial(case)["source"]["project"] is True
+
+
+@pytest.mark.parametrize("wrap", [lambda term: term, lambda term: {"sum": [DUCT, term]}])
+def test_a_generator_inside_a_source_resolves_its_paths(wrap):
+    """!
+    @brief The case's relative `config_file` and `script` are anchored wherever the generator
+           is written.
+    @param[in] wrap Places the generator term in a source.
+    """
+    term = {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "ic.cfg", "script": "tools/ic.py"}}
+    case = {"properties": {"initial_conditions": {"source": wrap(term)}}}
+    CORE.absolutize_case_external_paths(case, "/work/case.yml")
+    assert term["params"]["config_file"] == "/work/ic.cfg"
+    assert term["params"]["script"] == "/work/tools/ic.py"
+
+
+@pytest.mark.parametrize("source, name", [
+    (DUCT_SEED, "duct_spectral_velocity"),
+    ({"sum": [DUCT, DUCT_SEED]}, "duct_spectral_velocity"),
+    (DUCT, None),
+    ("duct", None),
+])
+def test_initial_generator_term_finds_the_generator(source, name):
+    """!
+    @brief The generator is found alone or in a sum, and a plain source has none.
+    @param[in] source Initial-condition source.
+    @param[in] name Expected generator, or None.
+    """
+    assert CORE.initial_generator_term({"source": source}).get("generator") == name
+
+
+@pytest.mark.parametrize("source, provider, execution", [
+    (DUCT_SEED, "duct_spectral_velocity", "precomputable"),
+    ({"sum": [DUCT, DUCT_SEED]}, "duct_spectral_velocity", "precomputable"),
+    (DUCT, "source", "runtime-c"),
+])
+def test_the_asset_graph_plans_a_generator_inside_a_source(source, provider, execution):
+    """!
+    @brief `picurv precompute` plans a generator written inside a source; a plain source runs in C.
+    @param[in] source Initial-condition source.
+    @param[in] provider Expected provider name.
+    @param[in] execution Expected execution class.
+    """
+    case, _, _ = load_configs(initial_conditions={"source": source})
+    graph = CORE.build_case_asset_graph(case, str(FIXTURES / "case.yml"))
+    planned = next(item for item in graph["providers"] if item["kind"] == "initial-condition")
+    assert (planned["provider"], planned["execution"]) == (provider, execution)

@@ -34,11 +34,7 @@ properties:
     density: 1.0
     viscosity: 0.01     # -> Re = rho * U_ref * L_ref / mu = 100 (well below transition)
   initial_conditions:
-    mode: generated
-    generator: streamwise_constant
-    params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+    source: {components: curvilinear, expression: {u_zeta: 1.0}}  # streamwise speed [m/s]
 
 grid:
   mode: grid_gen

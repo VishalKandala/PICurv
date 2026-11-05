@@ -61,6 +61,10 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
         if initial_conditions is None:
             continue
         checked.append(path)
+        if REPO_ROOT / "examples" in path.parents:
+            # Examples show the source form; `mode` stays covered by the fixture.
+            assert set(initial_conditions) <= {"source", "constraints"} and "source" in initial_conditions, path
+            continue
         assert initial_conditions.get("mode") in {"generated", "file"}, path
         if initial_conditions["mode"] == "generated":
             assert initial_conditions.get("generator") in generators, path

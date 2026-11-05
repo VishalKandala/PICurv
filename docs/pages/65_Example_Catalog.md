@@ -84,8 +84,8 @@ characterized on the AGARD HOM02 benchmark, started from Wray's DNS field
 is removed, while the resolved energy decay runs up to 18% from the DNS during start-up
 (`hom02-les-accuracy-2026-10-09`, not met). See @ref p72_status_sec.
 
-`turbulent_channel` now uses `channel_spectral_velocity` for a seeded perturbation
-about a bulk-normalized parabolic mean, with LES and wall functions disabled. Its
+`turbulent_channel` adds the seeded perturbation of `channel_spectral_velocity` to a
+parabolic mean source of bulk velocity 1, with LES and wall functions disabled. Its
 128 x 128 x 256 cell grid spans 2*pi x 2 x 4*pi and clusters toward both walls.
 Nominal `Re_tau ~ 180` guides the spacing; achieved wall stress determines the
 actual friction Reynolds number. The example includes physical plane spectra of

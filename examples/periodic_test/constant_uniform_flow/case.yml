@@ -15,12 +15,7 @@ properties:
     density: 1.0
     viscosity: 0.0
   initial_conditions:
-    mode: generated
-    generator: constant
-    params:
-      u_physical: 1.0
-      v_physical: 0.5
-      w_physical: -0.25
+    source: {components: cartesian, expression: {u: 1.0, v: 0.5, w: -0.25}}
 
 grid:
   mode: programmatic_c

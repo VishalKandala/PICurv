@@ -673,6 +673,7 @@ const char* InitialConditionModeToString(InitialConditionMode mode)
         case IC_MODE_POISEUILLE: PROFILE_FUNCTION_END; return "Poiseuille";
         case IC_MODE_CONSTANT_STREAMWISE: PROFILE_FUNCTION_END; return "Streamwise Constant";
         case IC_MODE_FILE: PROFILE_FUNCTION_END; return "File";
+        case IC_MODE_SOURCE: PROFILE_FUNCTION_END; return "Source";
         default: PROFILE_FUNCTION_END; return "Unknown Initial Condition";
     }
     PROFILE_FUNCTION_END;

@@ -22,24 +22,22 @@ properties:
     density: 1000.0
     viscosity: 0.001
   initial_conditions:
-    mode: generated
-    generator: constant
-    params:
-      u_physical: 1.5
-      v_physical: 0.0
-      w_physical: 0.0
+    source: {components: cartesian, expression: {u: 1.5}}
 ```
 
 Alternative IC forms:
 
 ```yaml
-# Single streamwise speed
+# Speed along the grid lines
 initial_conditions:
-  mode: generated
-  generator: streamwise_constant
-  params:
-    velocity_physical: 1.5
-    flow_direction: "+Zeta"
+  source: {components: curvilinear, expression: {u_zeta: 1.5}}
+  constraints: {project: true}    # for a curved grid
+
+# A generated field, staged as it is written
+initial_conditions:
+  source:
+    generator: spectral_random_velocity
+    params: {seed: 12345, spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}}
 
 # File-backed Cartesian velocity
 initial_conditions:
@@ -52,7 +50,8 @@ Key mappings:
 - `scaling.length_ref` -> `-scaling_L_ref`
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
-- `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
+- `source` -> `-finit 5` and quoted `-ic_source_*` options; a generator in it is also staged, with `-ic_source_field_weight`
+- `mode: generated` with `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
 - `mode: file` and Python IC providers (`ic_gen`, `spectral_random_velocity`, `resampled_velocity`,
   `channel_spectral_velocity`, `duct_spectral_velocity`, `stability_mode_velocity`) -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
 - `params.u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
@@ -65,8 +64,9 @@ For detailed startup behavior of field initialization modes, see **@subpage 33_I
 Practical contract notes:
 
 - `initial_conditions.mode` is `generated` or `file`; `initial_conditions.source` replaces
-  both with a velocity source evaluated at every cell centre (@ref p33_source), optionally
-  with `constraints: {scale}`.
+  both with a velocity source evaluated at every cell centre, a `sum` of sources and one
+  generator, or a generator alone (@ref p33_source), optionally with
+  `constraints: {scale, project}`.
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
 - `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
 - channel/duct spectral providers require no-slip wall pairs, periodic remaining axes,

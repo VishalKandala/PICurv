@@ -7,25 +7,25 @@ properties:
   scaling: {length_ref: 1.0, velocity_ref: 1.0}
   fluid: {density: 1.0, viscosity: 0.005}
   initial_conditions:
-    mode: generated
-    generator: spectral_random_velocity
-    params:
-      field: Ucat
-      seed: 12345
-      random:
-        distribution: gaussian
-        mean: [0.0, 0.0, 0.0]
-      spectrum:
-        type: k4_exponential
-        k0: 4.0
-        k_cut: 20.0
-      projection:
-        type: solenoidal
-        operator: picurv_discrete
-      normalization:
-        type: component_rms
-        target: 1.0
-      remove_mean: true
+    source:
+      generator: spectral_random_velocity
+      params:
+        field: Ucat
+        seed: 12345
+        random:
+          distribution: gaussian
+          mean: [0.0, 0.0, 0.0]
+        spectrum:
+          type: k4_exponential
+          k0: 4.0
+          k_cut: 20.0
+        projection:
+          type: solenoidal
+          operator: picurv_discrete
+        normalization:
+          type: component_rms
+          target: 1.0
+        remove_mean: true
 
 grid:
   # The spectral initial condition is a reusable Python asset and therefore

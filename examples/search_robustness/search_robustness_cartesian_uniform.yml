@@ -13,8 +13,7 @@ properties:
     # particles are carried by the uniform flow alone.
     schmidt_number: 1.0e12
   initial_conditions:
-    mode: generated
-    generator: zero
+    source: {components: cartesian, expression: {u: 0.0, v: 0.0, w: 0.0}}
 
 run_control:
   start_step: 0
