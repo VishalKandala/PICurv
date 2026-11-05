@@ -4,6 +4,7 @@
  */
 
 #include "test_support.h"
+#include "verification_sources.h"
 
 #include "AnalyticalSolutions.h"
 #include "BodyForces.h"
