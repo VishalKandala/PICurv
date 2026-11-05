@@ -439,7 +439,7 @@ def test_a_file_term_stages_a_field_and_may_be_summed():
     flux = dict(field, field="Ucont")
     case, _, _ = load_configs(sources={"duct": {"expression": {"w": 1.0}}},
                               initial_conditions={"source": {"sum": ["duct", flux]}})
-    with pytest.raises(ValueError, match="curvilinear frame"):
+    with pytest.raises(ValueError, match="curvilinear or contravariant"):
         resolve_initial(case)
 
 
@@ -472,5 +472,28 @@ def test_an_analytical_field_is_its_source(tmp_path):
         validate(case, solver, monitor)
     case, solver, monitor = load_configs()
     solver["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)
+
+
+def test_contravariant_components_are_face_fluxes():
+    """!
+    @brief The flux frame belongs to the cells, adds to a staged Ucont, and refuses what reads a velocity.
+    """
+    flux = {"components": "contravariant", "expression": {"u_zeta": "2*x"}}
+    case, _, _ = load_configs(initial_conditions={"source": flux})
+    assert resolve_initial(case)["source"]["frame"] == "contravariant"
+    staged = {"type": "file", "field": "Ucont", "path": "flux.dat"}
+    case, _, _ = load_configs(sources={"flux": flux}, initial_conditions={"source": {"sum": ["flux", staged]}})
+    assert resolve_initial(case)["field_code"] == 1
+
+    case, _, _ = load_configs(initial_conditions={"source": flux, "constraints": {"bulk_velocity": 1.0}})
+    with pytest.raises(ValueError, match="contravariant components are fluxes"):
+        resolve_initial(case)
+    case, _, _ = load_configs(inlet={"handler": "prescribed_velocity", "source": flux})
+    with pytest.raises((SystemExit, ValueError)):
+        CORE.validate_and_prepare_boundary_conditions(case)
+    case, solver, monitor = load_configs(initial_conditions={"source": flux})
+    solver["operation_mode"] = {"eulerian_field_source": "analytical"}
     with pytest.raises(SystemExit):
         validate(case, solver, monitor)

@@ -58,7 +58,7 @@ Each physical input is converted at one site, recorded beside its dimension:
 | `cli` | the launcher divides the value while writing the control file | `dt_physical`, BC velocities and fluxes, `_physical` IC values, point source, roughness height, `uniform_flow`, verification profiles, window times, spectral provider parameters |
 | `c` | the runtime divides it, because the input reaches C with no staging step | `programmatic_settings` domain bounds (`ReadGridGenerationInputs()` in `src/io.c`) |
 | `staging` | a file payload is divided as it is staged under `<run.inputs>` | `.picgrid` grids, `grid.gen` output, inlet-profile PICSLICEs, a `mode: file` initial condition |
-| `provider` | a generator is handed the reference scales and writes solver units | `ic_gen` expressions (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) |
+| `provider` | a generator is handed the reference scales and writes solver units | an `ic_gen` script (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) |
 | `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values, velocity sources (a data source on an inlet is staged instead) |
 | `reference` | the input defines a scale | `length_ref`, `velocity_ref`, `density`, `viscosity`, the provenance scales of a file payload |
 | `passthrough` | raw solver flags, in solver units by definition | `solver_parameters`, `petsc_passthrough_options` |
@@ -72,7 +72,7 @@ The dimension and site of every input are recorded in `INPUT_QUANTITIES` (with
 Every input that carries a physical dimension. Selectors, counts, steps, grid indices,
 tolerances, and dimensionless model constants are recorded as such and are not listed.
 `PAYLOAD` marks a file whose dimension follows its content: velocity for `Ucat`, volume
-flux for `Ucont`, and physical coordinates and values for `ic_gen` expressions and
+flux for `Ucont`, and physical coordinates and values for expression sources and
 particle `fields`.
 
 | Input | Dimension | Converted by | Scale |
@@ -244,9 +244,6 @@ solver's own units exactly.
   solver units, so it names the case that wrote it (`source_case`), or gives
   `velocity_scale`, with `length_scale` too for `Ucont`; the staged payload is rescaled
   from those scales to this case's.
-- **`ic_gen` expressions** are evaluated at physical coordinates and give physical values.
-  The generator receives `--length-ref` and `--velocity-ref` and writes solver units; a
-  custom `params.script` receives the same two options.
 - **Velocity sources** (`sources:`, a `source` initial condition, a `prescribed_velocity`
   inlet and its `bulk_velocity`) are evaluated by the runtime at physical coordinates and
   time and give velocities in m/s; each value is divided by `U` before it is stored.
@@ -260,7 +257,7 @@ solver's own units exactly.
 @section p19_transition_sec 7. Inputs Once Read in Solver Units
 
 The point source, the wall-function roughness height, the analytical uniform flow, the verification
-source profiles, the statistics window times, the `ic_gen` expressions, the spectral
+source profiles, the statistics window times, the former `ic_gen` expressions, the spectral
 provider parameters, and a file initial-condition payload were read in solver
 units before this rule covered them. At unit reference scales the two readings are the
 same. At any other scale, `picurv validate` names each of these inputs a configuration

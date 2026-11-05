@@ -83,7 +83,7 @@ time), the arc-length fractions `xi eta zeta` and the line lengths `L_xi L_eta L
 writes `Ucat`; @ref Cart2Contra then derives `Ucont`. A curvilinear source sets the fluxes
 instead, as below. The fractions follow distance along each
 grid line, so a profile written in them is the physical profile on a stretched grid, unlike the
-`xi`/`eta`/`zeta` of `ic_gen`, which are index fractions.
+index fractions a grid-line count would give.
 The `normal` frame is a face's frame and is refused here.
 
 `source` may instead be a `sum` of terms: sources (names or mappings) in one frame, which are
@@ -117,11 +117,19 @@ convergence record is overwritten by the first step's. Without `project`, the fi
 projection makes the field divergence-free instead, after one momentum step on the field as
 given.
 
-A curvilinear component is the speed through the grid face normal to its axis, on every target:
-a face's flux is that component, evaluated at the face centre, times the face area. A uniform
+Every component reaches the velocity through the faces, evaluated at each face centre. A Cartesian
+velocity is dotted with the face metric. A `curvilinear` component is the speed through the grid face
+normal to its axis, on every target: the flux is that component times the face area. A `contravariant`
+component is the volume flux through that face itself [m^3/s], so it writes `Ucont` directly:
+
+```yaml
+    source: {components: contravariant, expression: {u_zeta: "0.01*(1 + x*y)"}}
+```
+
+An initial condition takes the contravariant frame; an inlet and an analytical field do not, and
+`bulk_velocity` reads a velocity, so it does not apply to one. A uniform
 `u_zeta` is therefore discretely divergence-free on a curved grid whose zeta faces keep their area
-along the line, and needs no projection. A Cartesian source is evaluated at cell centres and
-reaches the faces by interpolation.
+along the line, and needs no projection.
 
 @subsection p33_closed_form_ssec Closed-form profiles: series and special functions
 
@@ -187,7 +195,7 @@ Every Python provider ends in a `.dat` vector; what differs is who guarantees it
 A `type: file` vector sized for another grid is refused when it is staged, with a pointer to
 @ref p33_cap_gen_resampled_velocity.
 
-Repository generator:
+Your own generator:
 
 ```yaml
 properties:
@@ -196,8 +204,8 @@ properties:
       generator: ic_gen
       params:
         field: Ucat
-        script: tools/custom_ic.py  # optional; defaults to generators/ic.gen
-        config_file: config/initial_conditions/expression.cfg
+        script: tools/custom_ic.py
+        config_file: config/initial_conditions/custom.cfg
 ```
 
 `picurv` chooses where the payload goes: it is always written to
@@ -205,39 +213,18 @@ properties:
 destination keys `output_file`, `summary_json`, and `spectrum_csv` are refused
 with an error rather than ignored.
 
-The launcher invokes `generators/ic.gen` by default, or the optional case-relative/absolute
-`params.script` override, as:
+The launcher runs the script, resolved against the case, as:
 
 ```text
-python <ic-generator> -c <config_file> --field Ucat|Ucont --output <run.inputs>/initial_condition/initial_condition.generated.dat --grid <run.inputs>/grid/grid.run --length-ref <L> --velocity-ref <U> [cli_args...]
+python <script> -c <config_file> --field Ucat|Ucont --output <run.inputs>/initial_condition/initial_condition.generated.dat --grid <run.inputs>/grid/grid.run --length-ref <L> --velocity-ref <U> --petsc-index-bytes <4|8>
 ```
 
-A generator receives the non-dimensional staged grid and the case's reference scales, and
-writes solver units; a custom `params.script` must accept the two scale options.
-
-`picurv run --solve` materializes the result after grid preparation. `picurv precompute --case ...`
-materializes and stages the same artifact without running the solver.
-
-The repository `ic.gen` accepts an INI `[expression]` section. `Ucat` configs
-define `u`, `v`, and `w`, evaluated at actual cell centers with extrapolated
-dummy-cell centers. `Ucont` configs define `u_xi`, `u_eta`, and `u_zeta`,
-evaluated at their corresponding geometric face centers. Expressions may use
-`x/y/z`, normalized logical `xi/eta/zeta`, storage `i/j/k`, `pi`, and the
-documented numerical functions. The language is shared with particle `fields` values
-(@ref p45_particle_values_sec): `+ - * / % **`, comparisons including chains such as
-`0.2 < x < 0.5`, `and or not` (a comparison or logical expression is 1 or 0), decimal
-literals, `abs sin cos tan tanh cosh sinh exp log erf sqrt floor atan2 minimum maximum where`, and
-the series `sum(k, lo, hi, body)` (@ref p33_closed_form_ssec); per-particle draws are
-particle-only, and the Bessel and Kelvin functions are evaluated only by the solver, so an
-`ic_gen` expression cannot use them. Expressions are physical: `x/y/z` are the grid's
-physical coordinates (the staged grid times `length_ref`), and each value is a physical
-velocity for `Ucat` or a physical volume flux for `Ucont`; `scale`, `zero_tolerance`, and
-`max_magnitude` act on those physical values. The first implementation supports one block.
-The repository generator requires a staged PICGRID. `grid.mode: file` and
-`grid.mode: grid_gen` provide that grid directly; for single-block
+It receives the non-dimensional staged grid and the case's reference scales, and writes solver
+units. `grid.mode: file` and `grid.mode: grid_gen` provide that grid directly; for single-block
 `grid.mode: programmatic_c`, the launcher materializes a nondimensional
-`<run.inputs>/grid/grid.run` bridge from scalar `programmatic_settings` before invoking
-`ic.gen`.
+`<run.inputs>/grid/grid.run` bridge from scalar `programmatic_settings` first.
+`picurv run --solve` materializes the result after grid preparation, and `picurv precompute --case ...`
+materializes and stages the same artifact without running the solver.
 
 Repository spectral provider, for a triply periodic box:
 
@@ -270,7 +257,7 @@ the same field.
 
 @section p33_entries_sec 3. Staged Field Entries
 
-The `ic_gen` and `file` terms above were checked against the field they claim to produce by
+The `file` term and the expression config `ic_gen` once evaluated were checked against the field they claim to produce by
 `initial-conditions-2026-09-21`: on a programmatic duct the staged interior face fluxes equal their
 definitions to 3.5e-18 or exactly, and a `file` term reproduces the generated run it was taken from
 bitwise. Step-0 `Ucat` next to walls and inlets reflects the boundary faces, because it is
@@ -299,7 +286,7 @@ conversion to the evolved `Ucont` fluxes before the first step. See
 **Diagnostics.** Step-0 output shows the initialized field.
 
 **Evidence.** Production exercised - `examples/flat_channel`. Analytically verified -
-`initial-conditions-2026-09-21`: `ic_gen` `Ucat` expressions stage the fluxes their Cartesian
+`initial-conditions-2026-09-21`: `Ucat` expressions staged the fluxes their Cartesian
 values define.
 
 **Limitations.** On a strongly curvilinear grid the conversion from a Cartesian profile to
@@ -456,24 +443,25 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 **Identity.** `source: {generator: ic_gen}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
-**What it does.** Expression-based Ucat or Ucont generation on the staged grid.
+**What it does.** Runs your own script, which writes a `Ucat` or `Ucont` vector for the staged grid.
 
-**When to choose it.** Choose explicit analytic expressions; use a spectral provider for randomized velocity seeds.
+**When to choose it.** A field that needs a program. A field with a formula is an expression source
+(@ref p33_source_ssec), whose language this page and the solver share.
 
-**Parameters it owns.** Requires config_file; field selects Ucat/Ucont.
+**Parameters it owns.** Requires script and config_file; field selects Ucat/Ucont; cli_args are appended.
 
-**Interactions.** The existing PICGRID coordinates, expression evaluator and PETSc writer own this route.
+**Interactions.** The script reads the staged PICGRID and writes the PETSc vector; a missing input or a
+vector sized for another grid fails before the solver launches.
 
-**Diagnostics.** Malformed expressions and missing inputs fail before solver launch.
+**Diagnostics.** The script's output is reported when it fails.
 
-**Evidence.** Unit verified - `make test-python` covers the generator and the CLI file
-route. Analytically verified - `initial-conditions-2026-09-21`: staged `Ucat` and `Ucont`
-expressions equal their definitions exactly, and a `file` source re-reading the staged
-vectors reproduces the run bitwise.
+**Evidence.** Unit verified - `make test-python` covers the script contract and the CLI route.
+`initial-conditions-2026-09-21` measured the expression config this generator once evaluated, whose
+`Ucat` and `Ucont` fields the source frames reproduce: exactly on a flat channel, and to 3e-15 for
+`Ucont` on a curved one. A `Ucat` expression differs there by 5e-7 in flux, because a source evaluates
+at the face.
 
-**Limitations.** No divergence or turbulence property is implied by arbitrary
-expressions: whatever the expression says is what is staged. Measured on uniform
-Cartesian grids; expressions on curved grids are not covered.
+**Limitations.** Nothing is implied about a field a script writes.
 
 @subsection p33_cap_gen_spectral_random_velocity_sub spectral_random_velocity
 

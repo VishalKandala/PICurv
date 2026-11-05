@@ -3,12 +3,11 @@
 
 """!
 @file ic.gen
-@brief Generate expression-defined PICurv initial-condition PETSc vectors.
+@brief Generate PICurv initial velocity fields as PETSc vectors, and own the expression language.
 """
 
 import argparse
 import ast
-import configparser
 import copy
 import io
 import json
@@ -116,88 +115,6 @@ def read_picgrid(path: str):
     if coords.shape != (expected, 3) or not np.all(np.isfinite(coords)):
         raise ValueError("PICGRID coordinates must be finite three-component rows.")
     return dims, coords.reshape((km, jm, im, 3))
-
-
-def read_config(path: str) -> dict:
-    """!
-    @brief Read and validate an expression-generator configuration.
-    @param[in] path INI configuration path.
-    @return Normalized configuration dictionary.
-    """
-    parser = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#", ";"))
-    if not parser.read(path):
-        raise ValueError(f"configuration file not found: {path}")
-    if not parser.sections() or parser.sections()[0].lower() != "expression":
-        raise ValueError("the first configuration section must be [expression].")
-    section = parser[parser.sections()[0]]
-    return {
-        "expressions": dict(section.items()),
-        "scale": section.getfloat("scale", fallback=1.0),
-        "zero_tolerance": section.getfloat("zero_tolerance", fallback=0.0),
-        "max_magnitude": section.getfloat("max_magnitude", fallback=None),
-    }
-
-
-def _average_corners(nodes, offsets):
-    """!
-    @brief Average selected node-corner arrays.
-    @param[in] nodes Coordinate array.
-    @param[in] offsets List of `(k, j, i)` slice offsets.
-    @return Averaged coordinate array.
-    """
-    km, jm, im, _ = nodes.shape
-    result = np.zeros((km - 1, jm - 1, im - 1, 3), dtype=float)
-    for dk, dj, di in offsets:
-        result += nodes[dk:dk + km - 1, dj:dj + jm - 1, di:di + im - 1, :]
-    return result / float(len(offsets))
-
-
-def compute_full_cell_centers(nodes):
-    """!
-    @brief Compute physical and linearly extrapolated dummy cell centers.
-    @param[in] nodes PICGRID node coordinates.
-    @return Full DMDA-shaped cell-center coordinates.
-    """
-    km, jm, im, _ = nodes.shape
-    full = np.zeros((km + 1, jm + 1, im + 1, 3), dtype=float)
-    physical = _average_corners(
-        nodes,
-        [(dk, dj, di) for dk in (0, 1) for dj in (0, 1) for di in (0, 1)],
-    )
-    full[1:km, 1:jm, 1:im, :] = physical
-    for axis, last in ((2, im), (1, jm), (0, km)):
-        low = [slice(None)] * 4
-        first = [slice(None)] * 4
-        second = [slice(None)] * 4
-        high = [slice(None)] * 4
-        penultimate = [slice(None)] * 4
-        antepenultimate = [slice(None)] * 4
-        low[axis], first[axis], second[axis] = 0, 1, min(2, last - 1)
-        high[axis], penultimate[axis], antepenultimate[axis] = last, last - 1, max(last - 2, 1)
-        full[tuple(low)] = 2.0 * full[tuple(first)] - full[tuple(second)]
-        full[tuple(high)] = 2.0 * full[tuple(penultimate)] - full[tuple(antepenultimate)]
-    return full
-
-
-def compute_face_centers(nodes):
-    """!
-    @brief Compute geometrically valid Xi-, Eta-, and Zeta-face centers.
-    @param[in] nodes PICGRID node coordinates.
-    @return Tuple of face-center arrays in their active storage shapes.
-    """
-    xi = 0.25 * (
-        nodes[:-1, :-1, :, :] + nodes[1:, :-1, :, :]
-        + nodes[:-1, 1:, :, :] + nodes[1:, 1:, :, :]
-    )
-    eta = 0.25 * (
-        nodes[:-1, :, :-1, :] + nodes[1:, :, :-1, :]
-        + nodes[:-1, :, 1:, :] + nodes[1:, :, 1:, :]
-    )
-    zeta = 0.25 * (
-        nodes[:, :-1, :-1, :] + nodes[:, 1:, :-1, :]
-        + nodes[:, :-1, 1:, :] + nodes[:, 1:, 1:, :]
-    )
-    return xi, eta, zeta
 
 
 def validate_expression(expression: str, names=EULERIAN_EXPRESSION_NAMES, random=False) -> None:
@@ -638,122 +555,6 @@ def lower_value(spec, names=PARTICLE_EXPRESSION_NAMES, random=True, where="value
             lowered = f"({lowered})*(1 - {blend}) + {value}*{blend}"
     validate_expression(lowered, names, random)
     return lowered
-
-
-def evaluate_expression(expression: str, coords, indices, logical):
-    """!
-    @brief Evaluate one restricted numerical expression over coordinates.
-    @param[in] expression Configured expression.
-    @param[in] coords Physical-coordinate array.
-    @param[in] indices Storage-index arrays.
-    @param[in] logical Logical-coordinate arrays.
-    @return Finite array matching the coordinate shape.
-    """
-    _validate_expression(expression)
-    value = evaluate_values(expression, {
-        "x": coords[..., 0], "y": coords[..., 1], "z": coords[..., 2],
-        "i": indices[2], "j": indices[1], "k": indices[0],
-        "xi": logical[2], "eta": logical[1], "zeta": logical[0],
-    })
-    result = np.broadcast_to(value, coords.shape[:-1]).copy()
-    if not np.all(np.isfinite(result)):
-        raise ValueError(f"expression produced non-finite values: {expression}")
-    return result
-
-
-def _coordinate_context(coords, offsets, logical_shifts, node_dims):
-    """!
-    @brief Build storage-index and stagger-aware normalized-logical arrays.
-    @param[in] coords Physical-coordinate array.
-    @param[in] offsets Storage-index offsets in `(k, j, i)` order.
-    @param[in] logical_shifts Logical-index shifts in `(k, j, i)` order.
-    @param[in] node_dims PICGRID node dimensions `(IM, JM, KM)`.
-    @return Tuple `(indices, logical)`.
-    """
-    grids = np.indices(coords.shape[:-1], dtype=float)
-    for axis, offset in enumerate(offsets):
-        grids[axis] += offset
-    im, jm, km = node_dims
-    logical = (
-        (grids[0] - logical_shifts[0]) / max(km - 1, 1),
-        (grids[1] - logical_shifts[1]) / max(jm - 1, 1),
-        (grids[2] - logical_shifts[2]) / max(im - 1, 1),
-    )
-    return tuple(grids), logical
-
-
-def _apply_controls(field, config):
-    """!
-    @brief Apply shared scaling and validation controls.
-    @param[in,out] field Generated field.
-    @param[in] config Normalized configuration.
-    @return Controlled field.
-    """
-    field *= float(config["scale"])
-    tolerance = float(config["zero_tolerance"])
-    if tolerance < 0.0:
-        raise ValueError("zero_tolerance must be non-negative.")
-    field[np.abs(field) < tolerance] = 0.0
-    if config["max_magnitude"] is not None:
-        limit = float(config["max_magnitude"])
-        if limit <= 0.0:
-            raise ValueError("max_magnitude must be positive.")
-        if float(np.max(np.abs(field))) > limit:
-            raise ValueError(f"generated field exceeds max_magnitude={limit}.")
-    return field
-
-
-def generate_ucat(nodes, config):
-    """!
-    @brief Generate a full Cartesian cell-centered velocity field.
-    @param[in] nodes PICGRID coordinates.
-    @param[in] config Normalized configuration.
-    @return Full DMDA-shaped Ucat array.
-    """
-    required = ("u", "v", "w")
-    missing = [key for key in required if key not in config["expressions"]]
-    if missing:
-        raise ValueError(f"Ucat expression config is missing {missing}.")
-    coords = compute_full_cell_centers(nodes)
-    km, jm, im, _ = nodes.shape
-    context = _coordinate_context(coords, (0, 0, 0), (0.5, 0.5, 0.5), (im, jm, km))
-    field = np.zeros_like(coords)
-    for component, key in enumerate(required):
-        field[..., component] = evaluate_expression(config["expressions"][key], coords, *context)
-    return _apply_controls(field, config)
-
-
-def generate_ucont(nodes, config):
-    """!
-    @brief Generate a full staggered contravariant-flux field.
-    @param[in] nodes PICGRID coordinates.
-    @param[in] config Normalized configuration.
-    @return Full DMDA-shaped Ucont array.
-    """
-    required = ("u_xi", "u_eta", "u_zeta")
-    missing = [key for key in required if key not in config["expressions"]]
-    if missing:
-        raise ValueError(f"Ucont expression config is missing {missing}.")
-    km, jm, im, _ = nodes.shape
-    field = np.zeros((km + 1, jm + 1, im + 1, 3), dtype=float)
-    faces = compute_face_centers(nodes)
-    slices = (
-        (slice(1, km), slice(1, jm), slice(0, im)),
-        (slice(1, km), slice(0, jm), slice(1, im)),
-        (slice(0, km), slice(1, jm), slice(1, im)),
-    )
-    logical_shifts = ((0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5))
-    for component, (key, coords, target, shifts) in enumerate(zip(required, faces, slices, logical_shifts)):
-        indices, logical = _coordinate_context(
-            coords,
-            (target[0].start, target[1].start, target[2].start),
-            shifts,
-            (im, jm, km),
-        )
-        field[target + (component,)] = evaluate_expression(
-            config["expressions"][key], coords, indices, logical
-        )
-    return _apply_controls(field, config)
 
 
 #: Bytes of a PetscInt in the PETSc that will read the output; set from `--petsc-index-bytes`.
@@ -1750,55 +1551,23 @@ def build_parser():
     @return Configured parser.
     """
     parser = argparse.ArgumentParser(description="Generate a PICurv initial-condition PETSc vector.")
-    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity", "resampled_velocity",
+    parser.add_argument("--generator", choices=("spectral_random_velocity", "resampled_velocity",
                                                 "channel_spectral_velocity", "duct_spectral_velocity",
                                                 "stability_mode_velocity"),
-                        default="expression", help="Maintained IC generator implementation.")
-    parser.add_argument("-c", "--config", help="Expression-generator INI configuration.")
+                        required=True, help="Maintained IC generator implementation.")
     parser.add_argument("--params-json", help="JSON parameters for a built-in generator.")
     parser.add_argument("--context-json", help="Conductor-derived diagnostic context.")
-    parser.add_argument("--field", choices=("Ucat", "Ucont"), help="Field representation to generate.")
     parser.add_argument("--output", required=True, help="Output PETSc binary vector.")
     parser.add_argument("--grid", help="Canonical nondimensional PICGRID; defaults to grid.run beside output.")
     parser.add_argument("--summary-json", help="Optional summary JSON path.")
-    parser.add_argument("--length-ref", type=float, default=1.0,
-                        help="Reference length: expressions see physical coordinates, grid * length_ref.")
-    parser.add_argument("--velocity-ref", type=float, default=1.0,
-                        help="Reference velocity: expression values are physical and are written in solver units.")
     parser.add_argument("--petsc-index-bytes", type=int, choices=(4, 8), default=4,
                         help="Bytes of a PetscInt in the PETSc that will read the output (4 or 8).")
     return parser
 
 
-#: Reference scale of each expression field's values, as (length, velocity) exponents:
-#: Ucat is a velocity, and each Ucont component is a volume flux through its face.
-EXPRESSION_FIELD_DIMENSIONS = {"Ucat": (0, 1), "Ucont": (2, 1)}
-
-
-def generate_expression_field(nodes, config, field_name, length_ref=1.0, velocity_ref=1.0):
-    """!
-    @brief Evaluate a physical expression field and return it in solver units.
-    @details The staged grid is nondimensional, so it is scaled back to physical
-             coordinates before evaluation; the expressions, and the configured controls,
-             then act on physical values, which one division returns to solver units.
-    @param[in] nodes Nondimensional PICGRID coordinates.
-    @param[in] config Normalized expression configuration.
-    @param[in] field_name `Ucat` or `Ucont`.
-    @param[in] length_ref Reference length of the case.
-    @param[in] velocity_ref Reference velocity of the case.
-    @return Field in solver units.
-    """
-    if length_ref <= 0.0 or velocity_ref <= 0.0:
-        raise ValueError("length_ref and velocity_ref must be positive.")
-    physical_nodes = nodes * length_ref
-    field = generate_ucat(physical_nodes, config) if field_name == "Ucat" else generate_ucont(physical_nodes, config)
-    length_power, velocity_power = EXPRESSION_FIELD_DIMENSIONS[field_name]
-    return field / (length_ref ** length_power * velocity_ref ** velocity_power)
-
-
 def main(argv=None) -> int:
     """!
-    @brief Generate the requested initial-condition PETSc vector from configuration and PICGRID inputs.
+    @brief Generate the requested initial-condition PETSc vector from its parameters and a PICGRID.
     @param[in] argv Optional argument override.
     @return Process exit code.
     """
@@ -1825,19 +1594,6 @@ def main(argv=None) -> int:
         elif args.generator == "stability_mode_velocity":
             field, summary = generate_stability_mode_velocity(
                 nodes, json.loads(args.params_json or "{}"), json.loads(args.context_json or "{}"))
-        else:
-            if not args.config or not args.field:
-                raise ValueError("expression generation requires --config and --field.")
-            config = read_config(args.config)
-            field = generate_expression_field(nodes, config, args.field, args.length_ref, args.velocity_ref)
-            summary = {
-                "field": args.field, "generator": "expression", "grid": os.path.abspath(grid_path),
-                "units": "solver", "length_ref": args.length_ref, "velocity_ref": args.velocity_ref,
-                "output": os.path.abspath(args.output), "grid_dims": list(dims),
-                "vector_shape": list(field.shape), "scalar_count": int(field.size),
-                "min_components": [float(np.min(field[..., component])) for component in range(3)],
-                "max_components": [float(np.max(field[..., component])) for component in range(3)],
-            }
         write_petsc_vec_binary(args.output, field)
         summary.update({"grid": os.path.abspath(grid_path), "output": os.path.abspath(args.output),
                         "grid_dims": list(dims)})

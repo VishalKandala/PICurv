@@ -1,48 +1,21 @@
 # Initial-Condition Generation
 
-`generators/ic.gen` generates one complete PETSc binary `Ucat` or `Ucont` vector
-from expressions written in physical units: `x`, `y`, `z` are the grid's physical
-coordinates and each value is a physical velocity (`Ucat`) or volume flux (`Ucont`).
-The launcher passes the case's `length_ref` and `velocity_ref`, and the generator
-writes solver units. The staged grid may come from `file`, `grid_gen`, or
-single-block `programmatic_c` cases.
-
-```ini
-[expression]
-u = sin(2*pi*x) * cos(2*pi*y)
-v = -cos(2*pi*x) * sin(2*pi*y)
-w = 0.0
-```
-
-Select it from `case.yml`:
+A field with a formula is an expression source in `case.yml`, evaluated by the solver
+(`docs/pages/33_Initial_Conditions.md`):
 
 ```yaml
 properties:
   initial_conditions:
     source:
-      generator: ic_gen
-      params:
-        field: Ucat
-        config_file: config/initial_conditions/expression.cfg
+      components: cartesian            # or curvilinear, or contravariant for fluxes
+      expression:
+        u: "sin(2*pi*x)*cos(2*pi*y)*cos(2*pi*z)"
+        v: "-cos(2*pi*x)*sin(2*pi*y)*cos(2*pi*z)"
 ```
 
-A generator that writes `Ucat` may also be a term of a `source` sum
-(`docs/pages/33_Initial_Conditions.md`).
-
-For `Ucat`, `u`, `v`, and `w` are Cartesian velocity components evaluated at
-actual cell centers, including extrapolated dummy-cell centers. For `Ucont`,
-define `u_xi`, `u_eta`, and `u_zeta`; each component is evaluated at its own
-geometric face centers and represents a contravariant flux.
-
-Available values are `x`, `y`, `z`, `xi`, `eta`, `zeta`, `i`, `j`, `k`, and
-`pi`. Supported functions are `sin`, `cos`, `tan`, `exp`, `sqrt`, `abs`,
-`minimum`, `maximum`, and `where`. Operators are `+ - * / % **`, comparisons (chains
-such as `0.2 < x < 0.5` included), and `and`, `or`, `not`; a comparison or logical
-expression is 1 when true and 0 when false. Numbers are decimal literals. The same
-language gives particle initial values (`models.physics.particles.fields`).
-
-Use `picurv precompute --case case.yml` to inspect the generated and staged
-PETSc vectors before launching a solve.
+`generators/ic.gen` writes the fields that need a program, below. For a program of your own,
+`generator: ic_gen` runs it, with `params.script`, `params.config_file` and `params.field`.
+A generator that writes `Ucat` may also be a term of a `source` sum.
 
 ## Spectral random velocity
 

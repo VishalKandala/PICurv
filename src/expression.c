@@ -827,8 +827,9 @@ PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face,
     if (!strcmp(frame, "cartesian")) source->frame = PICURV_SOURCE_FRAME_CARTESIAN;
     else if (!strcmp(frame, "curvilinear")) source->frame = PICURV_SOURCE_FRAME_CURVILINEAR;
     else if (!strcmp(frame, "normal") && on_face) source->frame = PICURV_SOURCE_FRAME_NORMAL;
-    else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "%s is '%s'; expected cartesian, curvilinear%s.",
-                 option, frame, on_face ? ", or normal" : "");
+    else if (!strcmp(frame, "contravariant") && !on_face) source->frame = PICURV_SOURCE_FRAME_CONTRAVARIANT;
+    else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "%s is '%s'; expected cartesian, curvilinear, or %s.",
+                 option, frame, on_face ? "normal" : "contravariant");
     source->count = (source->frame == PICURV_SOURCE_FRAME_NORMAL) ? 1 : 3;
     for (PetscInt c = 0; c < source->count; ++c) {
         PetscBool uses_t = PETSC_FALSE;
@@ -1019,7 +1020,11 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
                 PetscReal flux;
                 PicurvSourceSetVariables(values, centre, frac[k][j][i], len[k][j][i], L_ref);
                 values[PICURV_SOURCE_VAR_XI + a] += side ? -half : half;
-                if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
+                if (source->frame == PICURV_SOURCE_FRAME_CONTRAVARIANT) {
+                    PetscReal value;
+                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, NULL, &value));
+                    flux = factor * value / (U_ref * L_ref * L_ref);
+                } else if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
                     const PetscReal area = PetscSqrtReal(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
                     PetscReal value;
                     PetscCall(PicurvExpressionEvaluate(source->component[a], values, NULL, &value));

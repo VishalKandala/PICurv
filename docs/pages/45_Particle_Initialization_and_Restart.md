@@ -74,7 +74,7 @@ Each value is one of:
 | `{params, value}` | an expression that may use the named numbers in `params` |
 | `{params, background, regions}` | start from `background`; each region, in order, paints its `value` over what came before |
 
-**Expressions** use the language of `ic_gen` Eulerian initial conditions
+**Expressions** use the language of Eulerian sources
 (**@subpage 33_Initial_Conditions**): `+ - * / % **`, comparisons (chains such as
 `0.2 < x < 0.5` included), `and or not`, `abs sin cos tan tanh cosh sinh exp log erf sqrt floor
 atan2 minimum maximum where(c, a, b)`, the series `sum(k, lo, hi, body)`, `besselj(n, x)

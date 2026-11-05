@@ -181,30 +181,6 @@ def test_spectral_provider_parameters_are_converted_before_the_provider_runs(cor
     assert params["normalization"]["target"] == pytest.approx(0.5)
 
 
-def test_expressions_see_physical_coordinates_and_write_solver_units():
-    """!
-    @brief An expression field is evaluated at x_phys = L x and divided by its field scale.
-    """
-    import numpy as np
-
-    ic_gen = load_module("picurv_units_ic_gen_expr", IC_GENERATOR)
-    axis = np.linspace(0.0, 1.0, 4)
-    z, y, x = np.meshgrid(axis, axis, axis, indexing="ij")
-    nodes = np.stack([x, y, z], axis=-1)
-    config = {"expressions": {"u": "x", "v": "2.0", "w": "0.0",
-                              "u_xi": "1.0", "u_eta": "0.0", "u_zeta": "0.0"},
-              "scale": 1.0, "zero_tolerance": 0.0, "max_magnitude": None}
-    ucat = ic_gen.generate_expression_field(nodes, config, "Ucat", length_ref=2.0, velocity_ref=4.0)
-    reference = ic_gen.generate_ucat(nodes, config)
-    # u = x: the physical coordinate is 2x, and the value is written divided by U = 4.
-    assert np.allclose(ucat[..., 0], 2.0 * reference[..., 0] / 4.0)
-    assert np.allclose(ucat[..., 1], 2.0 / 4.0)
-    ucont = ic_gen.generate_expression_field(nodes, config, "Ucont", length_ref=2.0, velocity_ref=4.0)
-    interior = ucont[1:-1, 1:-1, 1:-1, 0]
-    # A face flux is divided by U L^2 = 16.
-    assert np.allclose(interior, 1.0 / 16.0)
-
-
 def test_petsc_vec_validation_follows_the_index_width(core, tmp_path):
     """!
     @brief A Vec file is validated at the reading build's PetscInt width; the other width is refused.

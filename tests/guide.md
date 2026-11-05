@@ -165,7 +165,7 @@ is a test-local routine.
   - every solver-facing input records a dimension and conversion site, and the units
     audit (`tests/tooling/audit_units.py`) passes against page 19's indexes
   - each conversion at non-unit scales: `dt`, grid lengths, BC velocities and fluxes, the
-    point source, window times, spectral provider parameters, `ic_gen` expressions, and
+    point source, window times, spectral provider parameters, and
     a file initial condition staged from physical units or from another run's scales
   - the validate notice names inputs whose reading changed, only at non-unit scales
 - `test_expression_language.py`

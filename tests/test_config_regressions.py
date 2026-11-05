@@ -1734,8 +1734,8 @@ def test_generator_destination_keys_are_refused_rather_than_ignored():
     """
     picurv = load_picurv_module()
     for params in (
-        {"field": "Ucat", "config_file": "config/ic.cfg", "output_file": "x.dat"},
-        {"field": "Ucat", "config_file": "config/ic.cfg", "summary_json": "s.json"},
+        {"field": "Ucat", "config_file": "config/ic.cfg", "script": "ic.py", "output_file": "x.dat"},
+        {"field": "Ucat", "config_file": "config/ic.cfg", "script": "ic.py", "summary_json": "s.json"},
     ):
         ic = {"source": {"generator": "ic_gen", "params": params}}
         with pytest.raises(ValueError, match="is no longer accepted"):

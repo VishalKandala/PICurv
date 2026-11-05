@@ -537,6 +537,43 @@ static PetscErrorCode TestSourceInitialConditionBulkAndFaces(void)
 }
 
 /**
+ * @brief Checks that a contravariant source is the face flux, evaluated at the face centre at
+ *        physical coordinates and divided by its reference scale.
+ */
+static PetscErrorCode TestSourceInitialConditionContravariantFluxes(void)
+{
+    SimCtx  *simCtx = NULL;
+    UserCtx *user = NULL;
+    char     tmpdir[PETSC_MAX_PATH_LEN];
+    const Cmpnts ***ucont, ***centz;
+    const DMDALocalInfo *info;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE,
+              "-ic_source_frame contravariant\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+              "-ic_source_expr_2 \"3 + x\"\n", &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    simCtx->scaling.L_ref = 2.0;
+    simCtx->scaling.U_ref = 4.0;
+    PetscCall(PopulateInitialUcont(user));
+    info = &user->info;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentz, &centz));
+    for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, info->mz - 1); ++k)
+    for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, info->my - 1); ++j)
+    for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, info->mx - 1); ++i) {
+        /* A flux is physical, so its value is divided by U L^2 = 16. */
+        PetscCall(PicurvAssertRealNear((3.0 + 2.0 * centz[k][j][i].x) / 16.0, ucont[k][j][i].z, 1.0e-12,
+                                       "a contravariant component is the flux at the face centre"));
+        PetscCall(PicurvAssertRealNear(0.0, ucont[k][j][i].x, 1.0e-12, "an omitted component is no flux"));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentz, &centz));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks configured IEM relaxation through the production swarm update.
  * @details Each particle must relax toward the mean of the particles now in its cell, at the
  *          configured rate. A zero constant switches micromixing off, and must leave Psi
@@ -1160,6 +1197,7 @@ int main(int argc, char **argv)
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
         {"source-initial-condition-projection", TestSourceInitialConditionProjection},
         {"source-initial-condition-bulk-and-faces", TestSourceInitialConditionBulkAndFaces},
+        {"source-initial-condition-contravariant-fluxes", TestSourceInitialConditionContravariantFluxes},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
         {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},

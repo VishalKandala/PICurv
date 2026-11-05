@@ -358,7 +358,6 @@
     "config/grids/square_duct_reb4410.cfg",
     "config/grids/temporal_mixing_layer_2d.cfg",
     "config/guide.md",
-    "config/initial_conditions/expression.cfg",
     "config/initial_conditions/guide.md",
     "config/monitors/Search-Robustness.yml",
     "config/monitors/Standard_Output.yml",

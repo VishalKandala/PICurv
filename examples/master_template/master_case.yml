@@ -81,7 +81,8 @@ properties:
   initial_conditions:
     # --- Source: a velocity written as expressions, evaluated at every cell centre. ---
     # The same source language as a prescribed_velocity inlet (see boundary_conditions),
-    # in the cartesian or curvilinear frame, inline or named under a top-level `sources:`.
+    # in the cartesian, curvilinear or contravariant frame (a volume flux through each face, [m^3/s]),
+    # inline or named under a top-level `sources:`.
     # Constraints: scale, bulk_velocity, and project (make it divergence-free before step 1).
     source: {components: cartesian, expression: {w: 1.0}}   # [m/s]
 
@@ -123,17 +124,16 @@ properties:
     #   path: inputs/initial_conditions/velocity.dat  # via `picurv inputs import initial-condition`
     #   source_case: runs/<earlier_run>/config/case.yml  # optional; or velocity_scale (+ length_scale for Ucont)
 
-    # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
-    # Repository ic.gen supports file, grid_gen, and programmatic_c grids.
+    # --- Your own generator (ic_gen), materialized during run/precompute. ---
+    # Runs a script of yours, which reads the staged PICGRID and writes solver units.
     # For programmatic_c, scalar programmatic_settings are first materialized as the
-    # <run.inputs>/grid/grid.run bridge. Evaluates an INI [expression] section in physical
-    # units: x, y, z in [m], velocities in [m/s], Ucont fluxes in [m^3/s].
+    # <run.inputs>/grid/grid.run bridge. A field with a formula is an expression source above.
     # source:
     #   generator: ic_gen
     #   params:
     #     field: Ucat                 # Ucat | Ucont
-    #     script: tools/custom_ic.py  # Optional; defaults to generators/ic.gen
-    #     config_file: config/initial_conditions/expression.cfg
+    #     script: tools/custom_ic.py
+    #     config_file: config/initial_conditions/custom.cfg
     #     cli_args: []                # Optional raw tokens appended to the generator call
 
     # --- Spectral random velocity: triply periodic box, all faces PERIODIC/geometric. ---

@@ -324,6 +324,33 @@ def petsc_index_args() -> list:
     return load_picurv_module().petsc_index_arguments(petsc_index_bytes())
 
 
+def write_sized_ic_generator(path: Path) -> Path:
+    """!
+    @brief Write a custom ic_gen script that sizes a zero Ucat from the staged grid.
+    @param[in] path Script output path.
+    @return Script output path.
+    """
+    path.write_text(
+        "import argparse, struct\n"
+        "p=argparse.ArgumentParser()\n"
+        "p.add_argument('-c', required=True)\n"
+        "p.add_argument('--field', required=True)\n"
+        "p.add_argument('--output', required=True)\n"
+        "p.add_argument('--grid', required=True)\n"
+        "p.add_argument('--length-ref', type=float, default=1.0)\n"
+        "p.add_argument('--velocity-ref', type=float, default=1.0)\n"
+        "p.add_argument('--petsc-index-bytes', type=int, default=4)\n"
+        "a=p.parse_args()\n"
+        "lines=[l for l in open(a.grid) if l.strip() and not l.startswith('#')]\n"
+        "n=[int(t)+1 for t in lines[2].split()]\n"
+        "size=n[0]*n[1]*n[2]*3\n"
+        "head='>ii' if a.petsc_index_bytes==4 else '>qq'\n"
+        "open(a.output,'wb').write(struct.pack(head,1211214,size)+struct.pack('>%dd'%size,*([0.0]*size)))\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
     """!
     @brief Write a tiny ic.gen-compatible script that copies its config payload.
@@ -405,20 +432,20 @@ def test_file_initial_condition_rejects_multiblock_contract(tmp_path):
         )
 
 
-def test_ic_gen_defaults_to_repository_script_and_accepts_override(tmp_path):
+def test_ic_gen_runs_a_custom_script_and_its_expression_config_is_retired(tmp_path):
     """!
-    @brief Verify ic_gen defaults to the repository tool and accepts a script override.
+    @brief Verify ic_gen takes a script, and without one names the source that replaced its config.
     @param[in] tmp_path Pytest temporary-directory fixture.
     """
     picurv = load_picurv_module()
     config_file = write_petsc_vec_binary(tmp_path / "config.dat", [1.0, 2.0, 3.0])
-    resolved = picurv.resolve_initial_condition_config(
-        {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config_file)}}},
-        [[]],
-        scales={"length_ref": 1.0, "velocity_ref": 1.0},
-    )
-    assert resolved["script"] is None
-    override = picurv.resolve_initial_condition_config(
+    with pytest.raises(ValueError, match="components: contravariant"):
+        picurv.resolve_initial_condition_config(
+            {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config_file)}}},
+            [[]],
+            scales={"length_ref": 1.0, "velocity_ref": 1.0},
+        )
+    custom = picurv.resolve_initial_condition_config(
         {"source": {"generator": "ic_gen", "params": {
                 "field": "Ucat",
                 "config_file": str(config_file),
@@ -427,7 +454,7 @@ def test_ic_gen_defaults_to_repository_script_and_accepts_override(tmp_path):
         [[]],
         scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
-    assert override["script"] == "tools/custom_ic.py"
+    assert custom["script"] == "tools/custom_ic.py"
 
 
 def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(tmp_path):
@@ -685,16 +712,13 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     write_petsc_vec_binary(
         workspace / "config" / "initial_conditions" / "generator_input.dat", [1.0, 2.0, 3.0]
     )
-    write_fake_ic_generator(tmp_path / "ic.gen")
-    # The fake replaces the generator run; the inlet's expressions still need the real language.
-    language = picurv.load_ic_generator_module()
-    monkeypatch.setattr(picurv, "load_ic_generator_module", lambda: language)
-    monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
+    write_fake_ic_generator(workspace / "config" / "initial_conditions" / "ic.gen")
     write_canonical_picgrid(workspace / "inputs" / "grids" / "grid.picgrid")
     case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
     case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucont",
             "config_file": "config/initial_conditions/generator_input.dat",
+            "script": "config/initial_conditions/ic.gen",
         }}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -708,9 +732,9 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     assert not (payload / "inputs" / "initial_condition" / "initial_condition.generated.dat").exists()
 
 
-def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path):
+def test_precompute_materializes_a_custom_ic_gen_on_staged_file_grid(tmp_path):
     """!
-    @brief Verify precompute stages a file grid before invoking repository ic.gen.
+    @brief Verify precompute stages a file grid before invoking a custom script.
     @param[in] tmp_path Pytest temporary-directory fixture.
     """
     valid = FIXTURES / "valid"
@@ -719,11 +743,13 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     write_stretched_picgrid(workspace / "inputs" / "grids" / "grid.picgrid", dims=(3, 3, 3))
     config = workspace / "config" / "initial_conditions" / "initial_condition.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    config.write_text("custom script input\n", encoding="utf-8")
+    script = write_sized_ic_generator(config.parent / "custom_ic.py")
     case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
     case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucat",
             "config_file": "config/initial_conditions/initial_condition.cfg",
+            "script": "config/initial_conditions/custom_ic.py",
         }}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -755,7 +781,8 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
     workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = workspace / "config" / "initial_conditions" / "ic.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    config.write_text("custom script input\n", encoding="utf-8")
+    script = write_sized_ic_generator(config.parent / "custom_ic.py")
     case_cfg["grid"] = {
         "mode": "programmatic_c",
         "programmatic_settings": {
@@ -767,7 +794,7 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
             "cgrids": 0,
         },
     }
-    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"}}}
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg", "script": "config/initial_conditions/custom_ic.py"}}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
@@ -796,7 +823,8 @@ def test_materialize_run_assets_stages_ic_gen_with_programmatic_grid(tmp_path):
     workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = workspace / "config" / "initial_conditions" / "ic.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    config.write_text("custom script input\n", encoding="utf-8")
+    script = write_sized_ic_generator(config.parent / "custom_ic.py")
     case_cfg["grid"] = {
         "mode": "programmatic_c",
         "programmatic_settings": {
@@ -808,7 +836,7 @@ def test_materialize_run_assets_stages_ic_gen_with_programmatic_grid(tmp_path):
             "cgrids": 0,
         },
     }
-    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"}}}
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg", "script": "config/initial_conditions/custom_ic.py"}}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
     run_dir = workspace / "runs" / "demo_run"
@@ -1817,77 +1845,6 @@ def read_petsc_vec_binary(path: Path):
     return struct.unpack(">" + "d" * count, data[2 * word:])
 
 
-def test_ic_gen_ucat_uses_stretched_grid_cell_and_dummy_centers(tmp_path):
-    """!
-    @brief Verify Ucat expressions use actual cell centers and extrapolated dummy centers.
-    @param[in] tmp_path Pytest temporary-directory fixture.
-    """
-    numpy = pytest.importorskip("numpy")
-    grid = write_stretched_picgrid(tmp_path / "grid.run", dims=(3, 3, 3))
-    config = tmp_path / "initial_condition.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    output = tmp_path / "ucat.dat"
-
-    result = subprocess.run(
-        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
-         "--grid", str(grid), "--output", str(output), *petsc_index_args()],
-        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    values = numpy.asarray(read_petsc_vec_binary(output)).reshape((4, 4, 4, 3))
-    assert values[1, 1, 1, 0] == pytest.approx(0.125)
-    assert values[1, 1, 2, 0] == pytest.approx(0.625)
-    assert values[1, 1, 0, 0] == pytest.approx(-0.375)
-    assert values[1, 1, 3, 0] == pytest.approx(1.125)
-
-
-def test_ic_gen_ucont_uses_component_face_centers_and_zero_dummy_entries(tmp_path):
-    """!
-    @brief Verify Ucont expressions are sampled on their component face centers.
-    @param[in] tmp_path Pytest temporary-directory fixture.
-    """
-    numpy = pytest.importorskip("numpy")
-    grid = write_canonical_picgrid(tmp_path / "grid.run", dims=(3, 3, 3))
-    config = tmp_path / "initial_condition.cfg"
-    config.write_text(
-        "[expression]\nu_xi = x\nu_eta = y\nu_zeta = z\n",
-        encoding="utf-8",
-    )
-    output = tmp_path / "ucont.dat"
-
-    result = subprocess.run(
-        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucont",
-         "--grid", str(grid), "--output", str(output), *petsc_index_args()],
-        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    values = numpy.asarray(read_petsc_vec_binary(output)).reshape((4, 4, 4, 3))
-    assert values[1, 1, 0, 0] == pytest.approx(0.0)
-    assert values[1, 1, 2, 0] == pytest.approx(2.0)
-    assert values[1, 0, 1, 1] == pytest.approx(0.0)
-    assert values[2, 1, 1, 2] == pytest.approx(2.0)
-    assert values[0, 0, 0].tolist() == pytest.approx([0.0, 0.0, 0.0])
-
-
-def test_ic_gen_rejects_unsafe_expression(tmp_path):
-    """!
-    @brief Verify expression configs cannot invoke arbitrary Python operations.
-    @param[in] tmp_path Pytest temporary-directory fixture.
-    """
-    grid = write_canonical_picgrid(tmp_path / "grid.run")
-    config = tmp_path / "initial_condition.cfg"
-    config.write_text("[expression]\nu = __import__('os')\nv = 0\nw = 0\n", encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
-         "--grid", str(grid), "--output", str(tmp_path / "unsafe.dat"), *petsc_index_args()],
-        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
-    )
-    assert result.returncode == 1
-    assert "is not an available function" in result.stderr
-
-
 def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
     """!
     @brief Test profile.gen field-slice extracts positive normal speeds from Ucat.
@@ -2642,8 +2599,9 @@ def test_validate_programmatic_ic_gen_requires_materializable_scalar_grid(tmp_pa
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = tmp_path / "ic.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config)}}}
+    config.write_text("custom script input\n", encoding="utf-8")
+    script = write_sized_ic_generator(config.parent / "custom_ic.py")
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config), "script": str(script)}}}
     mutate(case_cfg["grid"]["programmatic_settings"])
     case_path = tmp_path / "case_programmatic_ic_gen_invalid.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -2853,8 +2811,9 @@ def test_dry_run_programmatic_ic_gen_lists_materialized_grid_artifact(tmp_path):
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = tmp_path / "ic.cfg"
-    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config)}}}
+    config.write_text("custom script input\n", encoding="utf-8")
+    script = write_sized_ic_generator(config.parent / "custom_ic.py")
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config), "script": str(script)}}}
     case_path = tmp_path / "case_programmatic_ic_gen.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 

@@ -9374,7 +9374,7 @@ BC_PARAM_QUANTITIES = {
 IC_PARAM_QUANTITIES = {
     "ic_gen": {
         "field": NOT_A_QUANTITY, "script": NOT_A_QUANTITY, "cli_args": NOT_A_QUANTITY,
-        # Expressions are written in physical coordinates and physical values.
+        # The script's own input, which it reads as it documents.
         "config_file": (None, "provider"),
     },
     "spectral_random_velocity": {
@@ -10232,6 +10232,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     if resolved_ic and resolved_ic["source"].get("pressure") and not ic_is_analytical:
         errors.append(f"  {case_path}: a source's pressure sets a prescribed field, so it needs "
                       "operation_mode.eulerian_field_source: analytical.")
+    if ic_is_analytical and resolved_ic and resolved_ic["source"]["frame"] == "contravariant":
+        errors.append(f"  {case_path}: an analytical field sets a velocity at the cell centres and on the boundaries, "
+                      "which contravariant fluxes do not give; write it in cartesian or curvilinear components.")
     if ic_is_analytical and resolved_ic and (resolved_ic["kind"] != "source" or resolved_ic["source"]["project"]):
         errors.append(f"  {case_path}: an analytical field is re-evaluated from its expressions every step, so its "
                       "source takes neither a generator or file term nor project.")
@@ -14224,7 +14227,8 @@ def load_ic_generator_module():
 SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
 #: Component frames a velocity source may be written in, and the value names each takes; the
 #: normal frame takes one value, the speed into the domain through a face.
-SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"), "normal": None}
+SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"),
+                 "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
 _SOURCE_CONSTRAINTS = ("scale", "bulk_velocity")
 
@@ -14285,8 +14289,9 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     if "expression" not in spec:
         raise ValueError(f"{where} needs an 'expression'.")
     frame = str(spec.get("components", "cartesian")).strip().lower()
-    if frame not in SOURCE_FRAMES or (frame == "normal" and not allow_normal):
-        allowed = [name for name in SOURCE_FRAMES if allow_normal or name != "normal"]
+    face_only, cells_only = "normal", "contravariant"
+    if frame not in SOURCE_FRAMES or frame == (cells_only if allow_normal else face_only):
+        allowed = [name for name in SOURCE_FRAMES if name != (cells_only if allow_normal else face_only)]
         raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
     constants = spec.get("constants") or {}
     if not isinstance(constants, dict):
@@ -14718,10 +14723,13 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     if source["bulk_velocity"] and not source["expressions"]:
         raise ValueError("properties.initial_conditions.constraints.bulk_velocity rescales a source's expressions, "
                          "and this source has none.")
+    if source["bulk_velocity"] and source["frame"] == "contravariant":
+        raise ValueError("properties.initial_conditions.constraints.bulk_velocity reads a velocity, and contravariant "
+                         "components are fluxes.")
     if field is None:
         return {"kind": "source", "label": "source", "source": source}
-    if field["field_code"] == 1 and source["expressions"] and source["frame"] != "curvilinear":
-        raise ValueError(f"{where}: expressions added to a staged Ucont must be in the curvilinear frame.")
+    if field["field_code"] == 1 and source["expressions"] and source["frame"] == "cartesian":
+        raise ValueError(f"{where}: expressions added to a staged Ucont must be curvilinear or contravariant.")
     # The field is staged as its provider stages it, and scaled and added to at runtime.
     scale = float((constraints or {}).get("scale", 1.0))
     if scale != 1.0:
@@ -14837,8 +14845,13 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
         if prepared_blocks and len(prepared_blocks) > 1:
             raise ValueError("File-backed initial conditions currently support single-block cases only.")
         script = params.get("script")
-        if script is not None and (not isinstance(script, str) or not script.strip()):
-            raise ValueError("initial_conditions.params.script must be a non-empty path when provided.")
+        if script is None:
+            raise ValueError("generator 'ic_gen' runs your own script, and its [expression] config is retired. Write "
+                             "the field as a source: {components: cartesian, expression: {u, v, w}} for Ucat, or "
+                             "{components: contravariant, expression: {u_xi, u_eta, u_zeta}} for Ucont. In a source, "
+                             "xi, eta and zeta are arc-length fractions, not index fractions, and i, j, k do not exist.")
+        if not isinstance(script, str) or not script.strip():
+            raise ValueError("initial_conditions.params.script must be a non-empty path.")
         field_name, field_code = normalize_initial_condition_field(params.get("field"))
         config_file = params.get("config_file")
         if not isinstance(config_file, str) or not config_file.strip():
@@ -14852,7 +14865,7 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
             "kind": "ic_gen", "label": "ic_gen",
             "field_name": field_name, "field_code": field_code,
             "config_file": config_file.strip(),
-            "script": script.strip() if script is not None else None,
+            "script": script.strip(),
             "cli_args": cli_args,
             "scales": dict(scales),
         }
@@ -15368,7 +15381,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
             for task, path in zip(resolved_ic["params"].get("initial_spectra", []), paths[1::2]):
                 run_initial_spectrum_generator(output_path, staged_grid, path, case_dir, task)
         return output_path
-    script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
+    script = _resolve_generator_script(resolved_ic["script"], case_path, "ic.gen")
     config_file = resolved_ic["config_file"]
     config_file = _resolve_case_relative_path(config_file, case_dir)
     if not os.path.isfile(script):
@@ -15383,8 +15396,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
-    # Expressions are written in physical units; the generator is given the scales and
-    # writes solver units, like every other initial-condition provider.
+    # The script is given the scales and writes solver units, like every other provider.
     cmd.extend(["--length-ref", repr(float(resolved_ic["scales"]["length_ref"])),
                 "--velocity-ref", repr(float(resolved_ic["scales"]["velocity_ref"]))])
     cmd.extend(str(token) for token in resolved_ic.get("cli_args", []))

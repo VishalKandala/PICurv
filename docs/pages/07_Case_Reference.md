@@ -60,7 +60,7 @@ Practical contract notes:
 - `initial_conditions` is a `source`: expressions, a generator, a file, or a `sum` of expressions
   and at most one of those (@ref p33_source), optionally with
   `constraints: {scale, bulk_velocity, project}`.
-- `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
+- `generator: ic_gen` runs your own `params.script`.
 - channel/duct spectral providers require no-slip wall pairs, periodic remaining axes,
   and explicit initial plane/line spectra; see @ref p33_wall_spectral_sec.
 - file-backed ICs accept one PETSc binary `Ucat` or `Ucont` vector and currently require a single-block case.

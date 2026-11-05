@@ -65,12 +65,10 @@ Initial-condition note:
   or `Ucont` `.dat` vector), or a `sum` of expressions and at most one of those.
 - `picurv precompute --case ...` also materializes configured Python-provider output,
   always at `<run.inputs>/initial_condition/`; destination keys are refused.
-- `ic_gen` defaults to `generators/ic.gen`; `params.script` optionally selects a compatible override.
-- repository `ic.gen` uses `[expression]` configs with file, `grid_gen`, or single-block
-  `programmatic_c` grids; programmatic cases materialize `<run.inputs>/grid/grid.run` first.
+- `ic_gen` runs your own `params.script`; a `programmatic_c` case materializes `<run.inputs>/grid/grid.run` for it first.
 - the spectral providers need a staged `file` or `grid_gen` grid: a triply periodic box
   for `spectral_random_velocity`, a Cartesian channel or duct for the wall-bounded pair.
-- generated and field-sliced prescribed profiles default to `generators/profile.gen`; `source.script`
+- field-sliced prescribed profiles default to `generators/profile.gen`; `source.script`
   optionally selects a compatible override.
 - file-backed initial conditions currently support single-block cases only.
 

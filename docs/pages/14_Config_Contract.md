@@ -67,11 +67,9 @@ For each run, `picurv` generates:
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions` takes one `source`: expressions, a generator, a file, or a `sum`
   of expressions and at most one of those (@ref p33_source), and optional `constraints`.
-- `generator: ic_gen` requires `params.field` and `params.config_file`, defaults to
-  `generators/ic.gen`, accepts optional `params.script`, and stages its PETSc vector output exactly like file mode.
-  The repository generator evaluates `[expression]` configs in physical units - coordinates are the staged
-  single-block PICGRID times `length_ref`, values are physical velocities or fluxes - and writes solver units;
-  `programmatic_c` cases materialize this bridge grid from scalar `programmatic_settings`.
+- `generator: ic_gen` runs your own script: it requires `params.script`, `params.field` and
+  `params.config_file`, and stages its PETSc vector output exactly like a file term; `programmatic_c`
+  cases materialize its bridge grid from scalar `programmatic_settings`.
 - field-sliced inlet data sources default to `generators/profile.gen`
   and accept optional `source.script`.
 - `type: file` requires `field: Ucat|Ucont` and `path`. The payload is physical unless it

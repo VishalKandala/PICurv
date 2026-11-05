@@ -140,7 +140,8 @@ typedef enum {
 typedef enum {
     PICURV_SOURCE_FRAME_CARTESIAN = 0,   /**< Three values: x, y, z velocity components. */
     PICURV_SOURCE_FRAME_CURVILINEAR = 1, /**< Three values along the unit xi, eta, zeta grid-line directions. */
-    PICURV_SOURCE_FRAME_NORMAL = 2       /**< One value: the speed into the domain through a face. */
+    PICURV_SOURCE_FRAME_NORMAL = 2,      /**< One value: the speed into the domain through a face. */
+    PICURV_SOURCE_FRAME_CONTRAVARIANT = 3 /**< Three values: the volume flux through the xi, eta, zeta faces; cells only. */
 } PicurvSourceFrame;
 
 /**
@@ -159,7 +160,7 @@ typedef struct {
 
 /**
  * @brief Read and compile a velocity source from the options database.
- * @details Reads `-<prefix>_frame` (`cartesian`, `curvilinear`, or, on a face, `normal`), one
+ * @details Reads `-<prefix>_frame` (`cartesian`, `curvilinear`, on a face `normal`, otherwise `contravariant`), one
  *          expression per value, `-<prefix>_expr_<c>`, written in physical units over the names
  *          of #PicurvSourceVariable, and the optional `-<prefix>_bulk_velocity`, an expression
  *          in `t`. Random draws are not available.
@@ -240,7 +241,7 @@ PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySou
 /**
  * @brief Add a source's flux to every owned face of Ucont, evaluating it at each face centre.
  * @details A Cartesian velocity is dotted with the face metric; a curvilinear component is the
- *          speed through the face, times its area.
+ *          speed through the face, times its area; a contravariant component is the flux itself.
  * @param[in,out] user           Block whose Ucont receives the fluxes.
  * @param[in]     source         Source with expressions.
  * @param[in]     fraction       Grid-line fractions, from ComputeGridLineFractions().
