@@ -1,0 +1,1 @@
+- Verification sources: `verification.sources.scalar` and `verification.sources.diffusivity` are one `expression` in physical `x y z t`, with optional `constants`. `mode`, `profile` and the `CONSTANT`, `LINEAR_X` and `SIN_PRODUCT` parameters are refused, naming the replacement. `config/solvers/Analytical-Zero-Verification-*.yml` are now `Analytical-Verification-*.yml`.
