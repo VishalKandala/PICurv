@@ -197,29 +197,19 @@ An analytical field is a source, not a selector: see @ref p32_extension_sec. Not
 - Current support:
   - `verification.sources.diffusivity`
   - `verification.sources.scalar`
-  - diffusivity profile `LINEAR_X`
-  - scalar profiles `CONSTANT`, `LINEAR_X`, `SIN_PRODUCT`
+  - each one expression in physical `x y z` and `t`, with optional `constants`
 - Python hooks:
   - validation and flag emission in `picurv_cli/core.py`
 - Generated mapping:
-  - `verification.sources.diffusivity.mode` -> `-verification_diffusivity_mode`
-  - `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
-  - `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
-  - `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
-  - `verification.sources.scalar.mode` -> `-verification_scalar_mode`
-  - `verification.sources.scalar.profile` -> `-verification_scalar_profile`
-  - `verification.sources.scalar.value` -> `-verification_scalar_value`
-  - `verification.sources.scalar.phi0` -> `-verification_scalar_phi0`
-  - `verification.sources.scalar.slope_x` -> `-verification_scalar_slope_x`
-  - `verification.sources.scalar.amplitude` -> `-verification_scalar_amplitude`
-  - `verification.sources.scalar.kx/ky/kz` -> `-verification_scalar_kx/-verification_scalar_ky/-verification_scalar_kz`
+  - `verification.sources.diffusivity` -> `-verification_diffusivity_expr`
+  - `verification.sources.scalar` -> `-verification_scalar_expr`
 - C storage/parser:
   - `verificationDiffusivity` and `verificationScalar` in `SimCtx`
   - option parsing in @ref CreateSimulationContext
 - Runtime:
   - `src/verification_sources.c`
   - thin delegation from `ComputeEulerianDiffusivity` (`src/ParticlePhysics.c`) for diffusivity
-  - analytical scalar truth in `src/AnalyticalSolutions.c`
+  - the scalar on particles and cell centres in `src/AnalyticalSolutions.c`
   - gated particle-physics bypass in `src/ParticlePhysics.c`
   - runtime metric writer in `src/logging.c` (`<run.analysis.metrics>/scatter_metrics.csv`)
 - Design boundary:

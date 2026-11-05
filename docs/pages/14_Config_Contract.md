@@ -84,8 +84,8 @@ For each run, `picurv` generates:
 @section p14_solver_sec 4. Solver Contract Highlights
 
 - `operation_mode.eulerian_field_source` -> `-euler_field_source`
-- `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
-- `verification.sources.scalar.*` -> `-verification_scalar_*`
+- `verification.sources.diffusivity` -> `-verification_diffusivity_expr`
+- `verification.sources.scalar` -> `-verification_scalar_expr`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support includes `momentum_solver.dual_time_picard_jameson_rk`
   and `momentum_solver.newton_krylov`.

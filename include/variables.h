@@ -261,28 +261,11 @@ typedef struct MigrationInfo {
     PetscInt target_rank;
 } MigrationInfo;
 
-/** @brief Verification-only analytical diffusivity override settings. */
-typedef struct VerificationDiffusivityConfig {
+/** @brief A verification-only prescribed field: an expression in physical x, y, z and t. */
+typedef struct VerificationFieldConfig {
     PetscBool enabled;
-    char mode[32];
-    char profile[32];
-    PetscReal gamma0;
-    PetscReal slope_x;
-} VerificationDiffusivityConfig;
-
-/** @brief Verification-only analytical scalar override settings. */
-typedef struct VerificationScalarConfig {
-    PetscBool enabled;
-    char mode[32];
-    char profile[32];
-    PetscReal value;
-    PetscReal phi0;
-    PetscReal slope_x;
-    PetscReal amplitude;
-    PetscReal kx;
-    PetscReal ky;
-    PetscReal kz;
-} VerificationScalarConfig;
+    struct PicurvExpression *expression;
+} VerificationFieldConfig;
 
 /** @brief Aggregated per-timestep search instrumentation counters. */
 typedef struct SearchMetricsState {
@@ -979,8 +962,8 @@ typedef struct SimCtx {
      * Defaults to the run's continue mode; --restart-from requires an explicit
      * request because it may branch onto a different physical trajectory. */
     PetscBool      fieldStatisticsContinue;
-    VerificationDiffusivityConfig verificationDiffusivity;
-    VerificationScalarConfig verificationScalar;
+    VerificationFieldConfig verificationDiffusivity;
+    VerificationFieldConfig verificationScalar;
     
     //================ Group 6: Physical & Geometric Parameters ================
     PetscReal Flux_in, angle,max_angle;

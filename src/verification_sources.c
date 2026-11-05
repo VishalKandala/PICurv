@@ -1,8 +1,84 @@
 #include "verification_sources.h"
 
 #include "AnalyticalSolutions.h"
+#include "expression.h"
 #include "logging.h"
 #include "setup.h"
+
+/** @brief Names a verification field's expression reads, in the order of its values. */
+static const char *const kVerificationVariableNames[4] = {"x", "y", "z", "t"};
+
+/**
+ * @brief Compiles a verification field's expression and enables the field.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscErrorCode VerificationFieldCompile(const char *text, VerificationFieldConfig *field)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PicurvExpressionDestroy(&field->expression));
+    PetscCall(PicurvExpressionCompile(text, kVerificationVariableNames, 4, PETSC_FALSE, &field->expression));
+    field->enabled = PETSC_TRUE;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Reads and compiles the configured verification fields.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscErrorCode VerificationFieldsCreate(SimCtx *simCtx)
+{
+    char      text[4096];
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-verification_diffusivity_expr", text, sizeof(text), &found));
+    if (found) PetscCall(VerificationFieldCompile(text, &simCtx->verificationDiffusivity));
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-verification_scalar_expr", text, sizeof(text), &found));
+    if (found) PetscCall(VerificationFieldCompile(text, &simCtx->verificationScalar));
+    PetscCheck(!simCtx->verificationDiffusivity.enabled || strcmp(simCtx->eulerianSource, "analytical") == 0,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "verification diffusivity overrides require -euler_field_source \"analytical\".");
+    PetscCheck(!simCtx->verificationScalar.enabled || strcmp(simCtx->eulerianSource, "analytical") == 0,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "verification scalar overrides require -euler_field_source \"analytical\".");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Releases the compiled verification fields.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscErrorCode VerificationFieldsDestroy(SimCtx *simCtx)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PicurvExpressionDestroy(&simCtx->verificationDiffusivity.expression));
+    PetscCall(PicurvExpressionDestroy(&simCtx->verificationScalar.expression));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Evaluates a verification field at a solver-unit point and time.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscErrorCode VerificationFieldEvaluate(const SimCtx *simCtx, const VerificationFieldConfig *field, Cmpnts point,
+                                         PetscReal solver_time, PetscReal *value)
+{
+    const PetscReal L_ref = simCtx->scaling.L_ref;
+    PetscReal values[4] = {point.x * L_ref, point.y * L_ref, point.z * L_ref, 0.0};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PicurvPhysicalTime(simCtx, solver_time, &values[3]));
+    PetscCall(PicurvExpressionEvaluate(field->expression, values, NULL, value));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
 
 /**
  * @brief Reports whether the verification-only diffusivity override is enabled.
@@ -53,10 +129,9 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
-                // The manufactured profile is affine in the physical x coordinate.
-                const PetscReal gamma =
-                  simCtx->verificationDiffusivity.gamma0 +
-                  simCtx->verificationDiffusivity.slope_x * cent[k][j][i].x;
+                PetscReal gamma;
+                ierr = VerificationFieldEvaluate(simCtx, &simCtx->verificationDiffusivity, cent[k][j][i], simCtx->ti, &gamma); CHKERRQ(ierr);
+                gamma /= simCtx->scaling.U_ref * simCtx->scaling.L_ref;
                 diff_arr[k][j][i] = gamma;
                 min_gamma = PetscMin(min_gamma, gamma);
             }
@@ -83,11 +158,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
         ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
     }
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Applied verification diffusivity override profile '%s' (gamma0=%g, slope_x=%g).\n",
-              simCtx->verificationDiffusivity.profile,
-              (double)simCtx->verificationDiffusivity.gamma0,
-              (double)simCtx->verificationDiffusivity.slope_x);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applied the verification diffusivity.\n");
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
@@ -106,9 +177,7 @@ PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user)
     if (!VerificationScalarOverrideActive(user->simCtx)) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     PetscCall(SetAnalyticalScalarFieldOnParticles(user, PARTICLE_FIELD_ID_PSI));
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Applied verification scalar override profile '%s' to particle field 'Psi'.\n",
-              user->simCtx->verificationScalar.profile);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applied the verification scalar to particle field Psi.\n");
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

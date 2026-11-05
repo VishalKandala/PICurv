@@ -1,6 +1,6 @@
 base_configs:
   case: "scatter_verification.yml"
-  solver: "Analytical-Zero-Verification-Scalar.yml"
+  solver: "Analytical-Verification-Scalar.yml"
   monitor: "Standard_Output.yml"
   post: "scatter_verification_analysis.yml"
 

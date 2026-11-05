@@ -541,10 +541,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->solutionConvergenceMeanSpeedHistory = NULL;
     simCtx->solutionConvergenceMeanKEHistory = NULL;
     simCtx->verificationDiffusivity.enabled = PETSC_FALSE;
-    strcpy(simCtx->verificationDiffusivity.mode, "");
-    strcpy(simCtx->verificationDiffusivity.profile, "");
-    simCtx->verificationDiffusivity.gamma0 = 0.0;
-    simCtx->verificationDiffusivity.slope_x = 0.0;
+    simCtx->verificationDiffusivity.expression = NULL;
+    simCtx->verificationScalar.enabled = PETSC_FALSE;
+    simCtx->verificationScalar.expression = NULL;
 
     // --- Group 6: Physical & Geometric Parameters ---
     simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
@@ -996,97 +995,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
               "Invalid value for -ic_field. Expected 0 (Ucat) or 1 (Ucont), got %d.",
               simCtx->initialConditionField);
     }
-    PetscBool verification_scalar_value_set = PETSC_FALSE;
-    PetscBool verification_scalar_phi0_set = PETSC_FALSE;
-    PetscBool verification_scalar_slope_x_set = PETSC_FALSE;
-    PetscBool verification_scalar_amplitude_set = PETSC_FALSE;
-    PetscBool verification_scalar_kx_set = PETSC_FALSE;
-    PetscBool verification_scalar_ky_set = PETSC_FALSE;
-    PetscBool verification_scalar_kz_set = PETSC_FALSE;
-    ierr = PetscOptionsGetString(NULL, NULL, "-verification_diffusivity_mode",
-                                 simCtx->verificationDiffusivity.mode,
-                                 sizeof(simCtx->verificationDiffusivity.mode), NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL, NULL, "-verification_diffusivity_profile",
-                                 simCtx->verificationDiffusivity.profile,
-                                 sizeof(simCtx->verificationDiffusivity.profile), NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_diffusivity_gamma0",
-                               &simCtx->verificationDiffusivity.gamma0, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_diffusivity_slope_x",
-                               &simCtx->verificationDiffusivity.slope_x, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL, NULL, "-verification_scalar_mode",
-                                 simCtx->verificationScalar.mode,
-                                 sizeof(simCtx->verificationScalar.mode), NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL, NULL, "-verification_scalar_profile",
-                                 simCtx->verificationScalar.profile,
-                                 sizeof(simCtx->verificationScalar.profile), NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_value",
-                               &simCtx->verificationScalar.value, &verification_scalar_value_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_phi0",
-                               &simCtx->verificationScalar.phi0, &verification_scalar_phi0_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_slope_x",
-                               &simCtx->verificationScalar.slope_x, &verification_scalar_slope_x_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_amplitude",
-                               &simCtx->verificationScalar.amplitude, &verification_scalar_amplitude_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_kx",
-                               &simCtx->verificationScalar.kx, &verification_scalar_kx_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_ky",
-                               &simCtx->verificationScalar.ky, &verification_scalar_ky_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_scalar_kz",
-                               &simCtx->verificationScalar.kz, &verification_scalar_kz_set); CHKERRQ(ierr);
-    simCtx->verificationDiffusivity.enabled =
-      (PetscBool)(simCtx->verificationDiffusivity.mode[0] != '\0' ||
-                  simCtx->verificationDiffusivity.profile[0] != '\0');
-    simCtx->verificationScalar.enabled =
-      (PetscBool)(simCtx->verificationScalar.mode[0] != '\0' ||
-                  simCtx->verificationScalar.profile[0] != '\0');
-    if (simCtx->verificationDiffusivity.enabled) {
-      if (strcmp(simCtx->eulerianSource, "analytical") != 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-                "verification diffusivity overrides require -euler_field_source \"analytical\".");
-      }
-      if (strcmp(simCtx->verificationDiffusivity.mode, "analytical") != 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unsupported -verification_diffusivity_mode '%s'. Only 'analytical' is supported.",
-                simCtx->verificationDiffusivity.mode);
-      }
-      if (strcmp(simCtx->verificationDiffusivity.profile, "LINEAR_X") != 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unsupported -verification_diffusivity_profile '%s'. Only 'LINEAR_X' is supported.",
-                simCtx->verificationDiffusivity.profile);
-      }
-    }
-    if (simCtx->verificationScalar.enabled) {
-      if (strcmp(simCtx->eulerianSource, "analytical") != 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-                "verification scalar overrides require -euler_field_source \"analytical\".");
-      }
-      if (strcmp(simCtx->verificationScalar.mode, "analytical") != 0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unsupported -verification_scalar_mode '%s'. Only 'analytical' is supported.",
-                simCtx->verificationScalar.mode);
-      }
-      if (strcmp(simCtx->verificationScalar.profile, "CONSTANT") == 0) {
-        if (!verification_scalar_value_set) {
-          SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                  "verification scalar profile CONSTANT requires -verification_scalar_value.");
-        }
-      } else if (strcmp(simCtx->verificationScalar.profile, "LINEAR_X") == 0) {
-        if (!verification_scalar_phi0_set || !verification_scalar_slope_x_set) {
-          SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                  "verification scalar profile LINEAR_X requires -verification_scalar_phi0 and -verification_scalar_slope_x.");
-        }
-      } else if (strcmp(simCtx->verificationScalar.profile, "SIN_PRODUCT") == 0) {
-        if (!verification_scalar_amplitude_set || !verification_scalar_kx_set ||
-            !verification_scalar_ky_set || !verification_scalar_kz_set) {
-          SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                  "verification scalar profile SIN_PRODUCT requires -verification_scalar_amplitude, -verification_scalar_kx, -verification_scalar_ky, and -verification_scalar_kz.");
-        }
-      } else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unsupported -verification_scalar_profile '%s'. Supported profiles: CONSTANT, LINEAR_X, SIN_PRODUCT.",
-                simCtx->verificationScalar.profile);
-      }
-    }
+    ierr = VerificationFieldsCreate(simCtx); CHKERRQ(ierr);
     // NOTE: cdisx,cdisy,cdisz haven't been parsed, add if necessary.
 
      //  --- Group 6
@@ -4293,6 +4202,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     ierr = DestroyFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
     ierr = ParticleFieldPlanDestroy(&simCtx->particleFieldPlan); CHKERRQ(ierr);
     ierr = AnalyticalFieldDestroy(simCtx); CHKERRQ(ierr);
+    ierr = VerificationFieldsDestroy(simCtx); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%" PetscInt_FMT " levels)...\n",

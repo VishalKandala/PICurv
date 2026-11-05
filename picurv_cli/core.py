@@ -3640,9 +3640,6 @@ POISSON_PRECONDITIONER_SPELLINGS = {"mg": "multigrid", "pcmg": "multigrid"}
 #: How a prescribed Eulerian field is supplied.
 PROFILE_SOURCE_TYPES = ("file", "field_slice")
 
-#: Analytic scalar profiles the verification source may generate.
-VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
-
 #: Scalar-transport parameters and the runtime flag each becomes. The Schmidt numbers are
 #: positive and set particle diffusivity; `iem_constant` is C_IEM in the IEM mixing rate
 #: Omega = C_IEM Gamma / Delta^2 (runtime default 2.0), and 0 switches micromixing off so a
@@ -9038,10 +9035,8 @@ _SOLVER_SCHEMA = {
     ("petsc_passthrough_options",): None,
     ("verification",): {"sources"},
     ("verification", "sources"): {"diffusivity", "scalar"},
-    ("verification", "sources", "diffusivity"): {"mode", "profile", "gamma0", "slope_x"},
-    ("verification", "sources", "scalar"): {
-        "mode", "profile", "value", "phi0", "slope_x", "amplitude", "kx", "ky", "kz",
-    },
+    ("verification", "sources", "diffusivity"): {"expression", "constants"},
+    ("verification", "sources", "scalar"): {"expression", "constants"},
     ("scalar_transport",): set(SCALAR_TRANSPORT_FLAGS),
 }
 
@@ -9333,6 +9328,10 @@ INPUT_QUANTITIES = {
     ("case", "solver_parameters"): (None, "passthrough"),
     # ----- solver.yml -----
     ("solver", "operation_mode", "eulerian_field_source"): NOT_A_QUANTITY,
+    ("solver", "verification", "sources", "diffusivity", "expression"): (DIFFUSIVITY, "evaluator"),
+    ("solver", "verification", "sources", "diffusivity", "constants"): (DIFFUSIVITY, "evaluator"),
+    ("solver", "verification", "sources", "scalar", "expression"): UNITLESS,
+    ("solver", "verification", "sources", "scalar", "constants"): UNITLESS,
     # Iteration controls act on residuals the solver forms in its own units.
     ("solver", "strategy"): NOT_A_QUANTITY,
     ("solver", "tolerances"): UNITLESS,
@@ -9341,20 +9340,7 @@ INPUT_QUANTITIES = {
     ("solver", "pressure_solver"): UNITLESS,
     ("solver", "interpolation"): NOT_A_QUANTITY,
     ("solver", "petsc_passthrough_options"): (None, "passthrough"),
-    ("solver", "verification", "sources", "diffusivity", "mode"): NOT_A_QUANTITY,
-    ("solver", "verification", "sources", "diffusivity", "profile"): NOT_A_QUANTITY,
-    ("solver", "verification", "sources", "diffusivity", "gamma0"): (DIFFUSIVITY, "cli"),
     # Gamma = gamma0 + slope_x * x, so the slope is a diffusivity per length.
-    ("solver", "verification", "sources", "diffusivity", "slope_x"): (VELOCITY, "cli"),
-    ("solver", "verification", "sources", "scalar", "mode"): NOT_A_QUANTITY,
-    ("solver", "verification", "sources", "scalar", "profile"): NOT_A_QUANTITY,
-    ("solver", "verification", "sources", "scalar", "value"): UNITLESS,
-    ("solver", "verification", "sources", "scalar", "phi0"): UNITLESS,
-    ("solver", "verification", "sources", "scalar", "amplitude"): UNITLESS,
-    ("solver", "verification", "sources", "scalar", "slope_x"): (WAVENUMBER, "cli"),
-    ("solver", "verification", "sources", "scalar", "kx"): (WAVENUMBER, "cli"),
-    ("solver", "verification", "sources", "scalar", "ky"): (WAVENUMBER, "cli"),
-    ("solver", "verification", "sources", "scalar", "kz"): (WAVENUMBER, "cli"),
     ("solver", "scalar_transport"): UNITLESS,
     # ----- monitor.yml -----
     ("monitor", "logging"): NOT_A_QUANTITY,
@@ -10069,6 +10055,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                       "{expression: {u: 0.1}}, zero flow is {expression: {u: 0, v: 0, w: 0}}, and Taylor-Green is "
                       "written out in docs/pages/32_Analytical_Solutions.md.")
         _print_validation_errors(errors)
+    raw_fields = ((solver_cfg.get("verification") or {}).get("sources") or {}) if isinstance(solver_cfg, dict) else {}
+    for name in ("diffusivity", "scalar"):
+        if isinstance(raw_fields, dict) and isinstance(raw_fields.get(name), dict):
+            try:
+                verification_field_text(raw_fields[name], name)
+            except ValueError as exc:
+                errors.append(f"  {solver_path}: {exc}")
+    if errors:
+        _print_validation_errors(errors)
     raw_initial = (case_cfg.get("properties") or {}).get("initial_conditions")
     if isinstance(raw_initial, dict) and _retired_initial_condition_message(raw_initial):
         errors.append(f"  {case_path}: {_retired_initial_condition_message(raw_initial)}")
@@ -10484,77 +10479,16 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             if sources_cfg is not None and not isinstance(sources_cfg, dict):
                 errors.append(f"  {solver_path}: 'verification.sources' must be a mapping when provided.")
             elif isinstance(sources_cfg, dict) and sources_cfg:
-                diff_cfg = sources_cfg.get('diffusivity')
-                scalar_cfg = sources_cfg.get('scalar')
-
-                if diff_cfg is not None:
-                    if not isinstance(diff_cfg, dict):
-                        errors.append(f"  {solver_path}: 'verification.sources.diffusivity' must be a mapping.")
-                    else:
-                        if eulerian_source_mode != "analytical":
-                            errors.append(
-                                f"  {solver_path}: verification.sources.diffusivity is only valid when "
-                                "operation_mode.eulerian_field_source is 'analytical'."
-                            )
-                        mode = diff_cfg.get('mode')
-                        profile = diff_cfg.get('profile')
-                        if str(mode).strip().lower() != "analytical":
-                            errors.append(
-                                f"  {solver_path}: verification.sources.diffusivity.mode must be 'analytical'."
-                            )
-                        if str(profile).strip().upper() != "LINEAR_X":
-                            errors.append(
-                                f"  {solver_path}: verification.sources.diffusivity.profile must be 'LINEAR_X'."
-                            )
-                        for key in ("gamma0", "slope_x"):
-                            if key not in diff_cfg:
-                                errors.append(
-                                    f"  {solver_path}: verification.sources.diffusivity.{key} is required."
-                                )
-                            else:
-                                try:
-                                    float(diff_cfg[key])
-                                except (TypeError, ValueError):
-                                    errors.append(
-                                        f"  {solver_path}: verification.sources.diffusivity.{key} must be numeric."
-                                    )
-
-                if scalar_cfg is not None:
-                    if not isinstance(scalar_cfg, dict):
-                        errors.append(f"  {solver_path}: 'verification.sources.scalar' must be a mapping.")
-                    else:
-                        if eulerian_source_mode != "analytical":
-                            errors.append(
-                                f"  {solver_path}: verification.sources.scalar is only valid when "
-                                "operation_mode.eulerian_field_source is 'analytical'."
-                            )
-                        mode = scalar_cfg.get('mode')
-                        profile = str(scalar_cfg.get('profile', '')).strip().upper()
-                        if str(mode).strip().lower() != "analytical":
-                            errors.append(
-                                f"  {solver_path}: verification.sources.scalar.mode must be 'analytical'."
-                            )
-                        if profile not in VERIFICATION_SCALAR_PROFILES:
-                            errors.append(
-                                f"  {solver_path}: verification.sources.scalar.profile must be one of CONSTANT, LINEAR_X, SIN_PRODUCT."
-                            )
-                        required_scalar_keys = {
-                            "CONSTANT": ("value",),
-                            "LINEAR_X": ("phi0", "slope_x"),
-                            "SIN_PRODUCT": ("amplitude", "kx", "ky", "kz"),
-                        }.get(profile, ())
-                        for key in required_scalar_keys:
-                            if key not in scalar_cfg:
-                                errors.append(
-                                    f"  {solver_path}: verification.sources.scalar.{key} is required for profile '{profile}'."
-                                )
-                            else:
-                                try:
-                                    float(scalar_cfg[key])
-                                except (TypeError, ValueError):
-                                    errors.append(
-                                        f"  {solver_path}: verification.sources.scalar.{key} must be numeric."
-                                    )
+                for name in ("diffusivity", "scalar"):
+                    if sources_cfg.get(name) is None:
+                        continue
+                    if eulerian_source_mode != "analytical":
+                        errors.append(f"  {solver_path}: verification.sources.{name} is only valid when "
+                                      "operation_mode.eulerian_field_source is 'analytical'.")
+                    try:
+                        verification_field_text(sources_cfg[name], name)
+                    except ValueError as exc:
+                        errors.append(f"  {solver_path}: {exc}")
 
                 unknown_source_keys = sorted(set(sources_cfg.keys()) - {"diffusivity", "scalar"})
                 if unknown_source_keys:
@@ -14451,6 +14385,31 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     return resolved
 
 
+def verification_field_text(field, name: str) -> str:
+    """!
+    @brief One verification field as validated expression text, with its constants inlined.
+    @param[in] field `verification.sources.<name>` mapping: `expression` and optional `constants`.
+    @param[in] name Field name, `diffusivity` or `scalar`.
+    @return Expression text over x, y, z and t, in physical units.
+    @throws ValueError for a retired key or an invalid expression.
+    """
+    where = f"verification.sources.{name}"
+    if not isinstance(field, dict):
+        raise ValueError(f"{where} must be a mapping.")
+    retired = sorted(set(field) - {"expression", "constants"})
+    if retired:
+        examples = {"diffusivity": "0.002 + 0.001*x", "scalar": "sin(pi*x)*sin(pi*y)*sin(pi*z)"}
+        raise ValueError(f"{where} keys {retired} are retired; write the field as an expression in x, y, z and t, "
+                         f"e.g. {{expression: \"{examples[name]}\"}}.")
+    if "expression" not in field:
+        raise ValueError(f"{where} needs an 'expression'.")
+    constants = field.get("constants") or {}
+    if not isinstance(constants, dict):
+        raise ValueError(f"{where}.constants must map names to numbers.")
+    return _source_text(field["expression"], constants, ("x", "y", "z", "t"), f"{where}.expression",
+                        load_ic_generator_module())
+
+
 def expression_control_value(text: str, where: str) -> str:
     """!
     @brief Guard an expression written into the control file as a quoted option value.
@@ -16330,45 +16289,11 @@ def parse_solver_config(solver_cfg: dict, scales: dict = None, case_cfg: dict = 
         sources_cfg = verification_cfg.get('sources', {})
         if not isinstance(sources_cfg, dict):
             raise ValueError("verification.sources must be a mapping when provided.")
-        diff_cfg = sources_cfg.get('diffusivity')
-        if diff_cfg is not None:
-            if not isinstance(diff_cfg, dict):
-                raise ValueError("verification.sources.diffusivity must be a mapping.")
-            try:
-                flags['-verification_diffusivity_mode'] = f"\"{str(diff_cfg['mode']).strip().lower()}\""
-                flags['-verification_diffusivity_profile'] = f"\"{str(diff_cfg['profile']).strip().upper()}\""
-                for key in ("gamma0", "slope_x"):
-                    flags[f'-verification_diffusivity_{key}'] = solver_value(
-                        ("verification", "sources", "diffusivity", key), diff_cfg[key])
-            except KeyError as exc:
-                raise ValueError(f"verification.sources.diffusivity.{exc.args[0]} is required.") from exc
-            except (TypeError, ValueError) as exc:
-                raise ValueError("verification.sources.diffusivity.{gamma0,slope_x} must be numeric and mode/profile must be scalar strings.") from exc
-
-        scalar_cfg = sources_cfg.get('scalar')
-        if scalar_cfg is not None:
-            if not isinstance(scalar_cfg, dict):
-                raise ValueError("verification.sources.scalar must be a mapping.")
-            try:
-                flags['-verification_scalar_mode'] = f"\"{str(scalar_cfg['mode']).strip().lower()}\""
-                flags['-verification_scalar_profile'] = f"\"{str(scalar_cfg['profile']).strip().upper()}\""
-            except KeyError as exc:
-                raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
-
-            scalar_numeric_keys = {
-                'CONSTANT': ('value',),
-                'LINEAR_X': ('phi0', 'slope_x'),
-                'SIN_PRODUCT': ('amplitude', 'kx', 'ky', 'kz'),
-            }
-            profile = str(scalar_cfg.get('profile', '')).strip().upper()
-            for key in scalar_numeric_keys.get(profile, ()):
-                try:
-                    flags[f'-verification_scalar_{key}'] = solver_value(
-                        ("verification", "sources", "scalar", key), scalar_cfg[key])
-                except KeyError as exc:
-                    raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(f"verification.sources.scalar.{key} must be numeric.") from exc
+        for name in ("diffusivity", "scalar"):
+            if sources_cfg.get(name) is not None:
+                flags[f"-verification_{name}_expr"] = '"{}"'.format(
+                    expression_control_value(verification_field_text(sources_cfg[name], name),
+                                             f"verification.sources.{name}"))
 
     for key, value in resolve_scalar_transport(case_cfg, solver_cfg).items():
         flags[SCALAR_TRANSPORT_FLAGS[key]] = value

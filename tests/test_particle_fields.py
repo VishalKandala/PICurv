@@ -135,7 +135,7 @@ def test_a_prescribed_scalar_source_conflicts_with_an_initial_value(capsys):
     @param[in] capsys Pytest output capture.
     """
     case, solver, monitor = load_configs({"count": 100, "fields": {"Psi": 1.0}})
-    solver.setdefault("verification", {})["sources"] = {"scalar": {"mode": "analytical"}}
+    solver.setdefault("verification", {})["sources"] = {"scalar": {"expression": "1.0"}}
     with pytest.raises(SystemExit):
         validate(case, solver, monitor)
     assert "verification.sources.scalar" in capsys.readouterr().err

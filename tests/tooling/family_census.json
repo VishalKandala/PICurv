@@ -131,11 +131,6 @@
       "reason": "Image format for study plots: png, pdf, or svg. A formatting option with no solver or scientific consequence, documented with the study plotting block.",
       "owner": "study.type"
     },
-    "picurv_cli.core::VERIFICATION_SCALAR_PROFILES": {
-      "classification": "parameter_of_entry",
-      "reason": "Analytic scalar profiles the manufactured-solution verification source may impose. They parameterise the verification block rather than selecting a solver behaviour, and are documented with it in the solver reference.",
-      "owner": "08_Solver_Reference::p08_verification_sec"
-    },
     "picurv_cli.core::normalize_boundary_conditions_layout": {
       "classification": "not_public",
       "reason": "Normalizes layout shape, not a selectable value."

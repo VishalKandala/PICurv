@@ -12,7 +12,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Grid-particle interpolation and particle-grid projection
 - Configurable particle initial values (`models.physics.particles.fields`: numbers, expressions, or regions), and IEM micromixing of the particle scalar `Psi`
 - Runtime search/migration observability via `<run.analysis.metrics>/search_metrics.csv` for particle-enabled runs
-- Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
+- Analytical fields for verification, prescribed from any source (Taylor-Green, a uniform stream, zero flow)
 - Inlet and initial velocities written as expressions over position, time, and grid-line
   arc-length fractions (`prescribed_velocity`, `sources:`), and generated, field-sliced,
   and file-backed inlet `PICSLICE` profiles, including square-duct Poiseuille generation
@@ -217,7 +217,7 @@ and writes runtime deposition diagnostics to `<run.analysis.metrics>/scatter_met
 ```
 
 Optional: generate deterministic artifacts before launch, such as `grid_gen`
-grids and generated inlet profiles:
+grids and sliced inlet profiles:
 ```bash
 ./bin/picurv precompute --case my_case/config/case.yml
 ```

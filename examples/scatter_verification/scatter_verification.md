@@ -64,22 +64,19 @@ integral.
 
 ## Profiles And Physical Meaning
 
-The reusable verification feature supports three scalar profiles:
+The scalar is one expression in `x y z` and `t`. Useful choices:
 
-- `CONSTANT`: useful for conservation / preservation checks
-- `LINEAR_X`: useful for affine and gradient-sensitive checks
-- `SIN_PRODUCT`: useful as a smooth nontrivial verification profile for grid
-  sensitivity studies
+- a constant: conservation and preservation checks
+- linear in `x`: affine and gradient-sensitive checks
+- `sin(pi*x)*sin(pi*y)*sin(pi*z)`: a smooth nontrivial field for grid sensitivity studies
 
-This example uses `SIN_PRODUCT` because it creates a meaningful grid-size trend
-for the cell-centered scatter metric. If you want a more directly physical
-sanity check, `CONSTANT` and `LINEAR_X` are already available through the same
-feature.
+This example uses the sine product because it creates a meaningful grid-size trend for the
+cell-centered scatter metric.
 
 ## Files In This Example
 
 - `scatter_verification.yml`: deposition-only case definition
-- `Analytical-Zero-Verification-Scalar.yml`: analytical zero-flow solver plus
+- `Analytical-Verification-Scalar.yml`: analytical solver plus
   scalar verification source
 - `Standard_Output.yml`: monitor profile that keeps `scatter_metrics.csv`
   quiet on console unless `LOG_SCATTER_METRICS` is whitelisted at an enabled log
@@ -93,7 +90,7 @@ feature.
 ## Run
 
 ```bash
-./bin/picurv run --solve --post-process -n 4   --case  examples/scatter_verification/scatter_verification.yml   --solver examples/scatter_verification/Analytical-Zero-Verification-Scalar.yml   --monitor examples/scatter_verification/Standard_Output.yml   --post examples/scatter_verification/scatter_verification_analysis.yml
+./bin/picurv run --solve --post-process -n 4   --case  examples/scatter_verification/scatter_verification.yml   --solver examples/scatter_verification/Analytical-Verification-Scalar.yml   --monitor examples/scatter_verification/Standard_Output.yml   --post examples/scatter_verification/scatter_verification_analysis.yml
 ```
 
 Primary output:

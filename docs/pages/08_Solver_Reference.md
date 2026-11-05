@@ -908,35 +908,16 @@ warning naming each key's case location; setting one parameter in both files is 
 verification:
   sources:
     diffusivity:
-      mode: "analytical"
-      profile: "LINEAR_X"
-      gamma0: 1.0e-3
-      slope_x: 2.0e-4
+      constants: {gamma0: 1.0e-3, slope: 2.0e-4}
+      expression: "gamma0 + slope*x"     # [m^2/s]
 
     scalar:
-      mode: "analytical"
-      profile: "CONSTANT"  # or LINEAR_X, SIN_PRODUCT
-      value: 1.0
-      # phi0: 0.0
-      # slope_x: 1.0
-      # amplitude: 1.0
-      # kx: 3.141592653589793
-      # ky: 3.141592653589793
-      # kz: 3.141592653589793
+      expression: "sin(pi*x)*sin(pi*y)*sin(pi*z)"
 ```
 
 Mappings:
-- `verification.sources.diffusivity.mode` -> `-verification_diffusivity_mode`
-- `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
-- `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
-- `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
-- `verification.sources.scalar.mode` -> `-verification_scalar_mode`
-- `verification.sources.scalar.profile` -> `-verification_scalar_profile`
-- `verification.sources.scalar.value` -> `-verification_scalar_value`
-- `verification.sources.scalar.phi0` -> `-verification_scalar_phi0`
-- `verification.sources.scalar.slope_x` -> `-verification_scalar_slope_x`
-- `verification.sources.scalar.amplitude` -> `-verification_scalar_amplitude`
-- `verification.sources.scalar.kx/ky/kz` -> `-verification_scalar_kx/-verification_scalar_ky/-verification_scalar_kz`
+- `verification.sources.diffusivity` -> `-verification_diffusivity_expr`
+- `verification.sources.scalar` -> `-verification_scalar_expr`
 
 Units: every value is physical and is converted with the case's scales. `gamma0` is a
 diffusivity (divided by `velocity_ref length_ref`) and the diffusivity `slope_x` a
@@ -948,19 +929,18 @@ Rules:
 - this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test
 - it is only valid with `operation_mode.eulerian_field_source: "analytical"`
 - `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv`
-- scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
+- each is one expression in physical `x y z` and `t`, with optional `constants`; the expression language is @ref p33_source's
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
 
 Evidence:
-- the diffusivity source, `LINEAR_X`, drives the gradient drift that
+- a diffusivity linear in `x` drives the gradient drift that
   `diffusivity-gradient-drift-paired-2026-09-18` resolved to 1.1% of `a t` with paired
   seeds;
-- the scalar source's `CONSTANT` profile makes every scatter error term exactly zero, and
-  `SIN_PRODUCT` gives relative L2 errors of 5.2%, 2.6% and 1.3% on 8, 16 and 32 cells per
+- a constant scalar makes every scatter error term exactly zero, and
+  `sin(pi*x)*sin(pi*y)*sin(pi*z)` gives relative L2 errors of 5.2%, 2.6% and 1.3% on 8, 16 and 32 cells per
   side, the first order a random cell average must show at fixed particles per cell
   (`scalar-scatter-verification-2026-09-21`, `examples/scatter_verification`);
-- the scalar `LINEAR_X` profile has not been measured, and neither scatter threshold is
-  gated in CI.
+- a scalar linear in `x` has not been measured, and neither scatter threshold is gated in CI.
 
 @section p08_petsc_sec 12. petsc_passthrough_options
 

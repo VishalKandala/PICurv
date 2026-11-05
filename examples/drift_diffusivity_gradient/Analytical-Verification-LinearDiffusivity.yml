@@ -4,10 +4,8 @@ operation_mode:
 verification:
   sources:
     diffusivity:
-      mode: "analytical"
-      profile: "LINEAR_X"
-      gamma0: 0.002
-      slope_x: 0.001
+      constants: {gamma0: 0.002, slope: 0.001}
+      expression: "gamma0 + slope*x"
 
 interpolation:
   method: "Trilinear"

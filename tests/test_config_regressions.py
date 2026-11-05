@@ -526,71 +526,6 @@ def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
     assert expected_stats_path in payload["artifacts"]
 
 
-def test_parse_solver_config_maps_verification_diffusivity_flags():
-    """!
-    @brief Test that parse_solver_config maps verification diffusivity settings into control flags.
-    """
-    picurv = load_picurv_module()
-    solver_cfg = {
-        "operation_mode": {
-            "eulerian_field_source": "analytical",
-        },
-        "verification": {
-            "sources": {
-                "diffusivity": {
-                    "mode": "analytical",
-                    "profile": "LINEAR_X",
-                    "gamma0": 1.0e-3,
-                    "slope_x": 2.0e-4,
-                }
-            }
-        },
-    }
-
-    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
-
-    # gamma0 is a diffusivity (L U) and slope_x a diffusivity per length (U).
-    assert flags["-verification_diffusivity_mode"] == '"analytical"'
-    assert flags["-verification_diffusivity_profile"] == '"LINEAR_X"'
-    assert flags["-verification_diffusivity_gamma0"] == pytest.approx(1.0e-3 / 8.0)
-    assert flags["-verification_diffusivity_slope_x"] == pytest.approx(2.0e-4 / 4.0)
-
-
-def test_parse_solver_config_maps_verification_scalar_flags():
-    """!
-    @brief Test that parse_solver_config maps verification scalar settings into control flags.
-    """
-    picurv = load_picurv_module()
-    solver_cfg = {
-        "operation_mode": {
-            "eulerian_field_source": "analytical",
-        },
-        "verification": {
-            "sources": {
-                "scalar": {
-                    "mode": "analytical",
-                    "profile": "SIN_PRODUCT",
-                    "amplitude": 2.5,
-                    "kx": 3.141592653589793,
-                    "ky": 1.5707963267948966,
-                    "kz": 0.7853981633974483,
-                }
-            }
-        },
-    }
-
-    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
-
-    # Wavenumbers are per physical length, so they are multiplied by length_ref; the
-    # scalar amplitude is dimensionless.
-    assert flags["-verification_scalar_mode"] == '"analytical"'
-    assert flags["-verification_scalar_profile"] == '"SIN_PRODUCT"'
-    assert flags["-verification_scalar_amplitude"] == 2.5
-    assert flags["-verification_scalar_kx"] == pytest.approx(2.0 * 3.141592653589793)
-    assert flags["-verification_scalar_ky"] == pytest.approx(2.0 * 1.5707963267948966)
-    assert flags["-verification_scalar_kz"] == pytest.approx(2.0 * 0.7853981633974483)
-
-
 def test_solution_monitoring_maps_solution_convergence_flags():
     """!
     @brief Test that solution-monitoring ingress maps into the existing C flags.
@@ -2271,12 +2206,7 @@ def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     solver_cfg["verification"] = {
         "sources": {
-            "diffusivity": {
-                "mode": "analytical",
-                "profile": "LINEAR_X",
-                "gamma0": 1.0e-3,
-                "slope_x": 2.0e-4,
-            }
+            "diffusivity": {"expression": "0.002 + 0.001*x"}
         }
     }
 
@@ -2313,11 +2243,7 @@ def test_validate_rejects_verification_scalar_for_non_analytical_solver(tmp_path
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     solver_cfg["verification"] = {
         "sources": {
-            "scalar": {
-                "mode": "analytical",
-                "profile": "CONSTANT",
-                "value": 2.0,
-            }
+            "scalar": {"expression": "1.0"}
         }
     }
 
@@ -2341,48 +2267,6 @@ def test_validate_rejects_verification_scalar_for_non_analytical_solver(tmp_path
     assert result.returncode == 1
     assert "verification.sources.scalar is only valid" in result.stderr
 
-
-
-def test_validate_rejects_verification_scalar_missing_required_parameter(tmp_path):
-    """!
-    @brief Test that validate rejects scalar profiles missing required numeric parameters.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    valid = FIXTURES / "valid"
-    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
-    solver_cfg["operation_mode"] = {
-        "eulerian_field_source": "analytical",
-    }
-    solver_cfg["verification"] = {
-        "sources": {
-            "scalar": {
-                "mode": "analytical",
-                "profile": "LINEAR_X",
-                "phi0": 1.0,
-            }
-        }
-    }
-
-    solver_path = tmp_path / "solver_invalid_scalar_missing_parameter.yml"
-    picurv.write_yaml_file(str(solver_path), solver_cfg)
-
-    result = run_picurv(
-        [
-            "validate",
-            "--case",
-            str(valid / "case.yml"),
-            "--solver",
-            str(solver_path),
-            "--monitor",
-            str(valid / "monitor.yml"),
-            "--post",
-            str(valid / "post.yml"),
-        ]
-    )
-
-    assert result.returncode == 1
-    assert "verification.sources.scalar.slope_x is required" in result.stderr
 
 
 def test_validate_rejects_solution_convergence_periodic_mode_without_period_steps(tmp_path):
@@ -3097,3 +2981,24 @@ def test_a_section_given_as_a_scalar_is_a_structured_type_error(tmp_path):
     assert result.returncode == 1
     assert "ERROR CFG_INVALID_TYPE | key=models |" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_verification_fields_are_expressions_with_physical_values():
+    """!
+    @brief A verification field reaches the runtime as one expression with its constants inlined,
+           and a retired profile names its replacement.
+    """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config({"operation_mode": {"eulerian_field_source": "analytical"}, "verification": {
+        "sources": {"diffusivity": {"constants": {"gamma0": 1.0e-3, "slope": 2.0e-4},
+                                    "expression": "gamma0 + slope*x"},
+                    "scalar": {"expression": "-sin(pi*x)"}}}},
+        {"properties": {"scaling": {"length_ref": 2.0, "velocity_ref": 4.0},
+                        "fluid": {"density": 1.0, "viscosity": 1.0}}})
+    assert flags["-verification_diffusivity_expr"] == '"(0.001) + (0.0002)*x"'
+    assert flags["-verification_scalar_expr"] == '"(-sin(pi*x))"'
+    for field, name in (({"mode": "analytical", "profile": "LINEAR_X"}, "scalar"), ({"gamma0": 1.0}, "diffusivity")):
+        with pytest.raises(ValueError, match="are retired"):
+            picurv.verification_field_text(field, name)
+    with pytest.raises(ValueError, match="needs an 'expression'"):
+        picurv.verification_field_text({}, "scalar")

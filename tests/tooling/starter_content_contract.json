@@ -62,7 +62,7 @@
     },
     {
       "case": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml",
-      "solver": "examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml",
+      "solver": "examples/drift_diffusivity_gradient/Analytical-Verification-LinearDiffusivity.yml",
       "monitor": "examples/drift_diffusivity_gradient/Standard_Output.yml",
       "post": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml"
     },
@@ -74,7 +74,7 @@
     },
     {
       "case": "examples/scatter_verification/scatter_verification.yml",
-      "solver": "examples/scatter_verification/Analytical-Zero-Verification-Scalar.yml",
+      "solver": "examples/scatter_verification/Analytical-Verification-Scalar.yml",
       "monitor": "examples/scatter_verification/Standard_Output.yml",
       "post": "examples/scatter_verification/scatter_verification_analysis.yml"
     },
@@ -322,13 +322,13 @@
     },
     {
       "case": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml",
-      "solver": "config/solvers/Analytical-Zero-Verification-LinearDiffusivity.yml",
+      "solver": "config/solvers/Analytical-Verification-LinearDiffusivity.yml",
       "monitor": "config/monitors/Standard_Output.yml",
       "post": "config/postprocessors/standard_analysis.yml"
     },
     {
       "case": "examples/scatter_verification/scatter_verification.yml",
-      "solver": "config/solvers/Analytical-Zero-Verification-Scalar.yml",
+      "solver": "config/solvers/Analytical-Verification-Scalar.yml",
       "monitor": "config/monitors/Standard_Output.yml",
       "post": "config/postprocessors/scatter_verification.yml"
     },
@@ -375,8 +375,8 @@
     "config/schedulers/guide.md",
     "config/schedulers/slurm_default.yml",
     "config/solvers/Analytical.yml",
-    "config/solvers/Analytical-Zero-Verification-LinearDiffusivity.yml",
-    "config/solvers/Analytical-Zero-Verification-Scalar.yml",
+    "config/solvers/Analytical-Verification-LinearDiffusivity.yml",
+    "config/solvers/Analytical-Verification-Scalar.yml",
     "config/solvers/Imp-MG-Standard.yml",
     "config/solvers/Newton-Krylov-Frozen-Momentum-Point-Block.yml",
     "config/solvers/Newton-Krylov-Standard.yml",

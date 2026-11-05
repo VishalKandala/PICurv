@@ -1541,7 +1541,7 @@ def test_validate_scatter_verification_example_smoke():
             "--case",
             "examples/scatter_verification/scatter_verification.yml",
             "--solver",
-            "examples/scatter_verification/Analytical-Zero-Verification-Scalar.yml",
+            "examples/scatter_verification/Analytical-Verification-Scalar.yml",
             "--monitor",
             "examples/scatter_verification/Standard_Output.yml",
             "--post",

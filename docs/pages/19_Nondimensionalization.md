@@ -125,12 +125,8 @@ particle `fields`.
 | `monitor.yml: field_statistics.windows.[].end_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].start_time` | TIME | cli | L/U |
 | `monitor.yml: field_statistics.windows.[].time_cadence` | TIME | cli | L/U |
-| `solver.yml: verification.sources.diffusivity.gamma0` | DIFFUSIVITY | cli | U L |
-| `solver.yml: verification.sources.diffusivity.slope_x` | VELOCITY | cli | U |
-| `solver.yml: verification.sources.scalar.kx` | WAVENUMBER | cli | 1/L |
-| `solver.yml: verification.sources.scalar.ky` | WAVENUMBER | cli | 1/L |
-| `solver.yml: verification.sources.scalar.kz` | WAVENUMBER | cli | 1/L |
-| `solver.yml: verification.sources.scalar.slope_x` | WAVENUMBER | cli | 1/L |
+| `solver.yml: verification.sources.diffusivity.constants` | DIFFUSIVITY | evaluator | U L |
+| `solver.yml: verification.sources.diffusivity.expression` | DIFFUSIVITY | evaluator | U L |
 
 @section p19_fields_sec 4. Field Index
 

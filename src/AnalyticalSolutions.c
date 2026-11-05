@@ -18,18 +18,13 @@
 
 #include "AnalyticalSolutions.h"     // The header that declares this file's functions
 #include "expression.h"
+#include "verification_sources.h"
 #include "Metric.h"
 #include <petscmath.h>               // Provides PETSc-compatible math functions like sin, cos, exp
 
 /** @brief Cell-centred fields the analytical state finalizes, in the order the post-projection
  *         finalization uses for the solved flow. */
 static const FieldId kAnalyticalCellFields[] = {FIELD_ID_UCAT, FIELD_ID_P};
-
-static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarConfig *cfg,
-                                                      PetscReal x,
-                                                      PetscReal y,
-                                                      PetscReal z,
-                                                      PetscReal *value);
 
 /** @brief The prescribed field: the case's source, and what it reuses from step to step. */
 struct AnalyticalField {
@@ -325,65 +320,6 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper that evaluates the configured scalar verification profile.
- * @details Local to this translation unit.
- */
-static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarConfig *cfg,
-                                                      PetscReal x,
-                                                      PetscReal y,
-                                                      PetscReal z,
-                                                      PetscReal *value)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (!cfg) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "VerificationScalarConfig cannot be NULL.");
-    if (!value) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Scalar output pointer cannot be NULL.");
-
-    if (strcmp(cfg->profile, "CONSTANT") == 0) {
-        *value = cfg->value;
-    } else if (strcmp(cfg->profile, "LINEAR_X") == 0) {
-        *value = cfg->phi0 + cfg->slope_x * x;
-    } else if (strcmp(cfg->profile, "SIN_PRODUCT") == 0) {
-        *value = cfg->amplitude *
-                 PetscSinReal(cfg->kx * x) *
-                 PetscSinReal(cfg->ky * y) *
-                 PetscSinReal(cfg->kz * z);
-    } else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-                "Unsupported verification scalar profile '%s'.", cfg->profile);
-    }
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Implementation of \ref EvaluateAnalyticalScalarProfile().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/AnalyticalSolutions.h`.
- * @see EvaluateAnalyticalScalarProfile()
- */
-PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
-                                               PetscReal x,
-                                               PetscReal y,
-                                               PetscReal z,
-                                               PetscReal t,
-                                               PetscReal *value)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    (void)t;
-    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
-    if (!simCtx->verificationScalar.enabled) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-                "EvaluateAnalyticalScalarProfile requires verification scalar mode to be enabled.");
-    }
-    PetscCall(EvaluateConfiguredScalarProfile(&simCtx->verificationScalar, x, y, z, value));
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Implementation of \ref SetAnalyticalScalarFieldOnParticles().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/AnalyticalSolutions.h`.
@@ -418,12 +354,8 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldI
 
     for (PetscInt p = 0; p < nlocal; ++p) {
         PetscReal value = 0.0;
-        ierr = EvaluateAnalyticalScalarProfile(user->simCtx,
-                                               positions[3 * p + 0],
-                                               positions[3 * p + 1],
-                                               positions[3 * p + 2],
-                                               user->simCtx->ti,
-                                               &value); CHKERRQ(ierr);
+        const Cmpnts point = {positions[3 * p + 0], positions[3 * p + 1], positions[3 * p + 2]};
+        ierr = VerificationFieldEvaluate(user->simCtx, &user->simCtx->verificationScalar, point, user->simCtx->ti, &value); CHKERRQ(ierr);
         scalar_values[p] = value;
     }
 
@@ -470,12 +402,7 @@ PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVe
         for (PetscInt j = lys; j < lye; ++j) {
             for (PetscInt i = lxs; i < lxe; ++i) {
                 PetscReal value = 0.0;
-                ierr = EvaluateAnalyticalScalarProfile(user->simCtx,
-                                                       cent[k][j][i].x,
-                                                       cent[k][j][i].y,
-                                                       cent[k][j][i].z,
-                                                       user->simCtx->ti,
-                                                       &value); CHKERRQ(ierr);
+                ierr = VerificationFieldEvaluate(user->simCtx, &user->simCtx->verificationScalar, cent[k][j][i], user->simCtx->ti, &value); CHKERRQ(ierr);
                 target[k][j][i] = value;
             }
         }

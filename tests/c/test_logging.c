@@ -942,14 +942,7 @@ static PetscErrorCode TestScatterMetricsLogging(void)
     simCtx->np = 27;
     simCtx->step = 3;
     simCtx->ti = 0.3;
-    simCtx->verificationScalar.enabled = PETSC_TRUE;
-    PetscCall(PetscStrncpy(simCtx->verificationScalar.mode,
-                           "analytical",
-                           sizeof(simCtx->verificationScalar.mode)));
-    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
-                           "CONSTANT",
-                           sizeof(simCtx->verificationScalar.profile)));
-    simCtx->verificationScalar.value = 2.0;
+    PetscCall(VerificationFieldCompile("2.0", &simCtx->verificationScalar));
 
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));

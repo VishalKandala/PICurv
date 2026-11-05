@@ -1,0 +1,13 @@
+# Analytical field with a prescribed scalar truth for scatter verification.
+operation_mode:
+  eulerian_field_source: "analytical"
+
+verification:
+  sources:
+    scalar:
+      expression: "sin(pi*x)*sin(pi*y)*sin(pi*z)"
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options: {}

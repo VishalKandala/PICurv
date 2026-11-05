@@ -4,6 +4,7 @@
  */
 
 #include "test_support.h"
+#include "verification_sources.h"
 
 #include "ParticleSwarm.h"
 #include "ParticlePhysics.h"
@@ -887,14 +888,7 @@ static PetscErrorCode TestSetupLifecycleScatterMetricsAtStepZero(void)
     PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
     simCtx->StepsToRun = 0;
     simCtx->StartStep = 0;
-    simCtx->verificationScalar.enabled = PETSC_TRUE;
-    PetscCall(PetscStrncpy(simCtx->verificationScalar.mode,
-                           "analytical",
-                           sizeof(simCtx->verificationScalar.mode)));
-    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
-                           "CONSTANT",
-                           sizeof(simCtx->verificationScalar.profile)));
-    simCtx->verificationScalar.value = 1.25;
+    PetscCall(VerificationFieldCompile("1.25", &simCtx->verificationScalar));
 
     PetscCall(InitializeEulerianState(simCtx));
     PetscCall(InitializeParticleSwarm(simCtx));

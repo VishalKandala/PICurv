@@ -30,21 +30,11 @@ operation_mode:
 # verification:
 #   sources:
 #     diffusivity:
-#       mode: "analytical"        # Verification-only selector; currently fixed to analytical
-#       profile: "LINEAR_X"       # Supported today: LINEAR_X
-#       gamma0: 1.0e-3             # [m^2/s] -> -verification_diffusivity_gamma0
-#       slope_x: 2.0e-4            # [m/s], diffusivity per metre -> -verification_diffusivity_slope_x
+#       constants: {gamma0: 1.0e-3, slope: 2.0e-4}   # [m^2/s], [m/s]
+#       expression: "gamma0 + slope*x"     # [m^2/s], over x, y, z [m] and t [s] -> -verification_diffusivity_expr
 #
 #     scalar:
-#       mode: "analytical"        # Verification-only selector; currently fixed to analytical
-#       profile: "CONSTANT"       # Supported: CONSTANT, LINEAR_X, SIN_PRODUCT
-#       value: 1.0                 # CONSTANT -> -verification_scalar_value
-#       # phi0: 0.0                # LINEAR_X -> -verification_scalar_phi0
-#       # slope_x: 1.0             # [1/m] LINEAR_X -> -verification_scalar_slope_x
-#       # amplitude: 1.0           # SIN_PRODUCT -> -verification_scalar_amplitude
-#       # kx: 3.141592653589793    # [1/m] SIN_PRODUCT -> -verification_scalar_kx
-#       # ky: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_ky
-#       # kz: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kz
+#       expression: "sin(pi*x)*sin(pi*y)*sin(pi*z)"  # over x, y, z [m] and t [s] -> -verification_scalar_expr
 #
 # Scalar verification is intended for runtime diagnostics such as
 # output/analysis/metrics/scatter_metrics.csv. It bypasses only the particle Psi evolution path and

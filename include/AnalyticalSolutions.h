@@ -53,24 +53,6 @@ PetscBool AnalyticalFieldSupportsInterpolationError(const SimCtx *simCtx);
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx);
 
 /**
- * @brief Evaluates the configured verification scalar profile at one physical point.
- *
- * @param[in]  simCtx Simulation context providing the scalar verification profile.
- * @param[in]  x      Physical x coordinate.
- * @param[in]  y      Physical y coordinate.
- * @param[in]  z      Physical z coordinate.
- * @param[in]  t      Simulation time.
- * @param[out] value  Evaluated scalar value.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
-                                               PetscReal x,
-                                               PetscReal y,
-                                               PetscReal z,
-                                               PetscReal t,
-                                               PetscReal *value);
-
-/**
  * @brief Writes the configured verification scalar profile onto a particle swarm scalar field.
  *
  * @param[in,out] user             Block-local context providing particle positions.

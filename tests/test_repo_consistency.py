@@ -75,7 +75,7 @@ EXAMPLE_BUNDLES = [
     },
     {
         "case": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml",
-        "solver": "examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml",
+        "solver": "examples/drift_diffusivity_gradient/Analytical-Verification-LinearDiffusivity.yml",
         "monitor": "examples/drift_diffusivity_gradient/Standard_Output.yml",
         "post": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml",
     },

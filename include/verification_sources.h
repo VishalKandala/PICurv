@@ -35,4 +35,38 @@ PetscBool VerificationScalarOverrideActive(const SimCtx *simCtx);
  */
 PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user);
 
+/**
+ * @brief Compiles a verification field's expression, in physical x, y, z and t, and enables the field.
+ * @param[in]     text  Expression text.
+ * @param[in,out] field Field to set; a previous expression is released.
+ * @return PETSc error code.
+ */
+PetscErrorCode VerificationFieldCompile(const char *text, VerificationFieldConfig *field);
+
+/**
+ * @brief Reads and compiles the configured verification fields (`-verification_*_expr`).
+ * @param simCtx Simulation context.
+ * @return PETSc error code; an override outside an analytical run is refused.
+ */
+PetscErrorCode VerificationFieldsCreate(SimCtx *simCtx);
+
+/**
+ * @brief Releases the compiled verification fields.
+ * @param simCtx Simulation context.
+ * @return PETSc error code.
+ */
+PetscErrorCode VerificationFieldsDestroy(SimCtx *simCtx);
+
+/**
+ * @brief Evaluates a verification field at a point.
+ * @param[in]  simCtx      Simulation context, for the scales.
+ * @param[in]  field       Enabled verification field.
+ * @param[in]  point       Solver-unit position.
+ * @param[in]  solver_time Solver-unit time.
+ * @param[out] value       The expression's physical value.
+ * @return PETSc error code.
+ */
+PetscErrorCode VerificationFieldEvaluate(const SimCtx *simCtx, const VerificationFieldConfig *field, Cmpnts point,
+                                         PetscReal solver_time, PetscReal *value);
+
 #endif /* VERIFICATION_SOURCES_H */

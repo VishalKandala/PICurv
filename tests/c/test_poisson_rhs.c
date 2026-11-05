@@ -398,11 +398,7 @@ static PetscErrorCode TestComputeEulerianDiffusivityVerificationLinearX(void)
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
-    simCtx->verificationDiffusivity.enabled = PETSC_TRUE;
-    PetscCall(PetscStrncpy(simCtx->verificationDiffusivity.mode, "analytical", sizeof(simCtx->verificationDiffusivity.mode)));
-    PetscCall(PetscStrncpy(simCtx->verificationDiffusivity.profile, "LINEAR_X", sizeof(simCtx->verificationDiffusivity.profile)));
-    simCtx->verificationDiffusivity.gamma0 = gamma0;
-    simCtx->verificationDiffusivity.slope_x = slope_x;
+    PetscCall(VerificationFieldCompile("0.5 + 0.25*x", &simCtx->verificationDiffusivity));
 
     PetscCall(PicurvAssertBool(VerificationDiffusivityOverrideActive(simCtx),
                                "verification diffusivity override should report as active"));

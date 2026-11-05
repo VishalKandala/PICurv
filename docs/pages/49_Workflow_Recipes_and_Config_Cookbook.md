@@ -218,7 +218,7 @@ Analytical uniform-flow deterministic drift verification:
 Analytical zero-flow plus verification-source diffusivity drift verification:
 
 - case: `examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml`
-- solver: `examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml`
+- solver: `examples/drift_diffusivity_gradient/Analytical-Verification-LinearDiffusivity.yml`
 - monitor: `examples/drift_diffusivity_gradient/Standard_Output.yml`
 - post: `examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml`
 
@@ -244,10 +244,8 @@ For the current diffusivity-drift case, the curated source override lives behind
 verification:
   sources:
     diffusivity:
-      mode: "analytical"
-      profile: "LINEAR_X"
-      gamma0: 1.0e-3
-      slope_x: 2.0e-4
+      constants: {gamma0: 1.0e-3, slope: 2.0e-4}
+      expression: "gamma0 + slope*x"
 ```
 
 Contributor note:
@@ -470,7 +468,7 @@ Recommended pattern:
 
 - keep `operation_mode.eulerian_field_source: analytical`
 - use a zero source with `eulerian_field_source: analytical` for pure deposition checks
-- choose a scalar profile under `verification.sources.scalar`
+- write the scalar as an expression under `verification.sources.scalar`
 - reuse the production scatter operator rather than adding a second deposition path
 - read the runtime metric from `<run.analysis.metrics>/scatter_metrics.csv`
 

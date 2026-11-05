@@ -14,12 +14,7 @@ operation_mode:
 verification:
   sources:
     scalar:
-      mode: "analytical"
-      profile: "SIN_PRODUCT"
-      amplitude: 1.0
-      kx: 3.141592653589793
-      ky: 3.141592653589793
-      kz: 3.141592653589793
+      expression: "sin(pi*x)*sin(pi*y)*sin(pi*z)"
 
 interpolation:
   method: "Trilinear"

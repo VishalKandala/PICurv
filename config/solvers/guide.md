@@ -17,8 +17,8 @@ This directory stores reusable `solver.yml` profiles that define numerical strat
 - `Newton-Krylov-Standard.yml`: matrix-free Newton--Krylov setup for the validated periodic-flow scope.
 - `Newton-Krylov-Frozen-Momentum-Point-Block.yml`: Newton--Krylov setup with the frozen-momentum point-block preconditioner.
 - `Analytical.yml`: no solve; the case's `properties.initial_conditions.source` is the field, whether a zero carrier, a uniform stream or the Taylor--Green vortex.
-- `Analytical-Zero-Verification-LinearDiffusivity.yml`: reusable verification-oriented zero-flow profile with linear diffusivity override for `grad(Gamma)` drift checks.
-- `Analytical-Zero-Verification-Scalar.yml`: zero-flow scalar-truth injection profile for scatter verification.
+- `Analytical-Verification-LinearDiffusivity.yml`: reusable verification-oriented analytical profile with linear diffusivity override for `grad(Gamma)` drift checks.
+- `Analytical-Verification-Scalar.yml`: analytical profile with a prescribed scalar for scatter verification.
 
 For full schema coverage, see:
 - `examples/master_template/master_solver.yml`
