@@ -7,7 +7,6 @@
 #include "logging.h"  // Logging macros and definitions
 #include "io.h"
 #include "setup.h"    // For SetDMDAProcLayout
-#include "AnalyticalSolutions.h" // For SetAnalyticalGridInfo
 /**
  * @file grid.h
  * @brief Public interface for grid, solver, and metric setup routines.

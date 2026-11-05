@@ -132,7 +132,7 @@ Function names come from `include/*.h` and represent the safest integration seam
   - APIs: @ref ReadSimulationFields, @ref WriteSimulationFields, @ref ParsePostProcessingSettings, @ref EulerianDataProcessingPipeline, @ref GlobalStatisticsPipeline
 - analytical/init:
   - files: `AnalyticalSolutions.c`, `initialcondition.c`
-  - APIs: @ref AnalyticalSolutionEngine, @ref InitializeEulerianState, @ref SetInitialInteriorField
+  - APIs: @ref AnalyticalSolutionEngine, @ref InitializeEulerianState, @ref PopulateInitialUcont
 
 @subsection p13_source_to_tests_ssec 5.2 Source-to-Test Coverage Lens
 

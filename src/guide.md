@@ -41,7 +41,7 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - APIs: `LOG_ALLOW`, `get_log_level`, `is_function_allowed`, `PicurvOpenDiagnosticsCsv`, `LOG_CONTINUITY_METRICS`, `LOG_SEARCH_METRICS`, `EmitStatisticsConsoleSnapshot`
 - analytical/initialization:
   - files: `AnalyticalSolutions.c`, `initialcondition.c`
-  - APIs: `AnalyticalSolutionEngine`, `InitializeEulerianState`, `SetInitialInteriorField`
+  - APIs: `AnalyticalSolutionEngine`, `InitializeEulerianState`, `PopulateInitialUcont`
 
 ## How To Navigate During Development
 
