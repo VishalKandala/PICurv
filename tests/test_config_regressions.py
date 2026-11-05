@@ -61,13 +61,9 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
         if initial_conditions is None:
             continue
         checked.append(path)
-        if REPO_ROOT / "examples" in path.parents:
-            # Examples show the source form; `mode` stays covered by the fixture.
-            assert set(initial_conditions) <= {"source", "constraints"} and "source" in initial_conditions, path
-            continue
-        assert initial_conditions.get("mode") in {"generated", "file"}, path
-        if initial_conditions["mode"] == "generated":
-            assert initial_conditions.get("generator") in generators, path
+        assert set(initial_conditions) <= {"source", "constraints"} and "source" in initial_conditions, path
+        term = load_picurv_module().initial_field_term(initial_conditions)
+        assert term.get("generator", "ic_gen") in generators, path
     assert checked
 
 
@@ -1836,11 +1832,10 @@ def test_generator_destination_keys_are_refused_rather_than_ignored():
         {"field": "Ucat", "config_file": "config/ic.cfg", "output_file": "x.dat"},
         {"field": "Ucat", "config_file": "config/ic.cfg", "summary_json": "s.json"},
     ):
-        ic = {"mode": "generated", "generator": "ic_gen", "params": params}
+        ic = {"source": {"generator": "ic_gen", "params": params}}
         with pytest.raises(ValueError, match="is no longer accepted"):
             picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
-    ic = {"mode": "generated", "generator": "spectral_random_velocity",
-          "params": {"spectrum_csv": "spectrum.csv"}}
+    ic = {"source": {"generator": "spectral_random_velocity", "params": {"spectrum_csv": "spectrum.csv"}}}
     with pytest.raises(ValueError, match="is no longer accepted"):
         picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
@@ -1881,11 +1876,10 @@ def test_wall_spectral_seed_names_its_required_initial_spectra():
     faces = [{"face": f, "type": "PERIODIC", "handler": "geometric"} for f in ("-Xi", "+Xi")]
     faces += [{"face": f, "type": "WALL", "handler": "noslip"} for f in ("-Eta", "+Eta")]
     faces += [{"face": f, "type": "PERIODIC", "handler": "initial_flux"} for f in ("-Zeta", "+Zeta")]
-    ic = {"mode": "generated", "generator": "channel_spectral_velocity",
-          "params": {"seed": 1, "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}
+    ic = {"source": {"generator": "channel_spectral_velocity", "params": {"seed": 1, "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}}
     with pytest.raises(ValueError, match="requires params.initial_spectra"):
         picurv.resolve_initial_condition_config(ic, [faces], scales={"length_ref": 1.0, "velocity_ref": 1.0})
-    ic["params"]["initial_spectra"] = [{"task": "plane_spectrum", "axes": ["i", "k"],
+    ic["source"]["params"]["initial_spectra"] = [{"task": "plane_spectrum", "axes": ["i", "k"],
                                         "fixed_indices": {"j": 4}, "subtract_mean": "sample"}]
     resolved = picurv.resolve_initial_condition_config(ic, [faces], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     assert len(resolved["params"]["initial_spectra"]) == 1

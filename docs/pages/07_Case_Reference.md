@@ -41,38 +41,29 @@ initial_conditions:
 
 # File-backed Cartesian velocity
 initial_conditions:
-  mode: file
-  field: Ucat
-  source_file: initial_conditions/velocity.dat
+  source: {type: file, field: Ucat, path: initial_conditions/velocity.dat}
 ```
 
 Key mappings:
 - `scaling.length_ref` -> `-scaling_L_ref`
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
-- `source` -> `-finit 5` and quoted `-ic_source_*` options; a generator in it is also staged, with `-ic_source_field_weight`
-- `mode: generated` with `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
-- `mode: file` and Python IC providers (`ic_gen`, `spectral_random_velocity`, `resampled_velocity`,
-  `channel_spectral_velocity`, `duct_spectral_velocity`, `stability_mode_velocity`) -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
-- `params.u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
-- `params.velocity_physical` and `params.peak_velocity_physical` -> `-ic_velocity_physical`
-- `flow_direction` -> `-flow_direction <int>` (`+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5`)
+- `source` -> quoted `-ic_source_*` options
+- a file or generator term (`ic_gen`, `spectral_random_velocity`, `resampled_velocity`,
+  `channel_spectral_velocity`, `duct_spectral_velocity`, `stability_mode_velocity`) -> `-ic_field` and staged `-ic_dir`
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
-For detailed startup behavior of field initialization modes, see **@subpage 33_Initial_Conditions**.
+For detailed startup behavior of initial conditions, see **@subpage 33_Initial_Conditions**.
 
 Practical contract notes:
 
-- `initial_conditions.mode` is `generated` or `file`; `initial_conditions.source` replaces
-  both with a velocity source evaluated at every cell centre, a `sum` of sources and one
-  generator, or a generator alone (@ref p33_source), optionally with
-  `constraints: {scale, project}`.
-- generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
+- `initial_conditions` is a `source`: expressions, a generator, a file, or a `sum` of expressions
+  and at most one of those (@ref p33_source), optionally with
+  `constraints: {scale, bulk_velocity, project}`.
 - `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
 - channel/duct spectral providers require no-slip wall pairs, periodic remaining axes,
   and explicit initial plane/line spectra; see @ref p33_wall_spectral_sec.
 - file-backed ICs accept one PETSc binary `Ucat` or `Ucont` vector and currently require a single-block case.
-- `flow_direction` is required for curvilinear Constant and Poiseuille when no INLET face exists.
 - `eulerian_field_source` and restart selection supersede `initial_conditions`.
 
 @section p07_run_control_sec 2. run_control

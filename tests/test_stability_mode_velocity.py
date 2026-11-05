@@ -173,8 +173,7 @@ def test_conductor_routes_parameters_and_reference_scales():
     """!
     @brief The resolver accepts the layer, converts velocity_difference and hands the provider the scales.
     """
-    ic = {"mode": "generated", "generator": "stability_mode_velocity",
-          "params": layer_params(velocity_difference=4.0)}
+    ic = {"source": {"generator": "stability_mode_velocity", "params": layer_params(velocity_difference=4.0)}}
     resolved = CORE.resolve_initial_condition_config(ic, prepared(), scales={"length_ref": 2.0, "velocity_ref": 2.0})
     assert resolved["kind"] == "stability_mode_velocity"
     assert resolved["params"]["velocity_difference"] == pytest.approx(2.0)

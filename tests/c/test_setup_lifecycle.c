@@ -85,10 +85,7 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-totalsteps 2\n"
         "-ren 100.0\n"
         "-dt 0.001\n"
-        "-finit 1\n"
-        "-ucont_x 0.0\n"
-        "-ucont_y 0.0\n"
-        "-ucont_z 1.5\n"
+        "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 1.5\n"
         "-bcs_files %s\n"
         "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
         "-profiling_timestep_mode off\n"
@@ -454,7 +451,7 @@ static PetscErrorCode TestConfiguredParticleInitialValue(void)
  */
 static PetscErrorCode TestSourceInitialConditionProjection(void)
 {
-    const char *base = "-finit 5\n-ic_source_frame cartesian\n"
+    const char *base = "-ic_source_frame cartesian\n"
                        "-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
                        "-ic_source_expr_2 \"1.5*(1 + 0.5*sin(2*pi*zeta))\"\n";
     char        options[512];
@@ -488,9 +485,9 @@ static PetscErrorCode TestSourceInitialConditionProjection(void)
 static PetscErrorCode TestSourceInitialConditionBulkAndFaces(void)
 {
     const char *frames[] = {
-        "-finit 5\n-ic_source_frame cartesian\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+        "-ic_source_frame cartesian\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
         "-ic_source_expr_2 \"7*eta*(1-eta)\"\n-ic_source_bulk_velocity 2.0\n",
-        "-finit 5\n-ic_source_frame curvilinear\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
+        "-ic_source_frame curvilinear\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n"
         "-ic_source_expr_2 3\n-ic_source_bulk_velocity 2.0\n"};
 
     PetscFunctionBeginUser;

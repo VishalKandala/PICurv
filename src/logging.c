@@ -659,46 +659,6 @@ const char* BCFaceToString(BCFace face) {
 }
 
 /**
- * @brief Implementation of \ref InitialConditionModeToString().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/logging.h`.
- * @see InitialConditionModeToString()
- */
-const char* InitialConditionModeToString(InitialConditionMode mode)
-{
-    PROFILE_FUNCTION_BEGIN;
-    switch(mode){
-        case IC_MODE_ZERO: PROFILE_FUNCTION_END; return "Zero";
-        case IC_MODE_CONSTANT_CARTESIAN: PROFILE_FUNCTION_END; return "Cartesian Constant";
-        case IC_MODE_POISEUILLE: PROFILE_FUNCTION_END; return "Poiseuille";
-        case IC_MODE_CONSTANT_STREAMWISE: PROFILE_FUNCTION_END; return "Streamwise Constant";
-        case IC_MODE_FILE: PROFILE_FUNCTION_END; return "File";
-        case IC_MODE_SOURCE: PROFILE_FUNCTION_END; return "Source";
-        default: PROFILE_FUNCTION_END; return "Unknown Initial Condition";
-    }
-    PROFILE_FUNCTION_END;
-}
-
-/*
- * Converts a FlowDirection enum value to its token string. The public header
- * owns the rendered API contract.
- */
-const char* FlowDirectionToString(FlowDirection fd)
-{
-    PROFILE_HELPER_BEGIN;
-    switch ((int)fd) {
-        case FLOW_DIR_POS_XI:   PROFILE_HELPER_END; return "+Xi";
-        case FLOW_DIR_NEG_XI:   PROFILE_HELPER_END; return "-Xi";
-        case FLOW_DIR_POS_ETA:  PROFILE_HELPER_END; return "+Eta";
-        case FLOW_DIR_NEG_ETA:  PROFILE_HELPER_END; return "-Eta";
-        case FLOW_DIR_POS_ZETA: PROFILE_HELPER_END; return "+Zeta";
-        case FLOW_DIR_NEG_ZETA: PROFILE_HELPER_END; return "-Zeta";
-        default:                PROFILE_HELPER_END; return "from INLET";
-    }
-    PROFILE_HELPER_END;
-}
-
-/**
  * @brief Implementation of \ref ParticleInitializationToString().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/logging.h`.

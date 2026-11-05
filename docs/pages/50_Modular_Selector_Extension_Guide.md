@@ -168,27 +168,18 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - **@subpage 27_Trilinear_Interpolation_and_Projection**
   - **@subpage 45_Particle_Initialization_and_Restart**
 
-@section p50_field_init_sec 6. Field Initialization Mode
+@section p50_field_init_sec 6. Initial-Condition Field Generators
 
-- Schema home: `case.yml -> properties.initial_conditions.mode`
-- Canonical values:
-  - `generated` with `generator: zero|constant|streamwise_constant|poiseuille|ic_gen|spectral_random_velocity|resampled_velocity|channel_spectral_velocity|duct_spectral_velocity|stability_mode_velocity`
-  - `file` with `field: Ucat|Ucont`
+- Schema home: `case.yml -> properties.initial_conditions.source`, a `{generator, params}` term
+- Canonical values: `ic_gen|spectral_random_velocity|resampled_velocity|channel_spectral_velocity|duct_spectral_velocity|stability_mode_velocity`
 - Python hooks:
   - `resolve_initial_condition_config()`
+  - `_resolve_initial_generator()`
   - `stage_initial_condition_file()`
   - `run_initial_condition_generator()`
-  - `normalize_flow_direction_token()`
-  - `resolve_ic_cli_params()`
-- Generated mapping:
-  - built-in generator -> matching `-finit` and parameter flags
-  - file or `ic_gen` -> `-finit 4 -ic_field ... -ic_dir ...`
-- C storage/parser:
-  - `initialConditionMode`, `initialConditionField`, `initialConditionDirectory`,
-    `icVelocityPhysical`, and `flowDirection` in `SimCtx`
-- Runtime:
-  - `src/initialcondition.c` — `PopulateInitialUcont`, `SetInitialInteriorField`
-  - `src/setup.c` — `Cart2Contra`, `UniformCart2Contra`
+- Generated mapping: `-ic_field ... -ic_dir ...`, beside the source's `-ic_source_*`
+- C storage/parser: `initialConditionStaged`, `initialConditionField`, `initialConditionDirectory` in `SimCtx`
+- Runtime: `src/initialcondition.c` — `PopulateInitialUcont`
 - Tests/docs to update:
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**

@@ -529,55 +529,6 @@
       }
     },
     {
-      "id": "initial.field_mode",
-      "title": "Field Initialization Modes",
-      "selector": "case.yml -> initial_conditions field mode",
-      "public_surface": {
-        "kind": "python_normalizer",
-        "module": "picurv_cli.core",
-        "symbol": "normalize_field_init_mode"
-      },
-      "parity_sources": [],
-      "family_page": "33_Initial_Conditions",
-      "entry_anchor_prefix": "p33_cap_",
-      "coverage_enforced": true,
-      "value_metadata": {
-        "Zero": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "analytical": [
-              "measurement:initial-conditions-2026-09-21"
-            ]
-          }
-        },
-        "Constant": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "integration": [
-              "make:smoke-periodic"
-            ],
-            "analytical": [
-              "measurement:initial-conditions-2026-09-21"
-            ]
-          }
-        },
-        "Poiseuille": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "unit": [
-              "make:unit-runtime"
-            ],
-            "analytical": [
-              "measurement:initial-conditions-2026-09-21"
-            ]
-          }
-        }
-      }
-    },
-    {
       "id": "particle.init_mode",
       "title": "Particle Initialization Modes",
       "selector": "case.yml -> models.physics.particles.init_mode",
@@ -1070,7 +1021,7 @@
     {
       "id": "initial.target_field",
       "title": "Initial Condition Target Field",
-      "selector": "case.yml -> properties.initial_conditions.field",
+      "selector": "case.yml -> properties.initial_conditions.source.field (file or ic_gen term)",
       "public_surface": {
         "kind": "python_equality_chain",
         "module": "picurv_cli.core",
@@ -2423,7 +2374,7 @@
     {
       "id": "initial.file_generator",
       "title": "File-backed Initial Condition Generators",
-      "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",
+      "selector": "case.yml -> properties.initial_conditions.source.generator",
       "public_surface": {
         "kind": "python_constant",
         "module": "picurv_cli.core",

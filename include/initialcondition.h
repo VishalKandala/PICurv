@@ -24,34 +24,13 @@
 #include "runloop.h"
 
 /**
- * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.
- *
- * This function initializes the interior nodes of `Ucont` based on the mode selected
- * by `simCtx->initialConditionMode`.
- *
- * Supported profiles for "Ucont":
- *  - IC_MODE_ZERO: All interior contravariant components are set to zero.
- *  - IC_MODE_CONSTANT_CARTESIAN: `UniformCart2Contra` dots the Cartesian
- *       vector `(InitialConstantContra.x/y/z)` with the local metric vectors to fill
- *       all three contravariant components correctly across the entire interior.
- *  - IC_MODE_CONSTANT_STREAMWISE: Sets only the
- *       contravariant component along the streamwise axis (from `flowDirection` or the
- *       identified INLET face) proportional to `icVelocityPhysical * |A_n|`.
- *  - IC_MODE_POISEUILLE: Separable parabolic profile in the two cross-stream index directions;
- *       centerline speed is `icVelocityPhysical`; streamwise axis from `flowDirection`
- *       or the identified INLET face.
- *
- * @param user      The main UserCtx struct, containing all simulation data and configuration.
- * @param field_id Typed identity of the field to initialize.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id);
-
-/**
- * @brief Populate Ucont for one fresh-start block from the configured IC mode.
- *
- * Built-in modes generate Ucont directly. File mode loads either Ucat or Ucont
- * from the staged IC directory and converts Ucat when necessary.
+ * @brief Populate Ucont for one fresh-start block from the initial source (`-ic_source_*`).
+ * @details A staged field, when there is one, is read first: Ucat, or Ucont. A Cartesian source
+ *          is then evaluated at every owned cell centre into Ucat, and a curvilinear one sets
+ *          each owned face's flux directly: its component along the grid line, evaluated at the
+ *          face centre, times the face area. With `-ic_source_field_weight w` the staged field
+ *          is scaled by w. With a bulk velocity, the source is scaled so that the volume mean of
+ *          the whole field along the source's own direction equals it. Collective.
  * @param[in,out] user Block context whose velocity field is populated.
  * @return PETSc error code.
  */

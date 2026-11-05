@@ -1086,7 +1086,7 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include BC-derived periodic axes"));
     PetscCall(AssertCapturedContains(captured, "Number of Particles         : 0",
                                      "DisplayBanner should include the total particle count"));
-    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : initial condition (Zero)",
+    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : initial condition (Source)",
                                      "DisplayBanner should identify a fresh solve IC as the Eulerian source"));
     PetscCall(AssertCapturedOmits(captured, "Particle Console Cadence",
                                   "DisplayBanner should omit particle console cadence when no particles are configured"));

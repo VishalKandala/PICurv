@@ -237,9 +237,8 @@ def test_conductor_converts_units_and_the_provider_writes_solver_units(source):
     scales = {"length_ref": 2.0, "velocity_ref": 4.0}
     physical = [2.0*value for value in LENGTHS]
     resolved = CORE.resolve_initial_condition_config(
-        {"mode": "generated", "generator": "resampled_velocity",
-         "params": {"source_file": str(source), "format": "npy", "box_length": physical, "field": "Ucat",
-                    "filter": {"type": "gaussian", "width": 1.0}, "projection": "none", "remove_mean": False}},
+        {"source": {"generator": "resampled_velocity", "params": {"source_file": str(source), "format": "npy", "box_length": physical, "field": "Ucat",
+                    "filter": {"type": "gaussian", "width": 1.0}, "projection": "none", "remove_mean": False}}},
         [PERIODIC], scales)
     assert CORE.is_generated_ic_provider(resolved)
     params = resolved["params"]
@@ -259,7 +258,7 @@ def test_conductor_defaults_to_ucont_and_refuses_invalid_contracts(source):
     def resolve(params, blocks=None):
         """! @brief Resolve one configuration. @param[in] params Provider parameters. @param[in] blocks Boundaries. @return Contract. """
         return CORE.resolve_initial_condition_config(
-            {"mode": "generated", "generator": "resampled_velocity", "params": params},
+            {"source": {"generator": "resampled_velocity", "params": params}},
             blocks or [PERIODIC], {"length_ref": 1.0, "velocity_ref": 1.0})
     good = {"source_file": str(source), "format": "npy", "box_length": list(LENGTHS)}
     resolved = resolve(dict(good))

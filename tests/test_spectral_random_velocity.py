@@ -310,13 +310,13 @@ def test_provider_registry_periodicity_and_shared_fluid_scaling_contract():
     assert "spectral_random_velocity" in CORE.GENERATED_IC_PROVIDERS
     periodic = [{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]
     resolved = CORE.resolve_initial_condition_config(
-        {"mode": "generated", "generator": "spectral_random_velocity", "params": params()},
+        {"source": {"generator": "spectral_random_velocity", "params": params()}},
         [periodic], scales={"length_ref": 2.0, "velocity_ref": 4.0}, provider_context={"kinematic_viscosity": 0.005})
     assert CORE.is_generated_ic_provider(resolved)
     nonperiodic = [dict(face) for face in periodic]; nonperiodic[0] = {"type": "WALL", "handler": "noslip"}
     with pytest.raises(ValueError, match="PERIODIC"):
         CORE.resolve_initial_condition_config(
-            {"mode": "generated", "generator": "spectral_random_velocity", "params": params()},
+            {"source": {"generator": "spectral_random_velocity", "params": params()}},
             [nonperiodic], scales={"length_ref": 2.0, "velocity_ref": 4.0})
 
 
@@ -362,13 +362,13 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
         continue_mode=True,
     )
     control = Path(control_path).read_text(encoding="utf-8")
-    assert "-finit 0" in control
+    assert "-ic_source_frame" not in control
     assert "-ic_dir " not in control
     assert not (run_dir / "config" / "initial_condition.generated.dat").exists()
 
     for inactive_ic in (
-        {"mode": "file", "field": "Ucat", "source_file": "does-not-exist.dat"},
-        {"mode": "generated", "generator": "not-a-provider", "params": {}},
+        {"source": {"type": "file", "field": "Ucat", "path": "does-not-exist.dat"}},
+        {"source": {"generator": "not-a-provider", "params": {}}},
     ):
         inactive_case = deepcopy(restarted_case)
         inactive_case["properties"]["initial_conditions"] = inactive_ic
@@ -382,7 +382,7 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
     """! @brief Keep public defaults and finite-number rejection consistent across both dispatch layers. """
     periodic = [[{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]]
     resolved = CORE.resolve_initial_condition_config(
-        {"mode": "generated", "generator": "spectral_random_velocity", "params": {}},
+        {"source": {"generator": "spectral_random_velocity", "params": {}}},
         periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
     normalized = IC.validate_spectral_random_velocity_params({})
     assert resolved["params"] == normalized == {
@@ -399,7 +399,7 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
     ):
         with pytest.raises(ValueError):
             CORE.resolve_initial_condition_config(
-                {"mode": "generated", "generator": "spectral_random_velocity", "params": bad},
+                {"source": {"generator": "spectral_random_velocity", "params": bad}},
                 periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
 
@@ -471,8 +471,8 @@ def test_wall_provider_routes_and_rejects_incompatible_boundaries():
     bcs = [{'face': sign+face, 'type': 'WALL' if face=='Eta' else 'PERIODIC',
             'handler': 'noslip' if face=='Eta' else ('constant_flux' if face=='Zeta' else 'geometric')}
            for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
-    cfg = {'mode':'generated', 'generator':'channel_spectral_velocity', 'params': {
-        'initial_spectra':[{'task':'plane_spectrum','axes':['i','k'],'fixed_indices':{'j':3},'subtract_mean':'sample'}]}}
+    cfg = {'source': {'generator': 'channel_spectral_velocity', 'params': {
+        'initial_spectra':[{'task':'plane_spectrum','axes':['i','k'],'fixed_indices':{'j':3},'subtract_mean':'sample'}]}}}
     resolved = CORE.resolve_initial_condition_config(cfg, [bcs], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     assert resolved['field_code'] == 0
     paths = CORE.initial_condition_diagnostic_paths('/tmp/run',resolved)

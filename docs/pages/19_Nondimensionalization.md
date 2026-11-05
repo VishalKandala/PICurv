@@ -98,7 +98,6 @@ particle `fields`.
 | `case.yml: initial_conditions.params.noise.spectrum.k0 (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.noise.spectrum.k_cut (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.normalization.target (spectral_random_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.peak_velocity_physical (poiseuille)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.perturbation_rms (channel_spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.perturbation_rms (duct_spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.random.mean (spectral_random_velocity)` | VELOCITY | cli | U |
@@ -109,12 +108,7 @@ particle `fields`.
 | `case.yml: initial_conditions.params.spectrum.k_cut (channel_spectral_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.spectrum.k_cut (duct_spectral_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.spectrum.k_cut (spectral_random_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.u_physical (constant)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.v_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.velocity_difference (stability_mode_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.velocity_physical (constant)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.velocity_physical (streamwise_constant)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.w_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: properties.initial_conditions.constraints` | VELOCITY | evaluator | U |
 | `case.yml: properties.initial_conditions.source` | VELOCITY | evaluator | U |
 | `case.yml: models.physics.particles.fields` | PAYLOAD | evaluator | by payload field |
@@ -124,14 +118,6 @@ particle `fields`.
 | `case.yml: models.physics.turbulence.wall_function.roughness_height` | LENGTH | cli | L |
 | `case.yml: properties.fluid.density` | DENSITY | reference | rho |
 | `case.yml: properties.fluid.viscosity` | DYNAMIC_VISCOSITY | reference | rho U L |
-| `case.yml: properties.initial_conditions.length_scale` | LENGTH | reference | L |
-| `case.yml: properties.initial_conditions.peak_velocity_physical` | VELOCITY | cli | U |
-| `case.yml: properties.initial_conditions.source_file` | PAYLOAD | staging | by payload field |
-| `case.yml: properties.initial_conditions.u_physical` | VELOCITY | cli | U |
-| `case.yml: properties.initial_conditions.v_physical` | VELOCITY | cli | U |
-| `case.yml: properties.initial_conditions.velocity_physical` | VELOCITY | cli | U |
-| `case.yml: properties.initial_conditions.velocity_scale` | VELOCITY | reference | U |
-| `case.yml: properties.initial_conditions.w_physical` | VELOCITY | cli | U |
 | `case.yml: properties.scaling.length_ref` | LENGTH | reference | L |
 | `case.yml: properties.scaling.velocity_ref` | VELOCITY | reference | U |
 | `case.yml: run_control.dt_physical` | TIME | cli | L/U |
@@ -260,7 +246,7 @@ solver's own units exactly.
 - **Inlet profiles.** A `file` or `generated` PICSLICE is a physical velocity. A
   `field_slice` re-samples an earlier run's solver-unit field, and names that run's case
   (`source_case`) or its `velocity_scale`.
-- **File initial conditions.** A `mode: file` payload is physical: `Ucat` in velocity,
+- **File initial conditions.** A `type: file` payload is physical: `Ucat` in velocity,
   `Ucont` in volume flux per face. A field saved by an earlier PICurv run is in that run's
   solver units, so it names the case that wrote it (`source_case`), or gives
   `velocity_scale`, with `length_scale` too for `Ucont`; the staged payload is rescaled
@@ -282,7 +268,7 @@ solver's own units exactly.
 
 The point source, the wall-function roughness height, `uniform_flow`, the verification
 source profiles, the statistics window times, the `ic_gen` expressions, the spectral
-provider parameters, and a `mode: file` initial-condition payload were read in solver
+provider parameters, and a file initial-condition payload were read in solver
 units before this rule covered them. At unit reference scales the two readings are the
 same. At any other scale, `picurv validate` names each of these inputs a configuration
 sets, since a value written in solver units has to be converted to physical.

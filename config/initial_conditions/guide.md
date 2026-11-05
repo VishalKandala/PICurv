@@ -19,15 +19,15 @@ Select it from `case.yml`:
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: ic_gen
-    params:
-      field: Ucat
-      config_file: config/initial_conditions/expression.cfg
+    source:
+      generator: ic_gen
+      params:
+        field: Ucat
+        config_file: config/initial_conditions/expression.cfg
 ```
 
-A generator that writes `Ucat` may equally be given as `source: {generator: ..., params: ...}`,
-or as a term of a `source` sum (`docs/pages/33_Initial_Conditions.md`).
+A generator that writes `Ucat` may also be a term of a `source` sum
+(`docs/pages/33_Initial_Conditions.md`).
 
 For `Ucat`, `u`, `v`, and `w` are Cartesian velocity components evaluated at
 actual cell centers, including extrapolated dummy-cell centers. For `Ucont`,
@@ -51,16 +51,16 @@ The same `ic.gen` entry point provides a composable spectral generator:
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: spectral_random_velocity
-    params:
-      field: Ucat
-      seed: 12345
-      random: {distribution: gaussian, mean: [0.0, 0.0, 0.0]}
-      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}
-      projection: {type: solenoidal, operator: picurv_discrete}
-      normalization: {type: component_rms, target: 1.0}
-      remove_mean: true
+    source:
+      generator: spectral_random_velocity
+      params:
+        field: Ucat
+        seed: 12345
+        random: {distribution: gaussian, mean: [0.0, 0.0, 0.0]}
+        spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}
+        projection: {type: solenoidal, operator: picurv_discrete}
+        normalization: {type: component_rms, target: 1.0}
+        remove_mean: true
 ```
 
 Defaults are `field: Ucat`, `seed: 12345`, Gaussian sampling with zero requested

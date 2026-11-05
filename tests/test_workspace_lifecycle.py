@@ -111,10 +111,7 @@ def test_precompute_runtime_c_dependency_fails_without_partial_publication(tmp_p
     """
     workspace = _write_workspace(tmp_path / "workspace")
     case = yaml.safe_load((FIXTURES / "case.yml").read_text(encoding="utf-8"))
-    case["properties"]["initial_conditions"] = {
-        "mode": "generated", "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": "config/initial_conditions/expressions.cfg"},
-    }
+    case["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/expressions.cfg"}}}
     case_path = workspace / "config" / "case.yml"
     core.write_yaml_file(str(case_path), case)
 

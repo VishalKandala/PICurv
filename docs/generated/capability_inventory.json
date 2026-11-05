@@ -323,27 +323,6 @@
     "title": "Eulerian Field Source"
   },
   {
-    "family_page": "33_Initial_Conditions",
-    "id": "initial.field_mode",
-    "parity": [],
-    "public_values": {
-      "Constant": {
-        "maps_to": 1,
-        "status": "supported"
-      },
-      "Poiseuille": {
-        "maps_to": 2,
-        "status": "supported"
-      },
-      "Zero": {
-        "maps_to": 0,
-        "status": "supported"
-      }
-    },
-    "selector": "case.yml -> initial_conditions field mode",
-    "title": "Field Initialization Modes"
-  },
-  {
     "family_page": "45_Particle_Initialization_and_Restart",
     "id": "particle.init_mode",
     "parity": [],
@@ -565,7 +544,7 @@
         "status": "supported"
       }
     },
-    "selector": "case.yml -> properties.initial_conditions.field",
+    "selector": "case.yml -> properties.initial_conditions.source.field (file or ic_gen term)",
     "title": "Initial Condition Target Field"
   },
   {
@@ -1118,7 +1097,7 @@
         "status": "supported"
       }
     },
-    "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",
+    "selector": "case.yml -> properties.initial_conditions.source.generator",
     "title": "File-backed Initial Condition Generators"
   }
 ]

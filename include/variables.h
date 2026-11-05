@@ -192,16 +192,6 @@ typedef enum {
     LEFT = 0, RIGHT, BOTTOM, TOP, FRONT, BACK, NUM_FACES
 } Face;
 
-/** @brief Selects the algorithm used to populate a fresh Eulerian velocity field. */
-typedef enum {
-    IC_MODE_ZERO = 0,
-    IC_MODE_CONSTANT_CARTESIAN = 1,
-    IC_MODE_POISEUILLE = 2,
-    IC_MODE_CONSTANT_STREAMWISE = 3,
-    IC_MODE_FILE = 4,
-    IC_MODE_SOURCE = 5      /**< A configured velocity source (`-ic_source_*`), evaluated at cell centres. */
-} InitialConditionMode;
-
 /** @brief Selects the authoritative velocity representation in a staged file IC. */
 typedef enum {
     IC_FIELD_UCAT = 0,
@@ -328,20 +318,6 @@ typedef enum {
     BC_FACE_NEG_Z = 4, BC_FACE_POS_Z = 5
 } BCFace;
 
-/** @brief Primary flow direction for streamwise IC and Poiseuille modes.
- *  Even values = positive-face-normal direction; odd = negative.
- *  axis = value / 2  (0=Xi, 1=Eta, 2=Zeta).
- *  sign = (value % 2 == 0) ? +1 : -1.
- */
-typedef enum {
-    FLOW_DIR_POS_XI   = 0,
-    FLOW_DIR_NEG_XI   = 1,
-    FLOW_DIR_POS_ETA  = 2,
-    FLOW_DIR_NEG_ETA  = 3,
-    FLOW_DIR_POS_ZETA = 4,
-    FLOW_DIR_NEG_ZETA = 5,
-    FLOW_DIR_UNSET    = -1
-} FlowDirection;
 
 /** @brief Defines the general mathematical/physical Category of a boundary. */
 typedef enum {
@@ -983,12 +959,9 @@ typedef struct SimCtx {
     PetscReal mom_last_lambda_max;   /* Global spectral radius [1/s] from the last momentum solve; for diagnostics */
     PetscBool mom_nk_monitor_history; /* Write PICurv's structured per-Newton-iteration residual history. */
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
-    InitialConditionMode initialConditionMode;
+    PetscBool initialConditionStaged; /* A staged velocity field is part of the initial source. */
     InitialConditionField initialConditionField;
     char initialConditionDirectory[PETSC_MAX_PATH_LEN];
-    Cmpnts    InitialConstantContra;  /* Cartesian (u,v,w) for constant-cartesian IC */
-    FlowDirection flowDirection;      /* explicit flow direction for streamwise/Poiseuille */
-    PetscReal icVelocityPhysical;     /* scalar speed for curvilinear Constant and Poiseuille */
     Cmpnts    AnalyticalUniformVelocity;
     PetscBool solutionConvergenceEnabled;
     SolutionConvergenceMode solutionConvergenceMode;

@@ -1641,7 +1641,6 @@
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
-        "initial.field_mode",
         "initial.target_field",
         "initial.file_generator"
       ],
@@ -1736,7 +1735,7 @@
           "anchor": "p19_fields_sec"
         }
       },
-      "note": "Promoted 2026-09-21. Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target field (Ucat or Ucont), and the conductor's file-backed generator family. Every original mode staged the field it defines (initial-conditions-2026-09-21). Found and fixed 2026-09-18: Poiseuille vanished at the first cell centres rather than on the walls, and was applied across periodic axes. The channel and duct spectral providers are supported with separate startup-construction evidence (wall-spectral-ic-2026-09-24), as recorded in initial.file_generator; that evidence alone does not establish developed turbulence. The later turbulent-channel-nk-2026-09-29 campaign records sustained fluctuations in a channel seeded with channel_spectral_velocity, with an unresolved DNS friction discrepancy and no startup convergence or transition-time audit."
+      "note": "Promoted 2026-09-21. Owns the source an initial condition is, the target field of a staged term (Ucat or Ucont), and the conductor's generator family. The solver's own field modes were retired 2026-11-04 in favour of sources. The channel and duct spectral providers are supported with separate startup-construction evidence (wall-spectral-ic-2026-09-24), as recorded in initial.file_generator; that evidence alone does not establish developed turbulence. The later turbulent-channel-nk-2026-09-29 campaign records sustained fluctuations in a channel seeded with channel_spectral_velocity, with an unresolved DNS friction discrepancy and no startup convergence or transition-time audit."
     },
     {
       "id": "flow.eulerian_source",

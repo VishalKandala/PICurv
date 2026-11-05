@@ -1,4 +1,4 @@
-@page 33_Initial_Conditions Initial Condition Modes
+@page 33_Initial_Conditions Initial Conditions
 
 @anchor _Initial_Conditions
 
@@ -11,8 +11,8 @@ It covers both user-facing YAML inputs and the C implementation path that applie
 
 Startup sequence:
 
-1. `picurv_cli/core.py` resolves built-in, file, or external-generator YAML.
-2. File-backed ICs are staged in the filename layout expected by @ref ReadFieldData.
+1. `picurv_cli/core.py` resolves the `source`.
+2. A file or generator term is staged in the filename layout expected by @ref ReadFieldData.
 3. @ref InitializeEulerianState chooses fresh solve, restart load, or analytical initialization.
 4. On a fresh solve, @ref PopulateInitialUcont populates `Ucont`; existing finalization then applies
    boundary values and derives the remaining velocity state.
@@ -20,64 +20,22 @@ Startup sequence:
 
 @section p33_euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
 
-The canonical contract has two modes, `generated` and `file`, and a third form, `source`
-(@ref p33_source_ssec "below"). Generated ICs may use a built-in C generator or the repository
-`generators/ic.gen` utility. All produce the same solver-facing result: one initial velocity field.
+An initial condition is one `source` and optional `constraints`, the same definition a
+@ref p44_cap_prescribed_velocity "prescribed_velocity" inlet takes. Its forms:
 
-Built-in zero:
+| `source` | Field |
+|---|---|
+| `{components, constants, expression}`, or a name under `sources:` | evaluated by the solver (@ref p33_source_ssec) |
+| `{generator, params}` | written by a Python generator, staged (@ref p33_entries_sec) |
+| `{type: file, field, path}` | read from a velocity file, staged |
+| `{sum: [...]}` | expressions added to at most one staged field (@ref p33_source_ssec) |
 
-```yaml
-properties:
-  initial_conditions:
-    mode: generated
-    generator: zero
-```
-
-Built-in Cartesian constant:
+A velocity file:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: constant
-    params:
-      u_physical: 1.5
-      v_physical: 0.0
-      w_physical: 0.0
-```
-
-Built-in streamwise constant:
-
-```yaml
-properties:
-  initial_conditions:
-    mode: generated
-    generator: streamwise_constant
-    params:
-      velocity_physical: 1.5
-      flow_direction: "+Zeta"
-```
-
-Built-in Poiseuille:
-
-```yaml
-properties:
-  initial_conditions:
-    mode: generated
-    generator: poiseuille
-    params:
-      peak_velocity_physical: 1.5
-      flow_direction: "+Zeta"
-```
-
-File-backed `Ucat` or `Ucont`:
-
-```yaml
-properties:
-  initial_conditions:
-    mode: file
-    field: Ucat
-    source_file: initial_conditions/velocity.dat
+    source: {type: file, field: Ucat, path: initial_conditions/velocity.dat}
 ```
 
 The input must be one PETSc binary `.dat` vector readable by @ref ReadFieldData. `Ucat` inputs
@@ -91,10 +49,11 @@ an earlier PICurv run is in that run's solver units, so it declares the scales i
 written in, and staging rescales it to this case's:
 
 ```yaml
-    mode: file
-    field: Ucat
-    source_file: inputs/initial_conditions/velocity.dat
-    source_case: runs/<earlier_run>/config/case.yml   # or: velocity_scale: 1.5
+    source:
+      type: file
+      field: Ucat
+      path: inputs/initial_conditions/velocity.dat
+      source_case: runs/<earlier_run>/config/case.yml   # or: velocity_scale: 1.5
 ```
 
 `velocity_scale` needs `length_scale` too for a `Ucont` payload, and `source_case` and the
@@ -104,10 +63,7 @@ explicit scales are mutually exclusive.
 
 @anchor p33_source
 
-`source` sets the field from a velocity source, the same definition a
-@ref p44_cap_prescribed_velocity "prescribed_velocity" inlet takes, given inline or by name
-from the case's top-level `sources:`. It takes the place of `mode` and stands alone
-(`constraints` aside):
+An expression source is given inline or by name from the case's top-level `sources:`:
 
 ```yaml
 sources:
@@ -124,15 +80,16 @@ properties:
 
 The runtime evaluates it at every cell centre, in physical units, over `x y z`, `t` (the start
 time), the arc-length fractions `xi eta zeta` and the line lengths `L_xi L_eta L_zeta`, and
-writes `Ucat`; @ref Cart2Contra then derives `Ucont`. The fractions follow distance along each
+writes `Ucat`; @ref Cart2Contra then derives `Ucont`. A curvilinear source sets the fluxes
+instead, as below. The fractions follow distance along each
 grid line, so a profile written in them is the physical profile on a stretched grid, unlike the
-built-in `poiseuille` generator and the `xi`/`eta`/`zeta` of `ic_gen`, which are index fractions.
+`xi`/`eta`/`zeta` of `ic_gen`, which are index fractions.
 The `normal` frame is a face's frame and is refused here.
 
 `source` may instead be a `sum` of terms: sources (names or mappings) in one frame, which are
-added, and at most one generator term, `{generator, params}`, naming a provider that writes a
-`Ucat` (@ref p33_wall_spectral_sec). The provider's field is generated and staged as it would be
-on its own, and the runtime adds the evaluated source to it. A mean profile plus the turbulent
+added, and at most one staged field: a `{generator, params}` term or a `{type: file, ...}` term.
+The field is staged as it would be on its own, and the runtime adds the evaluated source to it;
+under a staged `Ucont` the expressions must be curvilinear. A mean profile plus the turbulent
 fluctuations of a wall seed:
 
 ```yaml
@@ -146,9 +103,6 @@ properties:
                    perturbation_rms: 0.1, initial_spectra: [...]}
     constraints: {bulk_velocity: 1.0, project: true}
 ```
-
-A generator may also stand alone, `source: {generator, params}`. Nothing is added to its field,
-so the velocity is the one `mode: generated` stages for the same generator, bit for bit.
 
 `constraints` apply to the whole field, in order. `scale` multiplies it. `bulk_velocity` [m/s], a
 number or an expression in `t`, means what it means on an inlet (@ref p44_cap_prescribed_velocity):
@@ -224,13 +178,13 @@ written and an initial condition with `components: curvilinear` and the expressi
 
 Every Python provider ends in a `.dat` vector; what differs is who guarantees it fits the case.
 
-| | `mode: file` | `generator: resampled_velocity` |
+| | `type: file` | `generator: resampled_velocity` |
 |---|---|---|
 | You supply | a vector already in PICurv's layout for this grid | a field from anywhere: another code, resolution, or layout |
 | PICurv does | reads it verbatim | resamples and filters it onto this grid, projects it, writes the vector |
 | Typical source | a field PICurv itself produced | a published DNS, an experiment, another code's snapshot |
 
-A `mode: file` vector sized for another grid is refused when it is staged, with a pointer to
+A `type: file` vector sized for another grid is refused when it is staged, with a pointer to
 @ref p33_cap_gen_resampled_velocity.
 
 Repository generator:
@@ -238,12 +192,12 @@ Repository generator:
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: ic_gen
-    params:
-      field: Ucat
-      script: tools/custom_ic.py  # optional; defaults to generators/ic.gen
-      config_file: config/initial_conditions/expression.cfg
+    source:
+      generator: ic_gen
+      params:
+        field: Ucat
+        script: tools/custom_ic.py  # optional; defaults to generators/ic.gen
+        config_file: config/initial_conditions/expression.cfg
 ```
 
 `picurv` chooses where the payload goes: it is always written to
@@ -290,15 +244,15 @@ Repository spectral provider, for a triply periodic box:
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: spectral_random_velocity
-    params:
-      field: Ucat
-      seed: 12345
-      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}
-      projection: {type: solenoidal, operator: picurv_discrete}
-      normalization: {type: component_rms, target: 1.0}
-      remove_mean: true
+    source:
+      generator: spectral_random_velocity
+      params:
+        field: Ucat
+        seed: 12345
+        spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}
+        projection: {type: solenoidal, operator: picurv_discrete}
+        normalization: {type: component_rms, target: 1.0}
+        remove_mean: true
 ```
 
 It draws a seeded random field, shapes it to the spectrum envelope
@@ -314,102 +268,13 @@ keys. With `operator: picurv_discrete` the solver's own step-0 divergence is at 
 spectrum within 4.7% (energy-weighted) of the envelope, and the same seed reproducing
 the same field.
 
-@section p33_entries_sec 3. Field Initialization Mode Entries
+@section p33_entries_sec 3. Staged Field Entries
 
-@htmlinclude generated/capability_inventory_initial_field_mode.html
-
-Every entry below, and the `streamwise_constant`, `ic_gen` and `file` sources above, was
-checked against the field it claims to produce by `initial-conditions-2026-09-21`: on a
-programmatic duct the staged interior face fluxes equal their definitions to 3.5e-18 or
-exactly, and a `file` source reproduces the generated run it was taken from bitwise.
-Step-0 `Ucat` next to walls and inlets reflects the boundary faces, because it is
+The `ic_gen` and `file` terms above were checked against the field they claim to produce by
+`initial-conditions-2026-09-21`: on a programmatic duct the staged interior face fluxes equal their
+definitions to 3.5e-18 or exactly, and a `file` term reproduces the generated run it was taken from
+bitwise. Step-0 `Ucat` next to walls and inlets reflects the boundary faces, because it is
 reconstructed from the fluxes after boundary conditions apply.
-
-@subsection p33_cap_zero_sub Zero
-
-@anchor p33_cap_zero
-
-**Identity.** Field mode `Zero` -> `-finit 0` -> `IC_MODE_ZERO`.
-
-**What it does.** Initializes the velocity field to zero everywhere.
-
-**When to choose it.** When the flow is driven entirely by its boundaries and you want no
-assumption about the interior - an inlet-driven channel starting from rest. Choose
-`Poiseuille` instead when you want a developed profile immediately, and `Constant` when
-you want uniform motion.
-
-**Parameters it owns.** None.
-
-**Interactions.** A zero field with periodic boundaries and no driving force stays zero;
-that combination needs a driven handler to do anything.
-
-**Diagnostics.** The startup banner reports the resolved initial-condition mode; step 0
-output shows a zero field.
-
-**Evidence.** Analytically verified - `initial-conditions-2026-09-21`: every staged face flux is exactly zero.
-
-**Limitations.** Transition from rest can be slow, and for turbulence it will not occur
-at all without a finite-amplitude perturbation.
-
-@subsection p33_cap_constant_sub Constant
-
-@anchor p33_cap_constant
-
-**Identity.** Field mode `Constant` -> `-finit 1` -> `IC_MODE_CONSTANT_CARTESIAN`.
-
-**What it does.** Initializes the whole field to one uniform Cartesian velocity.
-
-**When to choose it.** Plug flow, or seeding a bulk motion the boundaries will then shape.
-
-**Parameters it owns.** The constant velocity components in the initial-condition block.
-
-**Interactions.** A uniform field will not satisfy no-slip at walls; the first steps
-resolve that discontinuity, which can be abrupt.
-
-**Diagnostics.** As above.
-
-**Evidence.** Regression verified - `make smoke-periodic` asserts the streamwise-constant
-initial-condition banner. Production exercised - `examples/flat_channel` starts from a
-constant field. Analytically verified - `initial-conditions-2026-09-21`: `(0.3, -0.2, 0.7)` and a streamwise constant
-of 1.3 along `+Zeta` stage the face fluxes they define to round-off.
-
-**Limitations.** Not divergence-free in general on a curvilinear grid, so the first
-pressure solve does real work.
-
-@subsection p33_cap_poiseuille_sub Poiseuille
-
-@anchor p33_cap_poiseuille
-
-**Identity.** Field mode `Poiseuille` -> `-finit 2` -> `IC_MODE_POISEUILLE`.
-
-**What it does.** Sets the streamwise face flux to `peak * f1 * f2` times the face area,
-where each cross-stream factor is `1 - s^2` and `s` runs from -1 to 1 across the axis in
-logical (index) space: cell `c` of an axis with `n` nodes sits at `s = (c - 1/2 - (n-1)/2) /
-((n-1)/2)`, so the profile vanishes on the walls. A periodic cross-stream axis has no walls,
-and its factor is 1.
-
-**When to choose it.** A wall-bounded channel or duct where you want a developed-looking
-start rather than a transient from rest.
-
-**Parameters it owns.** The profile scaling in the initial-condition block.
-
-**Interactions.** The coordinate is logical, so the profile is a parabola in physical space
-only on a grid uniform across the section. On a channel periodic in the spanwise axis it is
-the exact laminar profile; on a rectangular duct the product of two parabolas is a start,
-not the duct solution.
-
-**Diagnostics.** As above; inspect the step-0 field before committing to a long run.
-
-**Evidence.** Unit verified -
-`set-initial-interior-field-poiseuille-profile` and
-`set-initial-interior-field-poiseuille-uniform-along-periodic-axis` in `make unit-runtime`
-check the wall-vanishing product profile and the periodic-axis rule;
-`initial-conditions-2026-09-21` found the staged interior face fluxes equal to this formula
-to 3.5e-18 in a solver run.
-
-**Limitations.** Logical-space only: on a stretched or curved cross-section the profile is
-not a physical parabola. Before 2026-09-18 the parabola vanished at the first cell centres
-rather than on the walls, and it was applied across periodic axes too.
 
 @htmlinclude generated/capability_inventory_initial_target_field.html
 
@@ -417,16 +282,15 @@ rather than on the walls, and it was applied across periodic axes too.
 
 @anchor p33_cap_field_ucat
 
-**Identity.** `initial_conditions.field: Ucat` -> the Cartesian velocity field is the
-initialization target (internal code `0`).
+**Identity.** `field: Ucat` on a file or `ic_gen` term -> the Cartesian velocity field is what is
+staged (internal code `0`).
 
-**What it does.** Applies the chosen field mode to the Cartesian velocity, from which the
-contravariant fluxes are then derived.
+**What it does.** Stages the Cartesian velocity, from which the contravariant fluxes are then derived.
 
 **When to choose it.** The normal choice, and the one that matches how the field modes are
 expressed - a uniform or parabolic profile is naturally stated in Cartesian components.
 
-**Parameters it owns.** None; it selects which field the mode writes to.
+**Parameters it owns.** None; it selects which field the term holds.
 
 **Interactions.** `Ucat` is the derived representation, so initializing it requires a
 conversion to the evolved `Ucont` fluxes before the first step. See
@@ -435,7 +299,7 @@ conversion to the evolved `Ucont` fluxes before the first step. See
 **Diagnostics.** Step-0 output shows the initialized field.
 
 **Evidence.** Production exercised - `examples/flat_channel`. Analytically verified -
-`initial-conditions-2026-09-21`: `ic_gen` `Ucat` expressions and every built-in mode stage the fluxes their Cartesian
+`initial-conditions-2026-09-21`: `ic_gen` `Ucat` expressions stage the fluxes their Cartesian
 values define.
 
 **Limitations.** On a strongly curvilinear grid the conversion from a Cartesian profile to
@@ -445,10 +309,10 @@ fluxes is not exact in the sense of preserving the intended profile shape.
 
 @anchor p33_cap_field_ucont
 
-**Identity.** `initial_conditions.field: Ucont` -> the contravariant flux field is the
-initialization target (internal code `1`).
+**Identity.** `field: Ucont` on a file or `ic_gen` term -> the contravariant flux field is what is
+staged (internal code `1`).
 
-**What it does.** Applies the chosen field mode directly to the evolved flux variable,
+**What it does.** Stages the evolved flux variable directly,
 skipping the Cartesian-to-flux conversion.
 
 **When to choose it.** When you want exact control of the initial fluxes - for instance
@@ -470,23 +334,12 @@ selects it.
 than velocities: a face flux carries the face area, so a velocity typed where a flux is
 expected is off by that area. Only uniform Cartesian grids were checked.
 
-@section p33_euler_modes_sec 4. C Runtime Modes and Entry Points
+@section p33_euler_modes_sec 4. C Runtime Entry Point
 
-The launcher maps the contract to one `InitialConditionMode` enum value:
-
-| Initial-condition selection | C mode |
-|-----------------------------|--------|
-| `generator: zero` | `IC_MODE_ZERO` |
-| `generator: constant` | `IC_MODE_CONSTANT_CARTESIAN` |
-| `generator: streamwise_constant` | `IC_MODE_CONSTANT_STREAMWISE` |
-| `generator: poiseuille` | `IC_MODE_POISEUILLE` |
-| `mode: file` or `generator: ic_gen` | `IC_MODE_FILE` |
-| `source` | `IC_MODE_SOURCE` |
-
-@ref PopulateInitialUcont is the fresh-solve dispatcher. Built-in modes reuse
-@ref SetInitialInteriorField and @ref UniformCart2Contra. A source is evaluated by `SetInitialUcatFromSource`, which reads the `-ic_source_*` options. File mode reuses @ref ReadFieldData;
-when its field selector is `Ucat`, @ref Cart2Contra converts the loaded vector field to `Ucont`.
-After that point, the existing finalization path treats every IC source identically.
+@ref PopulateInitialUcont is the fresh-solve entry point. It reads a staged field when `-ic_dir` names
+one, through @ref ReadFieldData; when that field is `Ucat`, @ref Cart2Contra converts it to `Ucont`.
+It then evaluates the source's expressions, through the same `PicurvVelocitySource` an inlet uses.
+After that point, the existing finalization path treats every initial condition identically.
 
 @section p33_restart_modes_sec 5. Authority and Restart Branches
 
@@ -518,18 +371,15 @@ For full particle mode and restart details, use:
 
 After startup, confirm:
 
-- banner line shows expected field initialization mode,
+- the banner names the initial condition as the Eulerian source, and any staged file,
 - no warnings about missing inlet face (for inlet-driven setups),
 - first output step has non-empty `Ucat`/`Ucont` fields.
 
 Common pitfalls:
 
-- using `Poiseuille` in strongly non-rectangular topology and expecting a textbook cylindrical profile,
-- supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
 - forgetting that initialization sets the interior only; boundary handlers then overwrite face values,
 - providing a PETSc vector whose size does not match the target DM,
-- omitting `flow_direction` when the domain is fully periodic (no INLET face),
-- comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
+- comparing a velocity directly to `Ucont` without accounting for metric-face scaling.
 
 @section p33_refs_sec 7. Related Pages
 
@@ -604,7 +454,7 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 @anchor p33_cap_gen_ic_gen
 
-**Identity.** `properties.initial_conditions.generator: ic_gen` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+**Identity.** `source: {generator: ic_gen}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
 **What it does.** Expression-based Ucat or Ucont generation on the staged grid.
 
@@ -629,7 +479,7 @@ Cartesian grids; expressions on curved grids are not covered.
 
 @anchor p33_cap_gen_spectral_random_velocity
 
-**Identity.** `properties.initial_conditions.generator: spectral_random_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+**Identity.** `source: {generator: spectral_random_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
 **What it does.** The existing seeded triply periodic random spectral velocity.
 
@@ -658,7 +508,7 @@ separately. A startup field, not developed turbulence.
 
 @anchor p33_cap_gen_resampled_velocity
 
-**Identity.** `properties.initial_conditions.generator: resampled_velocity` dispatches through
+**Identity.** `source: {generator: resampled_velocity}` dispatches through
 `GENERATED_IC_PROVIDERS` into `generate_resampled_velocity()` in `generators/ic.gen`, then the
 file IC runtime path; the Fourier resampling is `fourier_resample` in
 `generators/periodic_spectral.py`.
@@ -717,7 +567,7 @@ for `Ucont` and 78% for `Ucat` on that field - so compare spectra only well belo
 
 @anchor p33_cap_gen_channel_spectral_velocity
 
-**Identity.** `properties.initial_conditions.generator: channel_spectral_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+**Identity.** `source: {generator: channel_spectral_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
 **What it does.** A discrete-curl spectral perturbation vanishing at one wall pair, with no mean.
 
@@ -748,7 +598,7 @@ measurement covers a periodic streamwise axis; the inlet-outlet axis is exercise
 
 @anchor p33_cap_gen_duct_spectral_velocity
 
-**Identity.** `properties.initial_conditions.generator: duct_spectral_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+**Identity.** `source: {generator: duct_spectral_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
 **What it does.** A discrete-curl spectral perturbation vanishing at two wall pairs, with no mean.
 
@@ -816,7 +666,7 @@ axes must be uniform and axis-aligned with at least four cells; the cross-stream
 
 @anchor p33_cap_gen_stability_mode_velocity
 
-**Identity.** `properties.initial_conditions.generator: stability_mode_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+**Identity.** `source: {generator: stability_mode_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
 
 **What it does.** A parallel base flow plus Rayleigh eigenmodes at chosen streamwise harmonics and optional divergence-free noise (@ref p33_stability_mode_sec).
 

@@ -39,11 +39,6 @@
       "classification": "cli_inventory_sufficient",
       "reason": "Local versus cluster launch, resolved from `--cluster` rather than selected by name. The generated CLI reference covers the flag and the cluster guide covers when a batch launch is appropriate."
     },
-    "picurv_cli.core::LEGACY_FIELD_INIT_SPELLINGS": {
-      "classification": "spelling_alias",
-      "reason": "Legacy capitalised spellings of the field-initialisation mode, resolved through normalize_field_init_mode to the canonical values. Spellings inherit the status of what they resolve to and own no entries.",
-      "owner": "initial.field_mode"
-    },
     "picurv_cli.core::METRIC_SOURCE_KINDS": {
       "classification": "parameter_of_entry",
       "reason": "Where a declared study metric is read from - a statistics CSV or a log regex. It parameterises a metric declaration inside a study, and every study type reads metrics the same way.",

@@ -709,19 +709,6 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
  */
 const char* BCFaceToString(BCFace face);
 
-/**
- * @brief Convert an initial-condition mode to a string representation.
- * @param[in] mode Initial-condition mode value.
- * @return Pointer to a constant string representing the initial-condition mode.
- */
-const char* InitialConditionModeToString(InitialConditionMode mode);
-
-/**
- * @brief Convert a FlowDirection enum value to its YAML token string.
- * @param[in] fd FlowDirection value.
- * @return Token string such as "+Zeta", or "from INLET" when FLOW_DIR_UNSET.
- */
-const char* FlowDirectionToString(FlowDirection fd);
 
 /**
  * @brief Returns the canonical log token for a particle-initialization mode.

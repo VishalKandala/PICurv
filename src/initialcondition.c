@@ -9,187 +9,6 @@
  #include "poisson.h"
 
 /**
- * @brief Internal helper implementation: `SetInitialInteriorField()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
-{
-    PetscErrorCode ierr;
-    const char *fieldName = FieldCanonicalName(field_id);
-    PetscFunctionBeginUser;
-
-    PROFILE_FUNCTION_BEGIN;
-
-    SimCtx *simCtx = user->simCtx;
-    
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Setting initial INTERIOR field for '%s' with mode %d.\n", fieldName, simCtx->initialConditionMode);
-
-    // This function currently only implements logic for Ucont.
-    if (field_id != FIELD_ID_UCONT) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Skipping SetInitialInteriorField for non-Ucont field '%s'.\n", fieldName);
-
-        PROFILE_FUNCTION_END;
-
-        PetscFunctionReturn(0);
-    }
-
-    // --- 1. Get DMDA info and grid dimensions ---
-    DMDALocalInfo info;
-    info = user->info;
-
-    const PetscInt im_phys = info.mx - 1;
-    const PetscInt jm_phys = info.my - 1;
-    const PetscInt km_phys = info.mz - 1;
-
-    const PetscReal u_cart = simCtx->InitialConstantContra.x;
-    const PetscReal v_cart = simCtx->InitialConstantContra.y;
-    const PetscReal w_cart = simCtx->InitialConstantContra.z;
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC cartesian=(%.3f,%.3f,%.3f) ic_velocity_physical=%.3f mode=%d\n",
-              (double)u_cart, (double)v_cart, (double)w_cart,
-              (double)simCtx->icVelocityPhysical, (int)simCtx->initialConditionMode);
-
-    // --- 2. Early dispatch: cartesian Constant delegates to the uniform converter ---
-    if (simCtx->initialConditionMode == IC_MODE_CONSTANT_CARTESIAN) {
-        ierr = UniformCart2Contra(user, u_cart, v_cart, w_cart); CHKERRQ(ierr);
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-
-    // --- 3. Resolve flow direction for streamwise Constant and Poiseuille ---
-    const PetscBool needs_flow_dir = (PetscBool)(
-        simCtx->initialConditionMode == IC_MODE_POISEUILLE ||
-        simCtx->initialConditionMode == IC_MODE_CONSTANT_STREAMWISE);
-    FlowDirection fd          = FLOW_DIR_UNSET;
-    PetscInt      flow_axis   = 0;
-    PetscReal     flow_dir_sign = 1.0;
-
-    if (needs_flow_dir) {
-        if (user->inletFaceDefined)
-            fd = (FlowDirection)user->identifiedInletBCFace;
-        else if (simCtx->flowDirection != FLOW_DIR_UNSET)
-            fd = simCtx->flowDirection;
-        else
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER,
-                    "Streamwise Constant and Poiseuille IC modes require either an INLET face or -flow_direction.");
-        flow_axis     = (PetscInt)fd / 2;
-        flow_dir_sign = ((PetscInt)fd % 2 == 0) ? 1.0 : -1.0;
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC flow_direction=%d (axis=%d sign=%.1f)\n",
-                  (int)fd, (int)flow_axis, (double)flow_dir_sign);
-    }
-
-    // --- 4. Open arrays for non-cartesian modes ---
-    Cmpnts ***csi_arr, ***eta_arr, ***zet_arr;
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-
-    Cmpnts ***ucont_arr;
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
-
-    PetscInt i, j, k;
-    const PetscInt xs = info.xs, xe = info.xs + info.xm;
-    const PetscInt ys = info.ys, ye = info.ys + info.ym;
-    const PetscInt zs = info.zs, ze = info.zs + info.zm;
-        
-    for (k = zs; k < ze; k++) {
-        for (j = ys; j < ye; j++) {
-            for (i = xs; i < xe; i++) {
-
-                // Check to ensure we only set initial conditions for PHYSICAL cells, not ghost cells.
-                // Ghost cells (at indices 0 and n) will be set later by ApplyBoundaryConditions.
-                //
-                // Grid structure: For n physical grid points, DMDA has size n+1
-                //   - im_phys = mx - 1 = n (number of coordinate points, also equals number of cells + 1)
-                //   - Physical cell indices: [1, im_phys-1] = [1, n-1] (gives n-1 physical cells)
-                //   - Ghost cells at boundaries: index 0 and index im_phys (= n)
-                //
-                // Example: n=25 physical points → im_phys=25
-                //   - Physical cells: indices 1..24 (24 cells)
-                //   - Ghost cells: indices 0 and 25
-                const PetscBool is_interior = (i > 0 && i < im_phys &&
-                                               j > 0 && j < jm_phys &&
-                                               k > 0 && k < km_phys);
-
-                if (is_interior) {
-                    Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
-                    PetscReal normal_velocity_mag = 0.0;
-
-                    switch (simCtx->initialConditionMode) {
-                        case IC_MODE_ZERO:
-                            break;
-                        case IC_MODE_CONSTANT_STREAMWISE:
-                            normal_velocity_mag = simCtx->icVelocityPhysical;
-                            break;
-                        case IC_MODE_POISEUILLE:
-                            {
-                                PetscInt  cs1, cs2, n1, n2;
-                                PetscBool per1, per2;
-                                if (flow_axis == 0)      { cs1 = j; cs2 = k; n1 = jm_phys; n2 = km_phys;
-                                                           per1 = (PetscBool)(simCtx->j_periodic != 0); per2 = (PetscBool)(simCtx->k_periodic != 0); }
-                                else if (flow_axis == 1) { cs1 = i; cs2 = k; n1 = im_phys; n2 = km_phys;
-                                                           per1 = (PetscBool)(simCtx->i_periodic != 0); per2 = (PetscBool)(simCtx->k_periodic != 0); }
-                                else                     { cs1 = i; cs2 = j; n1 = im_phys; n2 = jm_phys;
-                                                           per1 = (PetscBool)(simCtx->i_periodic != 0); per2 = (PetscBool)(simCtx->j_periodic != 0); }
-                                /* An axis of n nodes has n-1 cells, and cell c is centred at logical
-                                   position c - 1/2, so the walls sit at 1/2 and n - 1/2 in that measure.
-                                   The parabola vanishes there, on the walls, not at the first cell
-                                   centres. A periodic cross-stream axis has no walls to vanish on, so
-                                   the profile is uniform along it: a streamwise-periodic, spanwise-
-                                   periodic channel then starts from its exact parabola. */
-                                const PetscReal half1 = 0.5 * (PetscReal)(n1 - 1);
-                                const PetscReal half2 = 0.5 * (PetscReal)(n2 - 1);
-                                const PetscReal n1_norm = ((PetscReal)cs1 - 0.5 - half1) / half1;
-                                const PetscReal n2_norm = ((PetscReal)cs2 - 0.5 - half2) / half2;
-                                const PetscReal f1 = per1 ? 1.0 : (1.0 - n1_norm * n1_norm);
-                                const PetscReal f2 = per2 ? 1.0 : (1.0 - n2_norm * n2_norm);
-                                normal_velocity_mag = simCtx->icVelocityPhysical * f1 * f2;
-                                if (normal_velocity_mag < 0.0) normal_velocity_mag = 0.0;
-                            }
-                            break;
-                        default:
-                            LOG_ALLOW(LOCAL, LOG_WARNING, "Unrecognized initial-condition mode %d. Defaulting to zero.\n", simCtx->initialConditionMode);
-                            break;
-                    }
-
-                    // Step B: apply flow direction and set the single contravariant flux component.
-                    if (normal_velocity_mag != 0.0) {
-                        const PetscReal signed_vel = normal_velocity_mag * flow_dir_sign * user->GridOrientation;
-                        if (flow_axis == 0) {
-                            const PetscReal area = sqrt(csi_arr[k][j][i].x * csi_arr[k][j][i].x +
-                                                        csi_arr[k][j][i].y * csi_arr[k][j][i].y +
-                                                        csi_arr[k][j][i].z * csi_arr[k][j][i].z);
-                            ucont_val.x = signed_vel * area;
-                        } else if (flow_axis == 1) {
-                            const PetscReal area = sqrt(eta_arr[k][j][i].x * eta_arr[k][j][i].x +
-                                                        eta_arr[k][j][i].y * eta_arr[k][j][i].y +
-                                                        eta_arr[k][j][i].z * eta_arr[k][j][i].z);
-                            ucont_val.y = signed_vel * area;
-                        } else {
-                            const PetscReal area = sqrt(zet_arr[k][j][i].x * zet_arr[k][j][i].x +
-                                                        zet_arr[k][j][i].y * zet_arr[k][j][i].y +
-                                                        zet_arr[k][j][i].z * zet_arr[k][j][i].z);
-                            ucont_val.z = signed_vel * area;
-                        }
-                    }
-                    ucont_arr[k][j][i] = ucont_val;
-                } // end if(is_interior)
-            }
-        }
-    }
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
-
-    // --- 5. Restore arrays ---
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
-
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Derive Ucont from a Ucat whose interior cells are set: sync the periodic and ghost
  *        cells, then interpolate to the faces.
  */
@@ -226,15 +45,10 @@ static PetscErrorCode ReadStagedInitialField(UserCtx *user, const char *name, Ve
 }
 
 /**
- * @brief Evaluate the configured velocity source (`-ic_source_*`) and derive Ucont.
- * @details A Cartesian source is evaluated at every owned cell centre into Ucat. A curvilinear
- *          source sets each owned face's flux directly: its component along the grid line,
- *          evaluated at the face centre, times the face area. With `-ic_source_field_weight w`,
- *          it is added to w times the staged Ucat of a generator. With a bulk velocity, the
- *          source is scaled so that the volume mean of the whole field along the source's own
- *          direction equals it. Collective.
+ * @brief Implementation of \ref PopulateInitialUcont().
+ * @see PopulateInitialUcont()
  */
-static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
+PetscErrorCode PopulateInitialUcont(UserCtx *user)
 {
     SimCtx *simCtx = user->simCtx;
     const DMDALocalInfo *info = &user->info;
@@ -243,9 +57,8 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
     const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
     PicurvVelocitySource source;
-    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT], weight = 0.0, factor = 1.0;
+    PetscReal  physical_time, values[PICURV_SOURCE_VAR_COUNT], weight = 1.0, factor = 1.0;
     PetscReal  local[3] = {0.0, 0.0, 0.0};
-    PetscBool  add_field = PETSC_FALSE, on_faces;
     Vec        fraction, length;
     const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet, ***centx, ***centy, ***centz;
     const PetscReal ***aj;
@@ -253,18 +66,20 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(PetscOptionsGetReal(NULL, NULL, "-ic_source_field_weight", &weight, &add_field));
-    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, add_field, &source));
+    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, simCtx->initialConditionStaged, &source));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
     PetscCall(DMCreateGlobalVector(user->fda, &fraction));
     PetscCall(DMCreateGlobalVector(user->fda, &length));
     PetscCall(ComputeGridLineFractions(user, fraction, length));
 
-    on_faces = (PetscBool)(source.frame == PICURV_SOURCE_FRAME_CURVILINEAR);
-    if (add_field) {
-        PetscCall(ReadStagedInitialField(user, "ufield00000_0", user->Ucat));
-        PetscCall(VecScale(user->Ucat, weight));
-        if (on_faces) PetscCall(UcontFromInteriorUcat(user));
+    /* A staged Ucont and a curvilinear source are both fluxes; anything else goes through Ucat. */
+    const PetscBool staged_flux = (PetscBool)(simCtx->initialConditionStaged && simCtx->initialConditionField == IC_FIELD_UCONT);
+    const PetscBool on_faces = (PetscBool)(source.frame == PICURV_SOURCE_FRAME_CURVILINEAR || staged_flux);
+    if (simCtx->initialConditionStaged) {
+        PetscCall(PetscOptionsGetReal(NULL, NULL, "-ic_source_field_weight", &weight, NULL));
+        PetscCall(ReadStagedInitialField(user, staged_flux ? "vfield00000_0" : "ufield00000_0", staged_flux ? user->Ucont : user->Ucat));
+        if (weight != 1.0) PetscCall(VecScale(staged_flux ? user->Ucont : user->Ucat, weight));
+        if (on_faces && !staged_flux) PetscCall(UcontFromInteriorUcat(user));
     } else {
         PetscCall(VecSet(on_faces ? user->Ucont : user->Ucat, 0.0));
     }
@@ -282,7 +97,7 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
     values[PICURV_SOURCE_VAR_T] = physical_time;
     /* The first pass, only with a bulk target, measures the volume mean along the source. */
-    for (PetscInt pass = source.bulk ? 0 : 1; pass < 2; ++pass) {
+    for (PetscInt pass = (source.count == 0) ? 2 : source.bulk ? 0 : 1; pass < 2; ++pass) {
         for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
         for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
         for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
@@ -316,7 +131,7 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
                 ucont[k][j][i].x += flux[0];
                 ucont[k][j][i].y += flux[1];
                 ucont[k][j][i].z += flux[2];
-            } else if (source.count > 0) {
+            } else {
                 PetscCall(PicurvVelocitySourceEvaluate(&source, values, edges, &v));
                 ucat[k][j][i].x += factor * v.x / U_ref;
                 ucat[k][j][i].y += factor * v.y / U_ref;
@@ -341,51 +156,6 @@ static PetscErrorCode SetInitialUcatFromSource(UserCtx *user)
     PetscCall(VecDestroy(&length));
     PetscCall(PicurvVelocitySourceDestroy(&source));
     if (!on_faces) PetscCall(UcontFromInteriorUcat(user));
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Load a staged file IC and return with Ucont populated.
- */
-static PetscErrorCode LoadInitialUcont(UserCtx *user)
-{
-    PetscErrorCode ierr;
-    SimCtx *simCtx = user->simCtx;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    if (simCtx->initialConditionField == IC_FIELD_UCAT) {
-        ierr = ReadStagedInitialField(user, "ufield00000_0", user->Ucat); CHKERRQ(ierr);
-        ierr = UcontFromInteriorUcat(user); CHKERRQ(ierr);
-    } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
-        ierr = ReadStagedInitialField(user, "vfield00000_0", user->Ucont); CHKERRQ(ierr);
-    } else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
-                "Unsupported file initial-condition field selector %d.",
-                simCtx->initialConditionField);
-    }
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Dispatch one fresh-start IC and return with Ucont populated.
- */
-PetscErrorCode PopulateInitialUcont(UserCtx *user)
-{
-    PetscErrorCode ierr;
-    SimCtx *simCtx = user->simCtx;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    if (simCtx->initialConditionMode == IC_MODE_FILE) {
-        ierr = LoadInitialUcont(user); CHKERRQ(ierr);
-    } else if (simCtx->initialConditionMode == IC_MODE_SOURCE) {
-        ierr = SetInitialUcatFromSource(user); CHKERRQ(ierr);
-    } else {
-        ierr = SetInitialInteriorField(user, FIELD_ID_UCONT); CHKERRQ(ierr);
-    }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -494,7 +264,7 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
         }
     }
 
-    if (simCtx->initialConditionMode == IC_MODE_SOURCE) {
+    {
         PetscBool project = PETSC_FALSE;
         ierr = PetscOptionsGetBool(NULL, NULL, "-ic_source_project", &project, NULL); CHKERRQ(ierr);
         if (project) { ierr = ProjectInitialVelocity(simCtx); CHKERRQ(ierr); }

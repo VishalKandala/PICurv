@@ -526,14 +526,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mom_nk_monitor_history = PETSC_FALSE;
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
-    simCtx->initialConditionMode = IC_MODE_ZERO;
+    simCtx->initialConditionStaged = PETSC_FALSE;
     simCtx->initialConditionField = IC_FIELD_UCAT;
     strcpy(simCtx->initialConditionDirectory, "config/initial_condition");
-    simCtx->InitialConstantContra.x = 0.0;
-    simCtx->InitialConstantContra.y = 0.0;
-    simCtx->InitialConstantContra.z = 0.0;
-    simCtx->flowDirection = FLOW_DIR_UNSET;
-    simCtx->icVelocityPhysical = 0.0;
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
@@ -995,35 +990,17 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-mom_nk_pic_monitor", &simCtx->mom_nk_monitor_history, NULL); CHKERRQ(ierr);
     {
-        PetscInt ic_mode = (PetscInt)simCtx->initialConditionMode;
         PetscInt ic_field = (PetscInt)simCtx->initialConditionField;
-        ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &ic_mode, NULL); CHKERRQ(ierr);
         ierr = PetscOptionsGetInt(NULL, NULL, "-ic_field", &ic_field, NULL); CHKERRQ(ierr);
-        simCtx->initialConditionMode = (InitialConditionMode)ic_mode;
         simCtx->initialConditionField = (InitialConditionField)ic_field;
     }
     ierr = PetscOptionsGetString(NULL, NULL, "-ic_dir", simCtx->initialConditionDirectory,
-                                 sizeof(simCtx->initialConditionDirectory), NULL); CHKERRQ(ierr);
-    if (simCtx->initialConditionMode < IC_MODE_ZERO || simCtx->initialConditionMode > IC_MODE_SOURCE) {
-      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-              "Invalid value for -finit. Expected an initial-condition mode in [0,5], got %d.",
-              simCtx->initialConditionMode);
-    }
+                                 sizeof(simCtx->initialConditionDirectory), &simCtx->initialConditionStaged); CHKERRQ(ierr);
     if (simCtx->initialConditionField < IC_FIELD_UCAT || simCtx->initialConditionField > IC_FIELD_UCONT) {
       SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
               "Invalid value for -ic_field. Expected 0 (Ucat) or 1 (Ucont), got %d.",
               simCtx->initialConditionField);
     }
-    ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_z", &simCtx->InitialConstantContra.z, NULL); CHKERRQ(ierr);
-    {
-        PetscInt  fd_int = (PetscInt)FLOW_DIR_UNSET;
-        PetscBool fd_set = PETSC_FALSE;
-        ierr = PetscOptionsGetInt(NULL, NULL, "-flow_direction", &fd_int, &fd_set); CHKERRQ(ierr);
-        if (fd_set) simCtx->flowDirection = (FlowDirection)fd_int;
-    }
-    ierr = PetscOptionsGetReal(NULL, NULL, "-ic_velocity_physical", &simCtx->icVelocityPhysical, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_w", &simCtx->AnalyticalUniformVelocity.z, NULL); CHKERRQ(ierr);
@@ -1914,7 +1891,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
         ierr = VerifyPathExistence(simCtx->restart_dir, PETSC_TRUE, PETSC_FALSE, "Restart source directory", &exists); CHKERRQ(ierr);
     }
     if (simCtx->StartStep == 0 && strcmp(simCtx->eulerianSource, "solve") == 0 &&
-        simCtx->initialConditionMode == IC_MODE_FILE) {
+        simCtx->initialConditionStaged) {
         ierr = VerifyPathExistence(simCtx->initialConditionDirectory, PETSC_TRUE, PETSC_FALSE,
                                    "Initial-condition source directory", &exists); CHKERRQ(ierr);
     }

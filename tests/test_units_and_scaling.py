@@ -168,11 +168,11 @@ def test_spectral_provider_parameters_are_converted_before_the_provider_runs(cor
     periodic = [{"face": face, "type": "PERIODIC", "handler": "geometric"}
                 for face in ("-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta")]
     resolved = core.resolve_initial_condition_config(
-        {"mode": "generated", "generator": "spectral_random_velocity", "params": {
+        {"source": {"generator": "spectral_random_velocity", "params": {
             "random": {"distribution": "gaussian", "mean": [1.0, 0.0, -2.0]},
             "spectrum": {"type": "k4_exponential", "k0": 4.0, "k_cut": 10.0},
             "normalization": {"type": "component_rms", "target": 2.0},
-        }},
+        }}},
         [periodic], SCALES)
     params = resolved["params"]
     assert params["random"]["mean"] == pytest.approx([0.25, 0.0, -0.5])
@@ -252,18 +252,18 @@ def test_file_initial_condition_is_staged_in_solver_units(core, tmp_path):
         data = Path(summary["staged"]).read_bytes()
         return struct.unpack(">3d", data[2 * core.runtime_petsc_index_bytes():])
 
-    physical = {"mode": "file", "field": "Ucat", "source_file": str(source)}
+    physical = {"source": {"type": "file", "field": "Ucat", "path": str(source)}}
     assert staged_values(physical, "physical") == pytest.approx((0.25, 0.5, 0.75))
 
     earlier_case = tmp_path / "earlier.yml"
     earlier_case.write_text("properties:\n  scaling: {length_ref: 1.0, velocity_ref: 2.0}\n", encoding="utf-8")
-    from_run = dict(physical, source_case=str(earlier_case))
+    from_run = {"source": dict(physical["source"], source_case=str(earlier_case))}
     # Solver units of a run at U = 2 are rescaled to this run's U = 4.
     assert staged_values(from_run, "from_run") == pytest.approx((0.5, 1.0, 1.5))
 
     with pytest.raises(ValueError, match="length_scale"):
         core.resolve_initial_condition_config(
-            {"mode": "file", "field": "Ucont", "source_file": str(source), "velocity_scale": 2.0}, [], SCALES)
+            {"source": {"type": "file", "field": "Ucont", "path": str(source), "velocity_scale": 2.0}}, [], SCALES)
 
 
 def test_transition_notice_names_changed_inputs_only_at_non_unit_scales(core):

@@ -3354,6 +3354,10 @@ def warn_on_grid_generator_hyphen_keys(generator: dict, case_path: str, warnings
 #: Destination keys a generated initial condition once accepted. Its payload, summary and
 #: spectrum always land at fixed paths in the asset store, so these were read and ignored.
 RETIRED_INITIAL_CONDITION_DESTINATION_KEYS = ("output_file", "summary_json", "spectrum_csv")
+#: Keys of `properties.initial_conditions` from before it was a source.
+_RETIRED_INITIAL_CONDITION_KEYS = frozenset({
+    "mode", "generator", "params", "field", "source_file", "source_case", "velocity_scale", "length_scale",
+    "u_physical", "v_physical", "w_physical", "peak_velocity_physical", "velocity_physical", "flow_direction"})
 
 
 def retired_destination_message(label: str, key: str) -> str:
@@ -3752,9 +3756,6 @@ POISSON_KSP_REFUSED = {
 #: Analytical solution types the Eulerian source can impose.
 ANALYTICAL_SOLUTION_TYPES = ("TGV3D", "ZERO_FLOW", "UNIFORM_FLOW")
 
-#: Legacy capitalised spellings of the field-initialisation mode, still accepted and
-#: resolved through normalize_field_init_mode.
-LEGACY_FIELD_INIT_SPELLINGS = ("Zero", "Constant", "Poiseuille")
 
 #: Discrete operators the solenoidal projection may use.
 PROJECTION_OPERATORS = ("continuum", "picurv_discrete")
@@ -6995,12 +6996,12 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                     gen[key] = resolve_path(case_anchor_path, val)
     ic = (case_cfg.get("properties", {}) or {}).get("initial_conditions", {})
     if isinstance(ic, dict):
-        if str(ic.get("mode", "")).strip().lower() == "file":
-            source_file = ic.get("source_file")
-            if isinstance(source_file, str):
-                ic["source_file"] = resolve_path(case_anchor_path, source_file)
-        elif str(initial_generator_term(ic).get("generator", "")).strip().lower() == "ic_gen":
-            params = initial_generator_term(ic).get("params", {})
+        term = initial_field_term(ic)
+        if term.get("type") == "file":
+            if isinstance(term.get("path"), str):
+                term["path"] = resolve_path(case_anchor_path, term["path"])
+        elif str(term.get("generator", "")).strip().lower() == "ic_gen":
+            params = term.get("params", {})
             if isinstance(params, dict):
                 for key in ("script", "config_file"):
                     value = params.get(key)
@@ -9051,13 +9052,7 @@ _CASE_SCHEMA = {
     ("properties",): {"scaling", "fluid", "initial_conditions"},
     ("properties", "scaling"): {"length_ref", "velocity_ref"},
     ("properties", "fluid"): {"density", "viscosity", "schmidt_number"},
-    ("properties", "initial_conditions"): {
-        "mode", "generator", "params", "field", "source_file",
-        "source_case", "velocity_scale", "length_scale",
-        "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
-        "velocity_physical", "flow_direction", "source", "constraints",
-    },
-    ("properties", "initial_conditions", "params"): None,
+    ("properties", "initial_conditions"): {"source", "constraints"},
     ("properties", "initial_conditions", "constraints"): None,
     ("grid",): {
         "mode", "source_file", "programmatic_settings", "generator",
@@ -9427,20 +9422,7 @@ INPUT_QUANTITIES = {
     ("case", "properties", "fluid", "density"): (DENSITY, "reference"),
     ("case", "properties", "fluid", "viscosity"): (DYNAMIC_VISCOSITY, "reference"),
     ("case", "properties", "fluid", "schmidt_number"): UNITLESS,
-    ("case", "properties", "initial_conditions", "mode"): NOT_A_QUANTITY,
-    ("case", "properties", "initial_conditions", "generator"): NOT_A_QUANTITY,
-    ("case", "properties", "initial_conditions", "field"): NOT_A_QUANTITY,
-    ("case", "properties", "initial_conditions", "flow_direction"): NOT_A_QUANTITY,
     # The payload's dimension follows its field: velocity for Ucat, volume flux for Ucont.
-    ("case", "properties", "initial_conditions", "source_file"): (None, "staging"),
-    ("case", "properties", "initial_conditions", "source_case"): NOT_A_QUANTITY,
-    ("case", "properties", "initial_conditions", "velocity_scale"): (VELOCITY, "reference"),
-    ("case", "properties", "initial_conditions", "length_scale"): (LENGTH, "reference"),
-    ("case", "properties", "initial_conditions", "u_physical"): (VELOCITY, "cli"),
-    ("case", "properties", "initial_conditions", "v_physical"): (VELOCITY, "cli"),
-    ("case", "properties", "initial_conditions", "w_physical"): (VELOCITY, "cli"),
-    ("case", "properties", "initial_conditions", "velocity_physical"): (VELOCITY, "cli"),
-    ("case", "properties", "initial_conditions", "peak_velocity_physical"): (VELOCITY, "cli"),
     ("case", "grid", "mode"): NOT_A_QUANTITY,
     ("case", "grid", "source_file"): (LENGTH, "staging"),
     ("case", "grid", "da_processors_x"): NOT_A_QUANTITY,
@@ -9560,18 +9542,6 @@ BC_PARAM_QUANTITIES = {
 #: Initial-condition generator parameters (`properties.initial_conditions.params`), by
 #: generator. Nested mappings use dotted names.
 IC_PARAM_QUANTITIES = {
-    "zero": {},
-    "constant": {
-        "u_physical": (VELOCITY, "cli"), "v_physical": (VELOCITY, "cli"),
-        "w_physical": (VELOCITY, "cli"), "velocity_physical": (VELOCITY, "cli"),
-        "flow_direction": NOT_A_QUANTITY,
-    },
-    "streamwise_constant": {
-        "velocity_physical": (VELOCITY, "cli"), "flow_direction": NOT_A_QUANTITY,
-    },
-    "poiseuille": {
-        "peak_velocity_physical": (VELOCITY, "cli"), "flow_direction": NOT_A_QUANTITY,
-    },
     "ic_gen": {
         "field": NOT_A_QUANTITY, "script": NOT_A_QUANTITY, "cli_args": NOT_A_QUANTITY,
         # Expressions are written in physical coordinates and physical values.
@@ -10175,10 +10145,11 @@ def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_
     wall_cfg = (physics.get("turbulence") or {}).get("wall_function")
     if isinstance(wall_cfg, dict) and "roughness_height" in wall_cfg:
         changed.append("models.physics.turbulence.wall_function.roughness_height")
-    if str(ic.get("mode", "")).strip().lower() == "file":
-        changed.append("properties.initial_conditions (mode: file payload)")
-    if str(ic.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
-        changed.append(f"properties.initial_conditions.params ({ic.get('generator')})")
+    initial_term = initial_field_term(ic)
+    if initial_term.get("type") == "file":
+        changed.append("properties.initial_conditions.source (file payload)")
+    if str(initial_term.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
+        changed.append(f"properties.initial_conditions.source.params ({initial_term.get('generator')})")
     if isinstance(operation, dict) and operation.get("uniform_flow"):
         changed.append("operation_mode.uniform_flow")
     if ((solver_cfg or {}).get("verification") or {}).get("sources"):
@@ -10244,6 +10215,12 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             "monitor.yml -> solution_monitoring.convergence."
         )
     if errors:
+        _print_validation_errors(errors)
+
+    # A retired key is refused by name, with its replacement, not as an unknown key.
+    raw_initial = (case_cfg.get("properties") or {}).get("initial_conditions")
+    if isinstance(raw_initial, dict) and _retired_initial_condition_message(raw_initial):
+        errors.append(f"  {case_path}: {_retired_initial_condition_message(raw_initial)}")
         _print_validation_errors(errors)
 
     _validate_yaml_schema_keys(case_cfg, _CASE_SCHEMA, case_path, errors)
@@ -10391,11 +10368,8 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
     elif not isinstance(ic, dict):
         errors.append(f"  {case_path}: 'properties.initial_conditions' must be a mapping.")
-    elif 'mode' not in ic and 'source' not in ic:
-        errors.append(
-            f"  {case_path}: missing key 'properties.initial_conditions.mode'. "
-            "Specify 'generated' or 'file' explicitly."
-        )
+    elif 'source' not in ic:
+        errors.append(f"  {case_path}: missing key 'properties.initial_conditions.source'.")
     elif ic_is_authoritative:
         try:
             scaling_contract = resolve_fluid_scaling(case_cfg)
@@ -14401,28 +14375,6 @@ def normalize_solution_convergence_mode(value: str) -> str:
         )
     return mapped
 
-def normalize_field_init_mode(value: str) -> int:
-    """!
-    @brief Maps canonical field init mode names to C enum/int codes (-finit).
-    @param[in] value Canonical field initialization mode.
-    @return Canonical integer code accepted by -finit.
-    @throws ValueError if the input cannot be mapped.
-    """
-    # Canonical selector map for field initialization modes.
-    if value is None:
-        raise ValueError("field initialization mode cannot be None")
-
-    mapped = {
-        "Zero": 0,
-        "Constant": 1,
-        "Poiseuille": 2,
-    }.get(str(value).strip())
-    if mapped is None:
-        raise ValueError(
-            f"Unknown initial_conditions mode '{value}'. Use one of: 'Zero', 'Constant', 'Poiseuille'."
-        )
-    return mapped
-
 def normalize_initial_condition_field(value: str) -> "tuple[str, int]":
     """!
     @brief Normalize a file IC field selector to its staged basename and C enum value.
@@ -14947,7 +14899,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
         normalized["cells"] = list(cells)
     resolved = ic_provider_params_to_solver_units(name, normalized, scales)
     resolved["velocity_divisor"] = float(scales["velocity_ref"])
-    return {"finit": 4, "cli_params": {}, "kind": name, "label": name,
+    return {"kind": name, "label": name,
             "field_name": field_name, "field_code": field_code,
             "provider_context": dict(provider_context or {}), "params": resolved}
 
@@ -14976,56 +14928,17 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
-def initial_generator_term(ic: dict) -> dict:
+def initial_field_term(ic: dict) -> dict:
     """!
-    @brief Find the mapping that names an initial condition's generator.
+    @brief Find the term of an initial condition's source that stages a field.
     @param[in] ic Raw `properties.initial_conditions` mapping.
-    @return The mapping itself, its source when that is a generator, the generator term of a
-            source's `sum`, or an empty mapping when a source has no generator.
+    @return The generator or file term, or an empty mapping when the source has none.
     """
-    if "source" not in ic:
-        return ic
-    source = ic["source"]
+    source = ic.get("source")
     terms = source.get("sum", [source]) if isinstance(source, dict) else []
     if not isinstance(terms, list):
         return {}
-    return next((term for term in terms if isinstance(term, dict) and "generator" in term), {})
-
-
-def _resolve_initial_source_sum(spec: dict, where: str, named_sources, prepared_blocks, scales: dict,
-                                provider_context):
-    """!
-    @brief Split an initial `source: {sum: [...]}` into its source terms and at most one generator.
-    @details A `{generator, params}` term is resolved as the generated provider it names, whose
-             staged Ucat the runtime adds to the source; resolve_velocity_source() adds the rest.
-    @param[in] spec Mapping with `sum`, a list of terms.
-    @param[in] where Configuration path of the sum.
-    @param[in] named_sources The case's `sources:` mapping.
-    @param[in] prepared_blocks Normalized boundary-condition blocks.
-    @param[in] scales Reference scales.
-    @param[in] provider_context Optional conductor-derived provider context.
-    @return `(source specification, resolved generator contract or None)`.
-    """
-    terms = spec["sum"]
-    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    rest, generated = [], None
-    for index, term in enumerate(terms):
-        at = f"{where}.sum[{index}]"
-        if not (isinstance(term, dict) and "generator" in term):
-            rest.append(term)
-            continue
-        if generated is not None:
-            raise ValueError(f"{at}: a sum takes at most one generator term.")
-        unknown = sorted(set(term) - {"generator", "params"})
-        if unknown:
-            raise ValueError(f"{at}: unknown keys {unknown}; a generator term takes generator and params.")
-        generated = resolve_initial_condition_config(
-            {"mode": "generated", "generator": term["generator"], "params": term.get("params") or {}},
-            prepared_blocks, scales, provider_context)
-        if not is_generated_ic_provider(generated) or generated.get("field_code") != 0:
-            raise ValueError(f"{at}: generator '{term['generator']}' does not write a staged Ucat to add.")
-    return ({"sum": rest} if rest else {"components": "cartesian", "expression": {}}), generated
+    return next((term for term in terms if isinstance(term, dict) and ("generator" in term or "type" in term)), {})
 
 
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
@@ -15043,65 +14956,144 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     """
     if not isinstance(ic, dict):
         raise ValueError("properties.initial_conditions must be a mapping.")
-    mode = str(ic.get("mode", "")).strip()
+    retired = _retired_initial_condition_message(ic)
+    if retired:
+        raise ValueError(retired)
+    if "source" not in ic:
+        raise ValueError("properties.initial_conditions needs a 'source'.")
+    others = sorted(set(ic) - {"source", "constraints"})
+    if others:
+        raise ValueError(f"properties.initial_conditions takes 'source' (and 'constraints') alone; remove {others}.")
+    where = "properties.initial_conditions.source"
+    spec = ic["source"]
+    project = isinstance(spec, dict) and "sum" in spec
+    spec, field_term = _split_initial_field_term(spec, where, named_sources)
+    field = None if field_term is None else _resolve_initial_field_term(
+        field_term, where, prepared_blocks, scales, provider_context)
+    source = {"frame": "cartesian", "expressions": [], "constants": {}, "data": None} if spec is None else \
+        resolve_velocity_source(spec, {"sources": named_sources or {}}, where, allow_normal=False)
+    constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
+        else ic.get("constraints")
+    if isinstance(constraints, dict) and "project" in constraints:
+        project = constraints.pop("project")
+        if not isinstance(project, bool):
+            raise ValueError("properties.initial_conditions.constraints.project must be true or false.")
+    source = apply_source_constraints(source, constraints, "properties.initial_conditions.constraints",
+                                      allowed={"scale", "bulk_velocity"})
+    source["project"] = project
+    if source["bulk_velocity"] and not source["expressions"]:
+        raise ValueError("properties.initial_conditions.constraints.bulk_velocity rescales a source's expressions, "
+                         "and this source has none.")
+    if field is None:
+        return {"kind": "source", "label": "source", "source": source}
+    if field["field_code"] == 1 and source["expressions"] and source["frame"] != "curvilinear":
+        raise ValueError(f"{where}: expressions added to a staged Ucont must be in the curvilinear frame.")
+    # The field is staged as its provider stages it, and scaled and added to at runtime.
+    scale = float((constraints or {}).get("scale", 1.0))
+    if scale != 1.0:
+        source["field_weight"] = scale
+    label = f"source + {field['label']}" if source["expressions"] else field["label"]
+    return dict(field, label=label, source=source)
 
-    if "source" in ic:
-        others = sorted(set(ic) - {"source", "constraints"})
-        if others:
-            raise ValueError(f"properties.initial_conditions takes 'source' (and 'constraints') alone; "
-                             f"remove {others}.")
-        where = "properties.initial_conditions.source"
-        spec, generated = ic["source"], None
-        project = isinstance(spec, dict) and "sum" in spec
-        if isinstance(spec, dict) and ("sum" in spec or "generator" in spec):
-            spec, generated = _resolve_initial_source_sum(spec if "sum" in spec else {"sum": [spec]}, where,
-                                                          named_sources, prepared_blocks, scales, provider_context)
-        source = resolve_velocity_source(spec, {"sources": named_sources or {}}, where, allow_normal=False)
-        constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
-            else ic.get("constraints")
-        if isinstance(constraints, dict) and "project" in constraints:
-            project = constraints.pop("project")
-            if not isinstance(project, bool):
-                raise ValueError("properties.initial_conditions.constraints.project must be true or false.")
-        source = apply_source_constraints(source, constraints, "properties.initial_conditions.constraints",
-                                          allowed={"scale", "bulk_velocity"})
-        source["project"] = project
-        if generated is None:
-            return {"finit": 5, "cli_params": {}, "kind": "source", "label": "source", "source": source}
-        # The generator's field is staged as its provider stages it, and added to the source at
-        # runtime with the same scale.
-        source["field_weight"] = float((constraints or {}).get("scale", 1.0))
-        return dict(generated, finit=5, label=f"source + {generated['label']}", source=source)
-    if "constraints" in ic:
-        raise ValueError("properties.initial_conditions.constraints applies to a 'source' initial condition.")
 
-    # Backward-compatible legacy spelling.
-    if mode in LEGACY_FIELD_INIT_SPELLINGS:
-        finit_code = normalize_field_init_mode(mode)
-        params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, scales)
-        if finit_code == 1 and params.pop("ic_coordinate_system", 0) == 1:
-            finit_code = 3
-        return {"finit": finit_code, "cli_params": params, "kind": "builtin", "label": mode}
+def _retired_initial_condition_message(ic: dict) -> "str | None":
+    """!
+    @brief Name the replacement for an initial condition written in a retired form.
+    @param[in] ic Raw `properties.initial_conditions` mapping.
+    @return Refusal message, or None when no retired key is present.
+    """
+    retired = sorted(set(ic) & _RETIRED_INITIAL_CONDITION_KEYS)
+    if not retired:
+        return None
+    generator = str(ic.get("generator", ic.get("mode", ""))).strip().lower().replace("-", "_").replace(" ", "_")
+    params = ic.get("params") if isinstance(ic.get("params"), dict) else ic
+    uvw = {name: params.get(f"{name}_physical", 0.0) for name in "uvw"}
+    speed = params.get("velocity_physical", 1.0)
+    replacement = {
+        "zero": "source: {components: cartesian, expression: {u: 0, v: 0, w: 0}}",
+        "constant": f"source: {{components: cartesian, expression: {{u: {uvw['u']}, v: {uvw['v']}, w: {uvw['w']}}}}}",
+        "streamwise_constant": f"source: {{components: curvilinear, expression: {{u_zeta: {speed}}}}} "
+                               "(u_xi or u_eta for another axis, negative for a '-' direction)",
+        "poiseuille": "a source in the grid-line fractions, e.g. source: {components: curvilinear, "
+                      "expression: {u_zeta: \"U*16*xi*(1-xi)*eta*(1-eta)\"}}",
+        "file": "source: {type: file, field: Ucat, path: ...}",
+    }.get(generator, f"source: {{generator: {generator}, params: {{...}}}}")
+    return (f"properties.initial_conditions keys {retired} are retired; an initial condition is a source. "
+            f"Write {replacement}.")
 
-    normalized_mode = mode.lower().replace("-", "_").replace(" ", "_")
-    if normalized_mode == "file":
-        if prepared_blocks and len(prepared_blocks) > 1:
-            raise ValueError("File-backed initial conditions currently support single-block cases only.")
-        source_file = ic.get("source_file")
-        if not isinstance(source_file, str) or not source_file.strip():
-            raise ValueError("initial_conditions.source_file is required when mode is 'file'.")
-        field_name, field_code = normalize_initial_condition_field(ic.get("field"))
-        return {
-            "finit": 4, "cli_params": {}, "kind": "file", "label": "file",
-            "source_file": source_file.strip(), "field_name": field_name, "field_code": field_code,
-            "payload_provenance": resolve_ic_payload_provenance(ic, field_code),
-            "scales": dict(scales),
-        }
-    if normalized_mode != "generated":
-        raise ValueError("initial_conditions.mode must be 'generated' or 'file'.")
 
-    generator = str(ic.get("generator", "")).strip().lower().replace("-", "_").replace(" ", "_")
-    params = ic.get("params", {})
+def _split_initial_field_term(spec, where: str, named_sources):
+    """!
+    @brief Split an initial source into its expression terms and at most one staged-field term.
+    @param[in] spec Raw source: a name, a mapping, or a `sum`.
+    @param[in] where Configuration path of the source.
+    @param[in] named_sources The case's `sources:` mapping.
+    @return `(source specification or None when only a field term remains, field term or None)`.
+    """
+    named = named_sources if isinstance(named_sources, dict) else {}
+    is_field = lambda term: isinstance(term, dict) and ("generator" in term or "type" in term)
+    if isinstance(spec, str) and is_field(named.get(spec)):
+        spec = named[spec]
+    if is_field(spec):
+        return None, spec
+    if not (isinstance(spec, dict) and "sum" in spec):
+        return spec, None
+    terms = spec["sum"]
+    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+    resolved = [named.get(term, term) if isinstance(term, str) else term for term in terms]
+    fields = [term for term in resolved if is_field(term)]
+    if len(fields) > 1:
+        raise ValueError(f"{where}.sum: a sum takes at most one generator or file term.")
+    rest = [term for term, value in zip(terms, resolved) if not is_field(value)]
+    return ({"sum": rest} if rest else None), (fields[0] if fields else None)
+
+
+def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales: dict, provider_context) -> dict:
+    """!
+    @brief Resolve an initial source's staged-field term into the contract that stages it.
+    @param[in] term `{generator, params}` or `{type: file, field, path, ...}`.
+    @param[in] where Configuration path of the source.
+    @param[in] prepared_blocks Normalized boundary-condition blocks.
+    @param[in] scales Reference scales.
+    @param[in] provider_context Optional conductor-derived provider context.
+    @return Staging contract.
+    """
+    if "generator" in term:
+        unknown = sorted(set(term) - {"generator", "params"})
+        if unknown:
+            raise ValueError(f"{where}: unknown keys {unknown}; a generator term takes generator and params.")
+        return _resolve_initial_generator(term["generator"], term.get("params") or {}, prepared_blocks, scales,
+                                          provider_context)
+    if term["type"] != "file":
+        raise ValueError(f"{where}: a '{term['type']}' data source is a face's normal-speed profile, "
+                         "so only an inlet reads it; an initial condition takes type: file.")
+    unknown = sorted(set(term) - {"type", "field", "path", "source_case", "velocity_scale", "length_scale"})
+    if unknown:
+        raise ValueError(f"{where}: unknown keys {unknown}; a file term takes field, path, and source_case or "
+                         "velocity_scale and length_scale.")
+    if prepared_blocks and len(prepared_blocks) > 1:
+        raise ValueError("File-backed initial conditions currently support single-block cases only.")
+    path = term.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"{where}.path is required for a file term.")
+    field_name, field_code = normalize_initial_condition_field(term.get("field"))
+    return {"kind": "file", "label": "file", "source_file": path.strip(), "field_name": field_name,
+            "field_code": field_code, "payload_provenance": resolve_ic_payload_provenance(term, field_code),
+            "scales": dict(scales)}
+
+
+def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict, provider_context) -> dict:
+    """!
+    @brief Resolve a named initial-field generator and its parameters into a staging contract.
+    @param[in] generator Generator name.
+    @param[in] params Generator parameters.
+    @param[in] prepared_blocks Normalized boundary-condition blocks.
+    @param[in] scales Reference scales.
+    @param[in] provider_context Optional conductor-derived provider context.
+    @return Staging contract.
+    """
+    generator = str(generator).strip().lower().replace("-", "_").replace(" ", "_")
     if not isinstance(params, dict):
         raise ValueError("initial_conditions.params must be a mapping.")
     for key in RETIRED_INITIAL_CONDITION_DESTINATION_KEYS:
@@ -15123,7 +15115,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         if not isinstance(cli_args, list):
             raise ValueError("initial_conditions.params.cli_args must be a list.")
         return {
-            "finit": 4, "cli_params": {}, "kind": "ic_gen", "label": "ic_gen",
+            "kind": "ic_gen", "label": "ic_gen",
             "field_name": field_name, "field_code": field_code,
             "config_file": config_file.strip(),
             "script": script.strip() if script is not None else None,
@@ -15157,7 +15149,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
                                  "and an outlet on its positive face.")
         normalized["initial_spectra"] = normalize_ic_initial_spectra(
             normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
-        return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
+        return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
                 "params": ic_provider_params_to_solver_units(generator, normalized, scales),
                 "provider_context": dict(provider_context or {})}
@@ -15181,7 +15173,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         context = dict(provider_context or {})
         # The base profile is an expression of physical quantities; the provider applies these.
         context.update({"length_ref": scales["length_ref"], "velocity_ref": scales["velocity_ref"]})
-        return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
+        return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
                 "params": ic_provider_params_to_solver_units(generator, normalized, scales),
                 "provider_context": context}
@@ -15263,7 +15255,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
             raise ValueError("spectral_random_velocity remove_mean must be boolean.")
         context = dict(provider_context or {})
         return {
-            "finit": 4, "cli_params": {}, "kind": "spectral_random_velocity", "label": "spectral_random_velocity",
+            "kind": "spectral_random_velocity", "label": "spectral_random_velocity",
             "field_name": field_name, "field_code": field_code, "provider_context": context,
             "params": ic_provider_params_to_solver_units(
                 "spectral_random_velocity",
@@ -15274,29 +15266,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
                 scales),
         }
 
-    generator_modes = {
-        "zero": (0, "Zero"),
-        "constant": (1, "Constant"),
-        "streamwise_constant": (3, "Constant"),
-        "poiseuille": (2, "Poiseuille"),
-    }
-    if generator not in generator_modes:
-        raise ValueError(
-            "initial_conditions.generator must be one of: zero, constant, "
-            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity, resampled_velocity, "
-            "channel_spectral_velocity, duct_spectral_velocity, stability_mode_velocity."
-        )
-    finit_code, legacy_mode = generator_modes[generator]
-    legacy_ic = dict(params)
-    legacy_ic["mode"] = legacy_mode
-    cli_params = resolve_ic_cli_params(
-        legacy_ic,
-        1 if finit_code == 3 else finit_code,
-        prepared_blocks,
-        scales,
-    )
-    cli_params.pop("ic_coordinate_system", None)
-    return {"finit": finit_code, "cli_params": cli_params, "kind": "builtin", "label": generator}
+    raise ValueError(f"initial_conditions generator '{generator}' is not one of: "
+                     f"{sorted(_PYTHON_INITIAL_CONDITION_PROVIDERS)}.")
 
 def runtime_petsc_index_bytes() -> int:
     """!
@@ -15762,142 +15733,6 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
     return summary
 
-def normalize_flow_direction_token(value: str) -> int:
-    """!
-    @brief Maps a face-token flow direction string to the C FlowDirection enum integer.
-    @param[in] value One of '+Xi', '-Xi', '+Eta', '-Eta', '+Zeta', '-Zeta'.
-    @return Integer 0-5 matching the FlowDirection enum.
-    @throws ValueError on unknown value.
-    """
-    mapped = {
-        "+Xi": 0, "-Xi": 1,
-        "+Eta": 2, "-Eta": 3,
-        "+Zeta": 4, "-Zeta": 5,
-    }.get(str(value).strip())
-    if mapped is None:
-        raise ValueError(
-            f"Unknown initial_conditions.flow_direction '{value}'. "
-            "Use one of: '+Xi', '-Xi', '+Eta', '-Eta', '+Zeta', '-Zeta'."
-        )
-    return mapped
-
-def _ic_has_inlet(prepared_blocks) -> bool:
-    """!
-    @brief Return True if any prepared BC block contains an INLET face.
-    @param[in] prepared_blocks List of prepared BC lists (one per domain block).
-    @return True if at least one INLET entry exists across all blocks.
-    """
-    if not prepared_blocks:
-        return False
-    for block_bcs in prepared_blocks:
-        for entry in block_bcs:
-            if entry.get("type") == "INLET":
-                return True
-    return False
-
-def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, scales: dict) -> dict:
-    """!
-    @brief Resolve all IC parameters and return a dict of PETSc option values.
-    @param[in] ic The properties.initial_conditions mapping.
-    @param[in] finit_code Normalized -finit integer code.
-    @param[in] prepared_blocks Normalized BC blocks (may be None).
-    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
-    @return Dict with keys matching PETSc option names (without leading dash).
-    @throws KeyError if a required key is absent.
-    @throws ValueError on invalid combinations or values.
-    """
-    result = {}
-
-    if finit_code == 0:
-        return result
-
-    if finit_code == 1:  # Constant
-        has_cartesian   = any(k in ic for k in ("u_physical", "v_physical", "w_physical"))
-        has_curvilinear = "velocity_physical" in ic
-
-        if has_cartesian and has_curvilinear:
-            raise ValueError(
-                "initial_conditions: cannot mix u/v/w_physical (cartesian) and "
-                "velocity_physical (curvilinear) — use one or the other."
-            )
-
-        if has_curvilinear:  # curvilinear: scalar speed along flow_direction axis
-            cs_code = 1
-            result["ic_coordinate_system"] = cs_code
-            try:
-                vel_phys = float(ic["velocity_physical"])
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Invalid value for initial_conditions.velocity_physical: {ic['velocity_physical']!r}. "
-                    "Expected a numeric value."
-                ) from exc
-            result["ic_velocity_physical"] = to_solver_units(
-                vel_phys, ("case", "properties", "initial_conditions", "velocity_physical"), scales)
-
-            if "flow_direction" in ic:
-                result["flow_direction"] = normalize_flow_direction_token(ic["flow_direction"])
-            elif not _ic_has_inlet(prepared_blocks):
-                raise ValueError(
-                    "initial_conditions.flow_direction is required for curvilinear Constant IC "
-                    "when no INLET face exists."
-                )
-
-        else:  # cartesian: u/v/w_physical → Cart2Contra (default when no velocity_physical)
-            if "flow_direction" in ic:
-                raise ValueError(
-                    "initial_conditions.flow_direction is not valid for cartesian Constant IC. "
-                    "Use velocity_physical + flow_direction for curvilinear mode."
-                )
-            cs_code = 0
-            result["ic_coordinate_system"] = cs_code
-            u, v, w = parse_initial_velocity_components(ic, finit_code, require_explicit=True)
-            ic_path = ("case", "properties", "initial_conditions")
-            result["ucont_x"] = to_solver_units(u, ic_path + ("u_physical",), scales)
-            result["ucont_y"] = to_solver_units(v, ic_path + ("v_physical",), scales)
-            result["ucont_z"] = to_solver_units(w, ic_path + ("w_physical",), scales)
-
-    elif finit_code == 2:  # Poiseuille
-        if any(k in ic for k in ("u_physical", "v_physical", "w_physical")):
-            raise ValueError(
-                "For Poiseuille mode, use peak_velocity_physical, not u_physical/v_physical/w_physical."
-            )
-        if "velocity_physical" in ic:
-            raise ValueError(
-                "For Poiseuille mode, use peak_velocity_physical, not velocity_physical."
-            )
-        if "peak_velocity_physical" not in ic:
-            raise KeyError("peak_velocity_physical")
-        try:
-            peak = float(ic["peak_velocity_physical"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid value for initial_conditions.peak_velocity_physical: "
-                f"{ic['peak_velocity_physical']!r}. Expected a numeric value."
-            ) from exc
-        result["ic_velocity_physical"] = to_solver_units(
-            peak, ("case", "properties", "initial_conditions", "peak_velocity_physical"), scales)
-
-        if "flow_direction" in ic:
-            fd_int = normalize_flow_direction_token(ic["flow_direction"])
-            # Cross-check: explicit flow_direction must align with INLET face if one exists
-            if _ic_has_inlet(prepared_blocks):
-                inlet_axis = infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks)
-                fd_axis_name = {0: "x", 1: "y", 2: "z"}.get(fd_int // 2, "?")
-                if inlet_axis and fd_axis_name != inlet_axis:
-                    token = ic["flow_direction"]
-                    raise ValueError(
-                        f"initial_conditions.flow_direction '{token}' (axis '{fd_axis_name}') "
-                        f"does not match INLET face axis '{inlet_axis}'."
-                    )
-            result["flow_direction"] = fd_int
-        elif not _ic_has_inlet(prepared_blocks):
-            raise ValueError(
-                "initial_conditions.flow_direction is required for Poiseuille IC "
-                "when no INLET face exists."
-            )
-
-    return result
-
 def normalize_eulerian_field_source(value: str) -> str:
     """!
     @brief Normalizes the Eulerian field source selector to the C-side canonical string.
@@ -15968,65 +15803,6 @@ def normalize_analytical_type(value: str) -> str:
             "Use one of: 'TGV3D', 'ZERO_FLOW', 'UNIFORM_FLOW'."
         )
     return normalized
-
-def parse_initial_velocity_components(initial_conditions: dict, finit_code: int, *, require_explicit: bool) -> "tuple[float, float, float]":
-    """!
-    @brief Parse initial-condition velocity components with mode-aware defaults.
-    @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
-    @param[in] finit_code Normalized `-finit` integer code.
-    @param[in] require_explicit If True, all three component keys must be present.
-    @return Tuple `(u, v, w)` in physical units.
-    @throws KeyError if a required component key is missing.
-    @throws ValueError if a component cannot be converted to float.
-    """
-    component_keys = ("u_physical", "v_physical", "w_physical")
-    components = []
-    for key in component_keys:
-        if key not in initial_conditions:
-            if require_explicit:
-                raise KeyError(key)
-            raw_value = 0.0
-        else:
-            raw_value = initial_conditions[key]
-        try:
-            components.append(float(raw_value))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid value for properties.initial_conditions.{key}: {raw_value!r}. Expected a numeric value."
-            ) from exc
-    return tuple(components)
-
-def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> "str | None":
-    """!
-    @brief Infer the unique inlet axis across all blocks using C-side "primary inlet" ordering.
-    @param[in] prepared_blocks Normalized BC blocks from `validate_and_prepare_boundary_conditions`.
-    @return One of `"x"`, `"y"`, `"z"` if unique, `None` if no inlet exists.
-    @throws ValueError if different blocks imply different inlet axes.
-    """
-    face_order = ("-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta")
-    face_axis = {
-        "-Xi": "x", "+Xi": "x",
-        "-Eta": "y", "+Eta": "y",
-        "-Zeta": "z", "+Zeta": "z",
-    }
-
-    inlet_axes = set()
-    for block_bcs in prepared_blocks:
-        face_map = {entry["face"]: entry for entry in block_bcs}
-        for face in face_order:
-            entry = face_map.get(face)
-            if entry and entry["type"] == "INLET":
-                inlet_axes.add(face_axis[face])
-                break
-
-    if not inlet_axes:
-        return None
-    if len(inlet_axes) != 1:
-        raise ValueError(
-            "properties.initial_conditions.peak_velocity_physical requires all blocks to have a primary INLET "
-            f"on the same axis. Found axes: {sorted(inlet_axes)}. Use u_physical/v_physical/w_physical instead."
-        )
-    return next(iter(inlet_axes))
 
 def normalize_particle_init_mode(value: str) -> int:
     """!
@@ -17344,32 +17120,17 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
                 named_sources=case_cfg.get("sources"),
             )
-            finit_mode_str = resolved_ic["label"]
-            finit_code = resolved_ic["finit"]
-            ic_params = resolved_ic["cli_params"]
-            print(f"  - Initial Condition: {finit_mode_str} (Code: {finit_code})")
-            if "ucont_x" in ic_params:
-                ic_cli.extend([
-                    f"-ucont_x {ic_params['ucont_x']}",
-                    f"-ucont_y {ic_params['ucont_y']}",
-                    f"-ucont_z {ic_params['ucont_z']}",
-                ])
-            if "ic_velocity_physical" in ic_params:
-                ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
-            if "flow_direction" in ic_params:
-                ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
-            if "source" in resolved_ic:
-                ic_cli.extend(velocity_source_control_lines(
-                    "-ic_source", resolved_ic["source"], "properties.initial_conditions.source"))
+            print(f"  - Initial Condition: {resolved_ic['label']}")
+            ic_cli.extend(velocity_source_control_lines(
+                "-ic_source", resolved_ic["source"], "properties.initial_conditions.source"))
         else:
             source = (f"the run starts from the checkpoint at step {start_step}" if start_step > 0
                       else f"eulerian_field_source={eulerian_source!r} reads stored fields")
             print(f"[INFO] Initial condition not applied: {source}.")
-            finit_code = 0
             resolved_ic = None
         control_lines.extend([
             f"-start_step {run_ctrl['start_step']}", f"-totalsteps {run_ctrl['total_steps']}",
-            f"-ren {reynolds}", f"-dt {dt_nondim}", f"-finit {finit_code}",
+            f"-ren {reynolds}", f"-dt {dt_nondim}",
             *ic_cli,
             f"-scaling_L_ref {L_ref}", f"-scaling_U_ref {U_ref}", f"-scaling_rho_ref {rho}"
         ])
@@ -19924,17 +19685,14 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
     initial = copy.deepcopy(
         ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
     )
-    initial_mode = str(initial.get("mode", "generated")).strip().lower()
-    initial_generator = str(initial_generator_term(initial).get(
-        "generator", "source" if "source" in initial else "constant")).strip().lower()
-    generated_python = (
-        initial_mode == "generated"
-        and initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
-    )
+    initial_term = initial_field_term(initial)
+    initial_file = initial_term.get("type") == "file"
+    initial_generator = str(initial_term.get("generator", "source")).strip().lower()
+    generated_python = initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
     initial_provider = {
         "kind": "initial-condition",
-        "provider": "file" if initial_mode == "file" else initial_generator,
-        "execution": "precomputable" if initial_mode == "file" or generated_python else "runtime-c",
+        "provider": "file" if initial_file else initial_generator,
+        "execution": "precomputable" if initial_file or generated_python else "runtime-c",
         "dependencies": ["grid"] if generated_python else [],
         "spec": initial,
     }

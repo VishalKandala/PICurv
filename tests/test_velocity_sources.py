@@ -95,7 +95,6 @@ def test_a_named_source_feeds_the_inlet_and_the_initial_condition():
     ic = CORE.resolve_initial_condition_config(
         case["properties"]["initial_conditions"], [], CORE.resolve_reference_scales(case),
         named_sources=case["sources"])
-    assert ic["finit"] == 5
     assert ic["source"]["expressions"] == inlet["source"]["expressions"]
 
 
@@ -139,7 +138,7 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
      "is retired: use handler 'prescribed_velocity' with source: {components: normal"),
     (None, {"type": "WALL", "handler": "noslip", "source": DUCT}, None,
      "only read by the 'prescribed_velocity' handler"),
-    (None, None, {"source": {"type": "file", "path": "inlet.picslice"}}, "only an inlet reads it"),
+    (None, None, {"source": {"type": "field_slice", "field_file": "u.dat"}}, "only an inlet reads it"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "file", "path": "inlet.picslice"},
             "constraints": {"scale": -1.0}}, None, "must be positive"),
     (None, {"handler": "prescribed_velocity", "source": {"expression": {"u_xi": "1"}}}, None,
@@ -154,7 +153,7 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, None, {"source": {"components": "normal", "expression": "1"}}, "expected one of"),
     ({"duct": DUCT}, None, {"source": "duct", "constraints": {"target_flux": 1.0}},
      "not constraints of this target"),
-    ({"duct": DUCT}, None, {"source": "duct", "mode": "generated"}, "takes 'source'"),
+    ({"duct": DUCT}, None, {"source": "duct", "mode": "generated"}, "are retired"),
 ])
 def test_invalid_sources_are_refused(sources, inlet, initial_conditions, message, capsys):
     """!
@@ -234,7 +233,7 @@ def test_a_sum_adds_a_generator_to_a_source_and_projects():
         sources={"duct": DUCT},
         initial_conditions={"source": {"sum": ["duct", DUCT_SEED]}, "constraints": {"scale": 2.0}})
     ic = resolve_initial(case)
-    assert ic["finit"] == 5 and ic["kind"] == "duct_spectral_velocity"
+    assert ic["kind"] == "duct_spectral_velocity"
     assert CORE.is_generated_ic_provider(ic) and "bulk_velocity" not in ic["params"]
     assert ic["source"]["expressions"][2] == "((36*(1.5)*xi*(1-xi)*eta*(1-eta)))*(2.0)"
     lines = CORE.velocity_source_control_lines("-ic_source", ic["source"], "src")
@@ -285,8 +284,8 @@ def test_a_lone_generator_is_a_source_and_is_not_projected():
     """
     case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED})
     ic = resolve_initial(case)
-    assert ic["finit"] == 5 and ic["kind"] == "duct_spectral_velocity"
-    assert ic["source"]["expressions"] == ["0.0", "0.0", "0.0"] and ic["source"]["project"] is False
+    assert ic["kind"] == "duct_spectral_velocity"
+    assert ic["source"]["expressions"] == [] and ic["source"]["project"] is False
     case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED, "constraints": {"project": True}})
     assert resolve_initial(case)["source"]["project"] is True
 
@@ -311,13 +310,13 @@ def test_a_generator_inside_a_source_resolves_its_paths(wrap):
     (DUCT, None),
     ("duct", None),
 ])
-def test_initial_generator_term_finds_the_generator(source, name):
+def test_initial_field_term_finds_the_generator(source, name):
     """!
     @brief The generator is found alone or in a sum, and a plain source has none.
     @param[in] source Initial-condition source.
     @param[in] name Expected generator, or None.
     """
-    assert CORE.initial_generator_term({"source": source}).get("generator") == name
+    assert CORE.initial_field_term({"source": source}).get("generator") == name
 
 
 @pytest.mark.parametrize("source, provider, execution", [
@@ -400,4 +399,43 @@ def test_a_wall_generator_has_no_mean_of_its_own():
             "params": dict(DUCT_SEED["params"], bulk_velocity=1.0)}
     case, _, _ = load_configs(initial_conditions={"source": {"sum": [DUCT, seed]}})
     with pytest.raises(ValueError, match="fluctuations only"):
+        resolve_initial(case)
+
+
+@pytest.mark.parametrize("retired, replacement", [
+    ({"mode": "generated", "generator": "zero"}, "u: 0, v: 0, w: 0"),
+    ({"mode": "generated", "generator": "constant", "params": {"w_physical": 2.0}}, "w: 2.0"),
+    ({"mode": "generated", "generator": "streamwise_constant", "params": {"velocity_physical": 3.0}}, "u_zeta: 3.0"),
+    ({"mode": "generated", "generator": "poiseuille", "params": {"peak_velocity_physical": 1.5}}, "16*xi*(1-xi)"),
+    ({"mode": "file", "field": "Ucat", "source_file": "a.dat"}, "type: file"),
+    ({"mode": "generated", "generator": "ic_gen", "params": {}}, "generator: ic_gen"),
+    ({"mode": "Constant", "u_physical": 1.0}, "u: 1.0"),
+])
+def test_retired_initial_conditions_name_their_replacement(retired, replacement):
+    """!
+    @brief Every retired spelling is refused with the source that replaces it.
+    @param[in] retired Retired mapping.
+    @param[in] replacement Expected fragment of the refusal.
+    """
+    case, _, _ = load_configs(initial_conditions=retired)
+    with pytest.raises(ValueError, match="are retired") as caught:
+        resolve_initial(case)
+    assert replacement in str(caught.value)
+
+
+def test_a_file_term_stages_a_field_and_may_be_summed():
+    """!
+    @brief A velocity file is a term like a generator: alone, it adds nothing; in a sum, sources add.
+    """
+    field = {"type": "file", "field": "Ucat", "path": "velocity.dat"}
+    case, _, _ = load_configs(initial_conditions={"source": field})
+    ic = resolve_initial(case)
+    assert ic["kind"] == "file" and ic["source_file"] == "velocity.dat" and ic["source"]["expressions"] == []
+    case, _, _ = load_configs(sources={"duct": DUCT}, initial_conditions={"source": {"sum": ["duct", field]}})
+    ic = resolve_initial(case)
+    assert ic["kind"] == "file" and ic["source"]["expressions"][2].startswith("(36*")
+    flux = dict(field, field="Ucont")
+    case, _, _ = load_configs(sources={"duct": {"expression": {"w": 1.0}}},
+                              initial_conditions={"source": {"sum": ["duct", flux]}})
+    with pytest.raises(ValueError, match="curvilinear frame"):
         resolve_initial(case)

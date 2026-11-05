@@ -189,7 +189,7 @@ the wall, like a developed near-wall field: at `Re_tau = 180` its wall-parallel 
 is about `0.013 U_b` at `y+ ~ 5` and `0.031 U_b` at `y+ ~ 13`, against `0.13 U_b` at
 the centreline, whereas developed turbulence peaks near `0.17 U_b` at `y+ ~ 13`. Monitor fluctuation energy and
 Reynolds shear stress, and if the flow relaminarizes, develop a field at coarse
-resolution or from a precursor, carry it in with `mode: file`, and use
+resolution or from a precursor, carry it in with `source: {type: file`, and use
 `initial_flux` to hold its flux.
 
 ## 7. Extracting profiles for DNS comparison

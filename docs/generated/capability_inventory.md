@@ -75,16 +75,6 @@ Selector: `solver.yml -> operation_mode.eulerian_field_source`
 | `load` | `load` |
 | `solve` | `solve` |
 
-### Field Initialization Modes
-
-Selector: `case.yml -> initial_conditions field mode`
-
-| Value | Maps to |
-|---|---|
-| `Constant` | `1` |
-| `Poiseuille` | `2` |
-| `Zero` | `0` |
-
 ### Particle Initialization Modes
 
 Selector: `case.yml -> models.physics.particles.init_mode`
@@ -181,7 +171,7 @@ Selector: `case.yml -> models.physics.turbulence.wall_function.model`
 
 ### Initial Condition Target Field
 
-Selector: `case.yml -> properties.initial_conditions.field`
+Selector: `case.yml -> properties.initial_conditions.source.field (file or ic_gen term)`
 
 | Value | Maps to |
 |---|---|
@@ -434,7 +424,7 @@ Selector: `picurv storage offload/plan --retain / --drop`
 
 ### File-backed Initial Condition Generators
 
-Selector: `case.yml -> properties.initial_conditions.generator (Python providers)`
+Selector: `case.yml -> properties.initial_conditions.source.generator`
 
 | Value | Maps to |
 |---|---|

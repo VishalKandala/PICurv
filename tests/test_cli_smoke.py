@@ -372,25 +372,20 @@ def test_structured_initial_condition_modes_resolve_to_c_contract(tmp_path):
     @param[in] tmp_path Pytest temporary-directory fixture.
     """
     picurv = load_picurv_module()
-    built_in = picurv.resolve_initial_condition_config(
-        {
-            "mode": "generated",
-            "generator": "streamwise_constant",
-            "params": {"velocity_physical": 2.0, "flow_direction": "+Zeta"},
-        },
+    expression = picurv.resolve_initial_condition_config(
+        {"source": {"components": "curvilinear", "expression": {"u_zeta": 2.0}}},
         [],
         scales={"length_ref": 1.0, "velocity_ref": 2.0},
     )
-    assert built_in["finit"] == 3
-    assert built_in["cli_params"]["ic_velocity_physical"] == pytest.approx(1.0)
+    assert expression["kind"] == "source"
+    assert expression["source"]["frame"] == "curvilinear"
 
     source = write_petsc_vec_binary(tmp_path / "velocity.dat", [1.0, 2.0, 3.0])
     file_ic = picurv.resolve_initial_condition_config(
-        {"mode": "file", "field": "Ucat", "source_file": str(source)},
+        {"source": {"type": "file", "field": "Ucat", "path": str(source)}},
         [],
         scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
-    assert file_ic["finit"] == 4
     assert file_ic["field_name"] == "ufield"
     assert file_ic["field_code"] == 0
 
@@ -404,7 +399,7 @@ def test_file_initial_condition_rejects_multiblock_contract(tmp_path):
     source = write_petsc_vec_binary(tmp_path / "velocity.dat", [1.0, 2.0, 3.0])
     with pytest.raises(ValueError, match="single-block"):
         picurv.resolve_initial_condition_config(
-            {"mode": "file", "field": "Ucat", "source_file": str(source)},
+            {"source": {"type": "file", "field": "Ucat", "path": str(source)}},
             [[], []],
             scales={"length_ref": 1.0, "velocity_ref": 1.0},
         )
@@ -418,25 +413,17 @@ def test_ic_gen_defaults_to_repository_script_and_accepts_override(tmp_path):
     picurv = load_picurv_module()
     config_file = write_petsc_vec_binary(tmp_path / "config.dat", [1.0, 2.0, 3.0])
     resolved = picurv.resolve_initial_condition_config(
-        {
-            "mode": "generated",
-            "generator": "ic_gen",
-            "params": {"field": "Ucat", "config_file": str(config_file)},
-        },
+        {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config_file)}}},
         [[]],
         scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
     assert resolved["script"] is None
     override = picurv.resolve_initial_condition_config(
-        {
-            "mode": "generated",
-            "generator": "ic_gen",
-            "params": {
+        {"source": {"generator": "ic_gen", "params": {
                 "field": "Ucat",
                 "config_file": str(config_file),
                 "script": "tools/custom_ic.py",
-            },
-        },
+            }}},
         [[]],
         scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
@@ -453,11 +440,7 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
     case_path.parent.mkdir()
     case_cfg = {
         "properties": {
-            "initial_conditions": {
-                "mode": "generated",
-                "generator": "ic_gen",
-                "params": {"script": "tools/ic.py", "config_file": "config/ic.yml"},
-            }
+            "initial_conditions": {"source": {"generator": "ic_gen", "params": {"script": "tools/ic.py", "config_file": "config/ic.yml"}}}
         },
         "boundary_conditions": [
             {
@@ -484,7 +467,7 @@ def test_absolutize_case_external_paths_preserves_generator_and_profile_sources(
     picurv.absolutize_case_external_paths(case_cfg, str(case_path))
 
     source_dir = case_path.parent
-    ic = case_cfg["properties"]["initial_conditions"]["params"]
+    ic = case_cfg["properties"]["initial_conditions"]["source"]["params"]
     generated = case_cfg["boundary_conditions"][0]["source"]
     field_slice = case_cfg["boundary_conditions"][1]["source"]
     assert ic["script"] == str(source_dir / "tools" / "ic.py")
@@ -529,15 +512,11 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
     source = write_petsc_vec_binary(tmp_path / "generator_input.dat", [1.0, 2.0, 3.0])
     write_fake_ic_generator(tmp_path / "ic.gen", require_grid_run=True)
     grid_file = write_canonical_picgrid(tmp_path / "grid.picgrid")
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucat",
             "script": "ic.gen",
             "config_file": str(source),
-        },
-    }
+        }}}
     case_cfg["grid"] = {"mode": "file", "source_file": str(grid_file)}
     case_path = tmp_path / "case.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
@@ -566,7 +545,6 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
     )
 
     content = Path(control_file).read_text(encoding="utf-8")
-    assert "-finit 4" in content
     assert "-ic_field 0" in content
     assert "-ic_dir " in content
     assert "-solution_convergence_enabled true" in content
@@ -603,15 +581,11 @@ def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_p
             "cgrids": 0,
         },
     }
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucat",
             "script": "ic.gen",
             "config_file": str(source),
-        },
-    }
+        }}}
     case_path = tmp_path / "case.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
     run_dir = tmp_path / "run"
@@ -671,11 +645,7 @@ def test_generate_solver_control_file_ignores_superseded_file_ic(
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
     source = write_petsc_vec_binary(tmp_path / "velocity.dat", [1.0, 2.0, 3.0])
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "file",
-        "field": "Ucat",
-        "source_file": str(source),
-    }
+    case_cfg["properties"]["initial_conditions"] = {"source": {"type": "file", "field": "Ucat", "path": str(source)}}
     case_cfg["run_control"]["start_step"] = start_step
     solver_cfg["operation_mode"]["eulerian_field_source"] = eulerian_source
     if eulerian_source == "analytical":
@@ -708,7 +678,6 @@ def test_generate_solver_control_file_ignores_superseded_file_ic(
 
     content = Path(control_file).read_text(encoding="utf-8")
     captured = capsys.readouterr()
-    assert "-finit 0" in content
     assert "-ic_dir " not in content
     assert not (run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat").exists()
     assert "Initial condition not applied" in captured.out
@@ -734,14 +703,10 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
     write_canonical_picgrid(workspace / "inputs" / "grids" / "grid.picgrid")
     case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucont",
             "config_file": "config/initial_conditions/generator_input.dat",
-        },
-    }
+        }}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
@@ -767,14 +732,10 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
     config = workspace / "config" / "initial_conditions" / "initial_condition.cfg"
     config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
     case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {
             "field": "Ucat",
             "config_file": "config/initial_conditions/initial_condition.cfg",
-        },
-    }
+        }}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
@@ -817,11 +778,7 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
             "cgrids": 0,
         },
     }
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"},
-    }
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"}}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
@@ -862,11 +819,7 @@ def test_materialize_run_assets_stages_ic_gen_with_programmatic_grid(tmp_path):
             "cgrids": 0,
         },
     }
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"},
-    }
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"}}}
     case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
     run_dir = workspace / "runs" / "demo_run"
@@ -1696,7 +1649,6 @@ def test_removed_selector_aliases_are_rejected():
     rejected = [
         (picurv.normalize_momentum_solver_type, "DUALTIME_PICARD_JAMESON_RK"),
         (picurv.normalize_momentum_solver_type, "Dual Time NK Arnoldi"),
-        (picurv.normalize_field_init_mode, "0"),
         (picurv.normalize_particle_init_mode, "2"),
         (picurv.normalize_analytical_type, "ZEROFLOW"),
         (picurv.normalize_statistics_task, "ComputeMSD"),
@@ -2623,12 +2575,10 @@ def test_validate_stability_mode_ic_in_2d_needs_i_as_the_normal_axis(tmp_path):
         @param[in] cross_axis Cross-stream axis of the base profile.
         @return Completed validate process.
         """
-        case["properties"]["initial_conditions"] = {
-            "mode": "generated", "generator": "stability_mode_velocity",
-            "params": {"streamwise_axis": streamwise_axis, "cross_axis": cross_axis,
+        case["properties"]["initial_conditions"] = {"source": {"generator": "stability_mode_velocity", "params": {"streamwise_axis": streamwise_axis, "cross_axis": cross_axis,
                        "base_profile": f"0.5*tanh({ {'i': 'x', 'j': 'y', 'k': 'z'}[cross_axis] })",
                        "modes": [{"harmonic": 1, "amplitude": 0.01}],
-                       "noise": {"rms": 0.01, "planar": True}}}
+                       "noise": {"rms": 0.01, "planar": True}}}}
         path = tmp_path / "case.yml"
         path.write_text(yaml.safe_dump(case), encoding="utf-8")
         return run_picurv(["validate", "--case", str(path), "--solver", str(valid / "solver.yml"),
@@ -2803,7 +2753,7 @@ def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_missing_mode.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    case_text = case_text.replace('    mode: generated\n', "")
+    case_text = case_text.replace('    source: {components: cartesian, expression: {w: 1.0}}\n', '    constraints: {scale: 1.0}\n')
     case_path.write_text(case_text, encoding="utf-8")
 
     result = run_picurv(
@@ -2819,7 +2769,7 @@ def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "properties.initial_conditions.mode" in result.stderr
+    assert "properties.initial_conditions.source" in result.stderr
 
 
 def test_validate_constant_curvilinear_with_inlet_needs_no_flow_direction(tmp_path):
@@ -2845,38 +2795,6 @@ def test_validate_constant_curvilinear_with_inlet_needs_no_flow_direction(tmp_pa
 
     assert result.returncode == 0
     assert "[SUCCESS] Validation completed" in result.stdout
-
-
-def test_validate_constant_curvilinear_periodic_requires_flow_direction(tmp_path):
-    """!
-    @brief Test that curvilinear Constant IC fails when periodic and no flow_direction given.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_path = tmp_path / "case_curv_periodic_no_fd.yml"
-    case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    case_text = case_text.replace(
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 0.0\n      v_physical: 0.0\n      w_physical: 1.0\n',
-        '    mode: generated\n    generator: streamwise_constant\n    params:\n      velocity_physical: 1.0\n',
-    )
-    case_text = case_text.replace(
-        "  - face: \"-Zeta\"\n    type: INLET\n    handler: prescribed_velocity\n    source: {components: normal, expression: 1.0}\n",
-        "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
-    )
-    case_text = case_text.replace(
-        "  - face: \"+Zeta\"\n    type: OUTLET\n    handler: conservation\n",
-        "  - face: \"+Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
-    )
-    case_path.write_text(case_text, encoding="utf-8")
-
-    result = run_picurv(
-        ["validate", "--case", str(case_path),
-         "--solver", str(valid / "solver.yml"),
-         "--monitor", str(valid / "monitor.yml")]
-    )
-
-    assert result.returncode == 1
-    assert "flow_direction" in result.stderr
 
 
 def test_validate_constant_curvilinear_periodic_with_flow_direction_passes(tmp_path):
@@ -2911,54 +2829,6 @@ def test_validate_constant_curvilinear_periodic_with_flow_direction_passes(tmp_p
     assert "[SUCCESS] Validation completed" in result.stdout
 
 
-def test_validate_constant_mixing_cartesian_and_curvilinear_keys_fails(tmp_path):
-    """!
-    @brief Test that mixing u/v/w_physical and velocity_physical is rejected.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_path = tmp_path / "case_mixed_keys.yml"
-    case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    case_text = case_text.replace(
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 0.0\n      v_physical: 0.0\n      w_physical: 1.0\n',
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 1.0\n      velocity_physical: 1.0\n',
-    )
-    case_path.write_text(case_text, encoding="utf-8")
-
-    result = run_picurv(
-        ["validate", "--case", str(case_path),
-         "--solver", str(valid / "solver.yml"),
-         "--monitor", str(valid / "monitor.yml")]
-    )
-
-    assert result.returncode == 1
-    assert "cannot mix" in result.stderr
-
-
-def test_validate_constant_cartesian_with_flow_direction_fails(tmp_path):
-    """!
-    @brief Test that adding flow_direction to a cartesian Constant IC is rejected.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_path = tmp_path / "case_cart_fd.yml"
-    case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    case_text = case_text.replace(
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 0.0\n      v_physical: 0.0\n      w_physical: 1.0\n',
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 0.0\n      v_physical: 0.0\n      w_physical: 1.0\n      flow_direction: "+Zeta"\n',
-    )
-    case_path.write_text(case_text, encoding="utf-8")
-
-    result = run_picurv(
-        ["validate", "--case", str(case_path),
-         "--solver", str(valid / "solver.yml"),
-         "--monitor", str(valid / "monitor.yml")]
-    )
-
-    assert result.returncode == 1
-    assert "flow_direction" in result.stderr
-
-
 def test_validate_poiseuille_with_flow_direction_no_inlet_passes(tmp_path):
     """!
     @brief Test that Poiseuille with explicit flow_direction passes when fully periodic.
@@ -2989,31 +2859,6 @@ def test_validate_poiseuille_with_flow_direction_no_inlet_passes(tmp_path):
 
     assert result.returncode == 0
     assert "[SUCCESS] Validation completed" in result.stdout
-
-
-def test_validate_poiseuille_flow_direction_mismatch_with_inlet_fails(tmp_path):
-    """!
-    @brief Test that flow_direction mismatching the INLET axis is rejected for Poiseuille.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    case_path = tmp_path / "case_pois_mismatch.yml"
-    case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    # Inlet is on -Zeta (z-axis); flow_direction +Xi (x-axis) should conflict
-    case_text = case_text.replace(
-        '    mode: generated\n    generator: constant\n    params:\n      u_physical: 0.0\n      v_physical: 0.0\n      w_physical: 1.0\n',
-        '    mode: generated\n    generator: poiseuille\n    params:\n      peak_velocity_physical: 1.0\n      flow_direction: "+Xi"\n',
-    )
-    case_path.write_text(case_text, encoding="utf-8")
-
-    result = run_picurv(
-        ["validate", "--case", str(case_path),
-         "--solver", str(valid / "solver.yml"),
-         "--monitor", str(valid / "monitor.yml")]
-    )
-
-    assert result.returncode == 1
-    assert "flow_direction" in result.stderr
 
 
 def test_validate_analytical_tgv3d_accepts_file_grid(tmp_path):
@@ -3106,11 +2951,7 @@ def test_validate_programmatic_ic_gen_requires_materializable_scalar_grid(tmp_pa
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = tmp_path / "ic.cfg"
     config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": str(config)},
-    }
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config)}}}
     mutate(case_cfg["grid"]["programmatic_settings"])
     case_path = tmp_path / "case_programmatic_ic_gen_invalid.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
@@ -3321,11 +3162,7 @@ def test_dry_run_programmatic_ic_gen_lists_materialized_grid_artifact(tmp_path):
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     config = tmp_path / "ic.cfg"
     config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    case_cfg["properties"]["initial_conditions"] = {
-        "mode": "generated",
-        "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": str(config)},
-    }
+    case_cfg["properties"]["initial_conditions"] = {"source": {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": str(config)}}}
     case_path = tmp_path / "case_programmatic_ic_gen.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 

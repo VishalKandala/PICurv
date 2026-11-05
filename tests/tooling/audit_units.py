@@ -46,8 +46,6 @@ DEDICATED_TABLE_SURFACES = {
     ("case", "properties", "initial_conditions", "params"),
 }
 
-#: Built-in initial-condition generators, which are not Python providers.
-BUILTIN_IC_GENERATORS = {"zero", "constant", "streamwise_constant", "poiseuille"}
 
 ENTRY_RE = re.compile(r"\b(?:FIELD_ENTRY|FIELD_COORDINATE_ENTRY|PARTICLE_FIELD_ENTRY)\(")
 DIMENSION_RE = re.compile(r"FIELD_DIM_(\w+)")
@@ -113,7 +111,7 @@ def uncovered_inputs(core) -> list:
     problems.extend(f"boundary_conditions[].params.{key}"
                     for key in sorted(accepted - set(core.BC_PARAM_QUANTITIES)))
 
-    generators = BUILTIN_IC_GENERATORS | core._PYTHON_INITIAL_CONDITION_PROVIDERS
+    generators = set(core._PYTHON_INITIAL_CONDITION_PROVIDERS)
     problems.extend(f"initial_conditions.generator {name}"
                     for name in sorted(generators ^ set(core.IC_PARAM_QUANTITIES)))
     ic_gen = load_module("audit_units_ic_gen", IC_GENERATOR)

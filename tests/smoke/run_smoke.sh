@@ -3203,9 +3203,7 @@ with open(case_path, "r", encoding="utf-8") as f:
     case_cfg = yaml.safe_load(f)
 case_cfg["run_control"]["total_steps"] = 1
 case_cfg["properties"]["initial_conditions"] = {
-    "mode": "file",
-    "field": "Ucat",
-    "source_file": source_ufield,
+    "source": {"type": "file", "field": "Ucat", "path": source_ufield},
 }
 with open(case_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(case_cfg, f, sort_keys=False)
@@ -3217,24 +3215,10 @@ PY
     "${file_ic_case}/monitor.yml" \
     "${file_ic_case}/post.yml" \
     "file_ic_geometric_periodic"
-  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : initial condition (File)" "file-IC banner source"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : initial condition (Source)" "file-IC banner source"
   require_file_contains "${LAST_SOLVER_LOG}" "Initial Velocity File       : field=Ucat" "file-IC banner field"
 
   cp -R "${repo_root}/examples/periodic_test/constant_streamwise_flow" "${streamwise_case}"
-  python3 - "${streamwise_case}/case.yml" <<'PY'
-import sys
-import yaml
-
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    case_cfg = yaml.safe_load(f)
-case_cfg["properties"]["initial_conditions"] = {
-    "mode": "generated",
-    "generator": "streamwise_constant",
-    "params": {"velocity_physical": 1.0, "flow_direction": "+Zeta"},
-}
-with open(sys.argv[1], "w", encoding="utf-8") as f:
-    yaml.safe_dump(case_cfg, f, sort_keys=False)
-PY
   run_case_workflow \
     "${streamwise_case}" \
     "${streamwise_case}/case.yml" \
@@ -3242,7 +3226,7 @@ PY
     "${streamwise_case}/monitor.yml" \
     "${streamwise_case}/post.yml" \
     "constant_streamwise_geometric_periodic"
-  require_file_contains "${LAST_SOLVER_LOG}" "initial condition (Streamwise Constant)" "streamwise-IC banner source"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : initial condition (Source)" "streamwise-IC banner source"
 
   # Plane-only periodic ghost refreshes and skipped leading updates are checked against a full
   # update on a nonuniform field across rank boundaries, and migration newcomers against a PID

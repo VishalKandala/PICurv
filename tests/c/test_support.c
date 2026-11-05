@@ -271,10 +271,7 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "-totalsteps 2\n"
         "-ren 100.0\n"
         "-dt 0.001\n"
-        "-finit 1\n"
-        "-ucont_x 0.0\n"
-        "-ucont_y 0.0\n"
-        "-ucont_z 1.5\n"
+        "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 1.5\n"
         "-bcs_files %s\n"
         /* Inlet sources a bcs file may name: a uniform speed and a parabola. */
         "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
@@ -378,11 +375,9 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->i_periodic = x_periodic ? 1 : 0;
     simCtx->j_periodic = y_periodic ? 1 : 0;
     simCtx->k_periodic = z_periodic ? 1 : 0;
-    simCtx->flowDirection     = FLOW_DIR_UNSET;
-    simCtx->initialConditionMode = IC_MODE_ZERO;
+    simCtx->initialConditionStaged = PETSC_FALSE;
     simCtx->initialConditionField = IC_FIELD_UCAT;
     PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, "/tmp", sizeof(simCtx->initialConditionDirectory)));
-    simCtx->icVelocityPhysical = 0.0;
     /* Unit scales: the fixture is already non-dimensional, as a run without scaling is. */
     simCtx->scaling.L_ref = 1.0;
     simCtx->scaling.U_ref = 1.0;
@@ -873,8 +868,7 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "-totalsteps 2\n"
         "-ren 10.0\n"
         "-dt 0.001\n"
-        "-finit 1\n"
-        "-ucont_x 0.0\n-ucont_y 0.0\n-ucont_z 0.1\n"
+        "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 0.1\n"
         "-bcs_files %s\n"
         "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 0.1\n"
         "-profiling_timestep_mode off\n-profiling_final_summary true\n"

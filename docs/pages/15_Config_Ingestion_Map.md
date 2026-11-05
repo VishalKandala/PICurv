@@ -98,26 +98,21 @@ These keys are consumed by `picurv` orchestration only:
 
 Some launcher behaviors depend on other config selections before values ever reach C:
 
-- A generator inside `case.properties.initial_conditions.source` is resolved like one under
-  `mode: generated` and planned for precompute the same way; the runtime then adds the source to
-  its staged field.
-- `case.properties.initial_conditions.mode: generated` resolves `generator` and `params` into
-  built-in C flags or a staged Python-generated PETSc vector. Channel/duct providers
-  validate wall topology and measure selected initial spectra through `spectra.gen`.
-  `resampled_velocity` resolves its `source_file` against the workspace when it runs and
-  hands `ic.gen` the absolute path; a `Ucont` result is measured on the velocity the runtime
-  reconstructs from it.
-- `case.properties.initial_conditions.mode: file` validates and stages one `Ucat` or `Ucont`
-  PETSc vector in the existing @ref ReadFieldData naming layout. With a file-backed grid it
-  also refuses a vector sized for another grid.
+- A generator in `case.properties.initial_conditions.source` is resolved with its `params` into a
+  staged Python-generated PETSc vector, planned for precompute, and read by the runtime before it
+  adds the source's expressions. Channel/duct providers validate wall topology and measure selected
+  initial spectra through `spectra.gen`. `resampled_velocity` resolves its `source_file` against the
+  workspace when it runs and hands `ic.gen` the absolute path; a `Ucont` result is measured on the
+  velocity the runtime reconstructs from it.
+- A `type: file` term validates and stages one `Ucat` or `Ucont` PETSc vector in the existing
+  @ref ReadFieldData naming layout. With a file-backed grid it also refuses a vector sized for another grid.
 - `solver.operation_mode.eulerian_field_source` and `case.run_control.start_step` supersede IC
   materialization when load, analytical, or restart state has authority.
 - `solver.operation_mode.eulerian_field_source: analytical`
   routes through the analytical grid-ingestion split:
   `TGV3D` still requires `case.grid.mode: programmatic_c`, while `ZERO_FLOW` and `UNIFORM_FLOW`
   accept `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
-- `case.properties.initial_conditions.mode` is an explicit launcher requirement, unless the
-  initial condition is a `source`, which stands in its place. A `source` named by a string is
+- `case.properties.initial_conditions.source` is an explicit launcher requirement. A `source` named by a string is
   looked up in the case's top-level `sources:`, and its `constants` are inlined into every
   expression before the options are written.
 

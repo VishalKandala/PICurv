@@ -274,7 +274,7 @@ properties:
     source: {components: cartesian, expression: {w: 1.0}}
 ```
 
-Constant streamwise velocity for a periodic box (no INLET face):
+Constant streamwise velocity:
 
 ```yaml
 properties:
@@ -282,27 +282,12 @@ properties:
     source: {components: curvilinear, expression: {u_zeta: 1.0}}
 ```
 
-Poiseuille with a clear scalar input (INLET face present — no `flow_direction` needed):
+A duct's parabolic profile, peak 1.25 m/s, in the fractions along the grid lines:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: generated
-    generator: poiseuille
-    params:
-      peak_velocity_physical: 1.25
-```
-
-Poiseuille for a periodic domain (no INLET face):
-
-```yaml
-properties:
-  initial_conditions:
-    mode: generated
-    generator: poiseuille
-    params:
-      peak_velocity_physical: 1.25
-      flow_direction: "+Zeta"
+    source: {components: curvilinear, expression: {u_zeta: "1.25*16*xi*(1-xi)*eta*(1-eta)"}}
 ```
 
 Generated grid workflow:

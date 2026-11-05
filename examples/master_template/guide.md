@@ -59,12 +59,10 @@ Profile-generation note:
 
 Initial-condition note:
 
-- `initial_conditions.source` is an expression source, a `sum` of sources and one generator,
-  or a generator alone; every shipped example uses it.
-- `initial_conditions.mode: generated` selects a solver built-in (`zero`, `constant`,
-  `streamwise_constant`, `poiseuille`) or a Python provider (`ic_gen`,
-  `spectral_random_velocity`, `channel_spectral_velocity`, `duct_spectral_velocity`).
-- `initial_conditions.mode: file` accepts one PETSc `Ucat` or `Ucont` `.dat` vector.
+- `initial_conditions.source` is an expression source, a generator (`ic_gen`,
+  `spectral_random_velocity`, `resampled_velocity`, `channel_spectral_velocity`,
+  `duct_spectral_velocity`, `stability_mode_velocity`), a file (`type: file`, one PETSc `Ucat`
+  or `Ucont` `.dat` vector), or a `sum` of expressions and at most one of those.
 - `picurv precompute --case ...` also materializes configured Python-provider output,
   always at `<run.inputs>/initial_condition/`; destination keys are refused.
 - `ic_gen` defaults to `generators/ic.gen`; `params.script` optionally selects a compatible override.

@@ -65,10 +65,8 @@ For each run, `picurv` generates:
   expression source and its `bulk_velocity` reach C as quoted `-inlet_source_<id>_*`
   control options.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
-- `properties.initial_conditions.mode` is `generated` or `file`; `source` replaces it with an
-  expression source, a `sum`, or a generator alone (@ref p33_source).
-- generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`; their
-  inputs live under `params`.
+- `properties.initial_conditions` takes one `source`: expressions, a generator, a file, or a `sum`
+  of expressions and at most one of those (@ref p33_source), and optional `constraints`.
 - `generator: ic_gen` requires `params.field` and `params.config_file`, defaults to
   `generators/ic.gen`, accepts optional `params.script`, and stages its PETSc vector output exactly like file mode.
   The repository generator evaluates `[expression]` configs in physical units - coordinates are the staged
@@ -76,7 +74,7 @@ For each run, `picurv` generates:
   `programmatic_c` cases materialize this bridge grid from scalar `programmatic_settings`.
 - generated and field-sliced inlet data sources default to `generators/profile.gen`
   and accept optional `source.script`.
-- `mode: file` requires `field: Ucat|Ucont` and `source_file`. The payload is physical unless it
+- `type: file` requires `field: Ucat|Ucont` and `path`. The payload is physical unless it
   names `source_case`, or `velocity_scale` (and `length_scale` for `Ucont`), for a field an earlier
   run saved in its solver units.
 - file-backed ICs currently support single-block cases only.
@@ -325,8 +323,8 @@ Launcher defaults vs C defaults:
 
 Examples:
 
-- omitting `properties.initial_conditions.mode` is rejected at the launcher level,
-- `generator: zero` requires no `params`,
+- omitting `properties.initial_conditions.source` is rejected at the launcher level,
+- a retired key such as `mode` or `generator` directly under `initial_conditions` is refused, naming its replacement,
 - omitting `models.physics.particles.restart_mode` on a particle restart emits a warning that C will default to `load`.
 
 For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
