@@ -142,8 +142,7 @@ which the solver evaluates:
 | `besselj(n, x)`, `bessely(n, x)` | Bessel functions of the first and second kind, of integer order `n` (another order gives a value that is not finite, which stops the run) |
 | `ber(x)`, `bei(x)` | Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i/4})`, from their power series, which lose about `|x|/5` of sixteen digits to cancellation |
 
-`picurv` validates these before launch but does not evaluate the special functions itself, so
-`ic_gen` expressions, which `picurv` evaluates, cannot use them. Two exact laminar profiles,
+`picurv` validates these before launch and the solver evaluates them. Two exact laminar profiles,
 in the form `tests/test_expression_language.py` and `make unit-particles` check:
 
 ```yaml
