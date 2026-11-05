@@ -12,6 +12,7 @@
 #include "statistics_accumulator.h"
 #include "ParticleInitialConditions.h"
 #include "verification_sources.h"
+#include "AnalyticalSolutions.h"
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>

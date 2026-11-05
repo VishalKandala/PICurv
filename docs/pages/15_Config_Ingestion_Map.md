@@ -20,7 +20,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | YAML / Source Key | Generated Artifact Key | C Ingestion Site | Primary Runtime Consumers |
 | :--- | :--- | :--- | :--- |
 | `case.run_control.*` | `-start_step`, `-totalsteps`, `-dt` | `src/setup.c` (`CreateSimulationContext`) | `src/runloop.c`, setup/timestep logic |
-| `case.grid.programmatic_settings.im/jm/km/...` | `-im/-jm/-km`, bounds, stretch (`im/jm/km` translated from YAML cell counts to C node counts) | `src/io.c` (`ReadGridGenerationInputs`, `PopulateFinestUserGridResolutionFromOptions`) | `src/grid.c`, analytical geometry setup |
+| `case.grid.programmatic_settings.im/jm/km/...` | `-im/-jm/-km`, bounds, stretch (`im/jm/km` translated from YAML cell counts to C node counts) | `src/io.c` (`ReadGridGenerationInputs`) | `src/grid.c` |
 | `--ni/--nj/--nk`, `cluster.execution.decomposition`, deprecated `case.grid.da_processors_*`, or the automatic choice (@ref p05_decomposition_ssec) | `-da_processors_x/y/z` (solver control); `da_processors` (post recipe, the postprocessor's own) | `src/setup.c`; `src/io.c` (`ParsePostProcessingSettings`) | `src/grid.c` DMDA creation |
 | `case.models.domain.blocks` | `-nblk` | `src/setup.c` | `src/grid.c` |
 | paired `case.boundary_conditions` periodic faces | BC rows; periodic axes are derived in C | `src/Boundaries.c`, `src/io.c` (`DeterminePeriodicity`) | `src/grid.c` DMDA creation, periodic field synchronization |
