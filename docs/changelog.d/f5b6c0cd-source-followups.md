@@ -1,0 +1,1 @@
+- Documentation: the initial-conditions page no longer says that `ic_gen` expressions cannot use the Bessel and Kelvin functions, since those expressions were retired.
