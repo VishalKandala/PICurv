@@ -381,3 +381,15 @@ def test_petsc_array_restore_regressions_stay_fixed():
             r"DMDAVecRestoreArray%s\(%s, %s, (?:\(void \*\))?&%s\)" % (read, re.escape(dm), re.escape(vec), name)
         )
         assert restore.search(projection), (dm, vec, name)
+
+
+def test_changelog_fragments_with_several_bullets_begin_with_a_blank_line():
+    """! @brief CI's Doxygen refuses such a fragment otherwise, and older local versions do not. """
+    offenders = []
+    for path in sorted((REPO_ROOT / "docs" / "changelog.d").glob("*-*.md")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        bullets = [line for line in lines if line.startswith(("- ", "* "))]
+        if len(bullets) > 1 and lines[0] == bullets[0]:
+            offenders.append(path.name)
+
+    assert offenders == []

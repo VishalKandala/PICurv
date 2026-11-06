@@ -11,6 +11,10 @@ say - pure refactor, a typo, CI log noise - the fragment says exactly
 that in one line, so the omission is a stated fact instead of a silent
 judgment call repeated at every push.
 
+A fragment with several top-level bullets begins with a blank line. CI's
+Doxygen reports `Invalid list item found` on the second bullet otherwise,
+and older local versions do not.
+
 At release time, every fragment here is folded into a new dated version
 section in `../CHANGELOG.md`, this directory is emptied back to just this
 file, `VERSION` is bumped, and the release is tagged `vX.Y.Z`. Nothing in

@@ -1,3 +1,4 @@
+
 - Examples: every shipped case and the master template write their initial condition as `properties.initial_conditions.source`. The wall-seeded channel and duct cases are a mean source normalized by a `bulk_velocity` constraint plus the generator's fluctuations.
 - Initial conditions (experimental): a generator may stand alone as `source: {generator, params}`; its velocity matches `mode: generated` bit for bit. `project` now defaults to true for every `sum`, as documented, including one with no generator.
 - Fixed: a `source` initial condition printed `Unknown Initial Condition` in the startup banner. A generator inside a `source` was not planned for `picurv precompute`, and its relative `config_file` and `script` were not resolved.
