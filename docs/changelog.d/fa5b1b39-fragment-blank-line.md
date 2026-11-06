@@ -1,0 +1,1 @@
+- Fixed: the documentation build in CI failed on three changelog fragments from the unified source work; multi-bullet fragments now begin with a blank line, and a test checks it.
