@@ -28,4 +28,4 @@ execution:
   #   multiplier: 2.0
   #   min_seconds: 60
   #   estimator_alpha: 0.35
-  extra_sbatch: {}
+  sbatch_passthrough: {}

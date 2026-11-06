@@ -64,12 +64,9 @@ execution:
   #   min_seconds: 60
   #   estimator_alpha: 0.35
 
-  # Optional pass-through SBATCH flags.
-  # dict form:
-  # extra_sbatch:
+  # Optional pass-through SBATCH flags: `key: value` writes --key=value, and
+  # `key: true` writes the bare flag --key.
+  # sbatch_passthrough:
   #   qos: "high"
   #   constraint: "zen4"
-  # list form:
-  # extra_sbatch:
-  #   - "--qos=high"
-  #   - "--constraint=zen4"
+  #   exclusive: true

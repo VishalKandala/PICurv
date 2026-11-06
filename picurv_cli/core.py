@@ -9177,10 +9177,10 @@ _CLUSTER_SCHEMA = {
     ("resources",): {"account", "partition", "nodes", "ntasks_per_node", "mem", "time"},
     ("notifications",): {"mail_user", "mail_type"},
     ("execution",): {
-        "module_setup", "launcher", "launcher_args", "extra_sbatch", "walltime_guard", "decomposition",
+        "module_setup", "launcher", "launcher_args", "sbatch_passthrough", "walltime_guard", "decomposition",
     },
     ("execution", "decomposition"): {"i", "j", "k"},
-    ("execution", "extra_sbatch"): None,
+    ("execution", "sbatch_passthrough"): None,
     ("execution", "walltime_guard"): {
         "enabled", "warmup_steps", "multiplier", "min_seconds", "estimator_alpha",
     },
@@ -11265,9 +11265,13 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
             except ValueError as exc:
                 errors.append(f"  {cluster_path}: {exc}.")
 
-        extra_sbatch = execution.get("extra_sbatch")
-        if extra_sbatch is not None and not isinstance(extra_sbatch, (dict, list)):
-            errors.append(f"  {cluster_path}: execution.extra_sbatch must be a mapping or list when provided.")
+        if "extra_sbatch" in execution:
+            errors.append(f"  {cluster_path}: execution.extra_sbatch is retired: use the mapping "
+                          "execution.sbatch_passthrough, where `key: value` writes --key=value "
+                          "and `key: true` writes --key.")
+        sbatch_passthrough = execution.get("sbatch_passthrough")
+        if sbatch_passthrough is not None and not isinstance(sbatch_passthrough, dict):
+            errors.append(f"  {cluster_path}: execution.sbatch_passthrough must be a mapping when provided.")
 
         walltime_guard = execution.get("walltime_guard")
         if walltime_guard is not None and not isinstance(walltime_guard, dict):
@@ -11735,7 +11739,7 @@ def render_slurm_script(
     resources = cluster_cfg.get("resources", {})
     notifications = cluster_cfg.get("notifications", {}) or {}
     execution = cluster_cfg.get("execution", {}) or {}
-    extra_sbatch = execution.get("extra_sbatch")
+    sbatch_passthrough = execution.get("sbatch_passthrough")
     module_setup = execution.get("module_setup", []) or []
 
     if stderr_path is None:
@@ -11764,8 +11768,8 @@ def render_slurm_script(
     if mail_type:
         lines.append(f"#SBATCH --mail-type={mail_type}")
 
-    if isinstance(extra_sbatch, dict):
-        for key, value in extra_sbatch.items():
+    if isinstance(sbatch_passthrough, dict):
+        for key, value in sbatch_passthrough.items():
             flag = str(key)
             if not flag.startswith("--"):
                 flag = f"--{flag}"
@@ -11774,9 +11778,6 @@ def render_slurm_script(
                     lines.append(f"#SBATCH {flag}")
             elif value is not None:
                 lines.append(f"#SBATCH {flag}={value}")
-    elif isinstance(extra_sbatch, list):
-        for token in extra_sbatch:
-            lines.append(f"#SBATCH {token}")
 
     lines.extend(
         [
@@ -17629,7 +17630,7 @@ def render_slurm_array_stage_script(
     notifications = effective_cluster_cfg.get("notifications", {}) or {}
     execution = effective_cluster_cfg.get("execution", {}) or {}
     module_setup = execution.get("module_setup", []) or []
-    extra_sbatch = execution.get("extra_sbatch")
+    sbatch_passthrough = execution.get("sbatch_passthrough")
 
     lines = [
         "#!/bin/bash",
@@ -17652,8 +17653,8 @@ def render_slurm_array_stage_script(
         lines.append(f"#SBATCH --mail-user={mail_user}")
     if mail_type:
         lines.append(f"#SBATCH --mail-type={mail_type}")
-    if isinstance(extra_sbatch, dict):
-        for key, value in extra_sbatch.items():
+    if isinstance(sbatch_passthrough, dict):
+        for key, value in sbatch_passthrough.items():
             flag = str(key)
             if not flag.startswith("--"):
                 flag = f"--{flag}"
@@ -17662,9 +17663,6 @@ def render_slurm_array_stage_script(
                     lines.append(f"#SBATCH {flag}")
             elif value is not None:
                 lines.append(f"#SBATCH {flag}={value}")
-    elif isinstance(extra_sbatch, list):
-        for token in extra_sbatch:
-            lines.append(f"#SBATCH {token}")
 
     lines.extend([
         "",

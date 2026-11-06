@@ -357,7 +357,7 @@ not finished the warmup window yet:
 
 ```yaml
 execution:
-  extra_sbatch:
+  sbatch_passthrough:
     signal: "USR1@300"
 ```
 

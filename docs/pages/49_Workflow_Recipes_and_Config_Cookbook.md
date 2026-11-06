@@ -173,7 +173,7 @@ Keep an early signal as fallback protection for preemption/manual termination:
 
 ```yaml
 execution:
-  extra_sbatch:
+  sbatch_passthrough:
     signal: "USR1@300"
 ```
 

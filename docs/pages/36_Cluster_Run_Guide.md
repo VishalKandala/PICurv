@@ -132,7 +132,7 @@ This allows consistent local dry-run and cluster production flow from the same i
   - only the solver evaluates it; the post job reads the same control file but exports no
     job clock and does not warn about one.
 - Override that policy in `cluster.yml -> execution.walltime_guard` only when the defaults do not fit your timestep variability or filesystem overhead.
-- Keep an early signal in `cluster.yml -> execution.extra_sbatch.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
+- Keep an early signal in `cluster.yml -> execution.sbatch_passthrough.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver and field postprocessor stages use `cluster.yml` resources directly.
 - When the selected launcher is MPI-aware (`srun`, `mpirun`, `mpiexec`), PICurv strips conflicting size flags and forces the post launch to `nodes * ntasks_per_node` ranks.
 - Slurm stdout/stderr lives under `<run.scheduler>/`; solver-generated runtime logs still live under `<run.runtime_logs>/`.

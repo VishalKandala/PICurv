@@ -253,7 +253,7 @@ Verification-pathway rule:
 - when `execution.launcher` / `execution.launcher_args` are omitted, `picurv` falls back to nearest `.picurv-execution.yml` (`cluster_execution`, then `default_execution`) before using the built-in default `srun`.
 - `execution.decomposition: {i, j, k}` optionally sets the MPI decomposition of the solver and postprocessor stages; the product must be `nodes * ntasks_per_node`. When omitted, `picurv` chooses one (@ref p05_decomposition_ssec).
 - `execution.walltime_guard` optionally tunes the automatic runtime walltime estimator for generated Slurm solver jobs. When omitted, generated solver jobs still use the built-in default policy (`enabled: true`, `warmup_steps: 10`, `multiplier: 2.0`, `min_seconds: 60`, `estimator_alpha: 0.35`).
-- `execution.extra_sbatch` supports scheduler-specific pass-through flags.
+- `execution.sbatch_passthrough` is a mapping of scheduler-specific flags passed to `#SBATCH`: `key: value` writes `--key=value`, `key: true` writes the bare `--key`, and `false` or `null` writes nothing.
 - `cluster.yml` does not currently define run naming. `picurv` derives `run_id` from `<case_basename>_<timestamp>` and uses that same run ID to name generated scheduler jobs.
 
 Optional shared runtime execution file:

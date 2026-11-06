@@ -27,6 +27,6 @@ execution:
   #   min_seconds: 60
   #   estimator_alpha: 0.35
   # Optional early warning before walltime. Example:
-  # extra_sbatch:
+  # sbatch_passthrough:
   #   signal: "USR1@300"
-  extra_sbatch: {}
+  sbatch_passthrough: {}

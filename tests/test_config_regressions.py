@@ -3002,3 +3002,57 @@ def test_verification_fields_are_expressions_with_physical_values():
             picurv.verification_field_text(field, name)
     with pytest.raises(ValueError, match="needs an 'expression'"):
         picurv.verification_field_text({}, "scalar")
+
+
+@pytest.mark.parametrize(
+    "execution, expected",
+    [
+        ({"extra_sbatch": {"qos": "high"}}, "sbatch_passthrough"),
+        ({"sbatch_passthrough": ["--qos=high"]}, "must be a mapping"),
+        ({"sbatch_passthrough": True}, "must be a mapping"),
+    ],
+)
+def test_cluster_config_refuses_all_but_a_sbatch_passthrough_mapping(execution, expected, capsys):
+    """!
+    @brief The retired key and non-mapping values are refused, naming what to write.
+    @param[in] execution Parametrized `execution` section.
+    @param[in] expected Text the refusal must contain.
+    @param[in] capsys Pytest stream capture.
+    """
+    picurv = load_picurv_module()
+    cluster = yaml.safe_load((REPO_ROOT / "tests" / "fixtures" / "valid" / "cluster.yml").read_text(encoding="utf-8"))
+    del cluster["execution"]["sbatch_passthrough"]
+    cluster["execution"].update(execution)
+
+    with pytest.raises(SystemExit):
+        picurv.validate_cluster_config(cluster, "cluster.yml")
+
+    assert expected in capsys.readouterr().err
+
+
+def test_sbatch_passthrough_mapping_reaches_both_job_writers(tmp_path):
+    """!
+    @brief Values, bare flags and omitted flags render alike in single and array jobs.
+    @param[in] tmp_path Pytest temporary directory.
+    """
+    picurv = load_picurv_module()
+    cluster = {
+        "scheduler": {"type": "slurm"},
+        "resources": {"account": "A", "nodes": 1, "ntasks_per_node": 1, "mem": "1G", "time": "00:10:00"},
+        "execution": {"sbatch_passthrough": {"signal": "USR1@300", "exclusive": True, "requeue": False, "qos": None}},
+    }
+    picurv.validate_cluster_config(cluster, "cluster.yml")
+
+    single = tmp_path / "single.sbatch"
+    array = tmp_path / "array.sbatch"
+    picurv.render_slurm_script(str(single), "job", cluster, ["main"], str(tmp_path), str(tmp_path / "out.log"))
+    picurv.render_slurm_array_stage_script(str(array), "job", cluster, "0-1", str(tmp_path / "cases.tsv"), "solve",
+                                           "simulator", "postprocessor", str(tmp_path / "out.log"),
+                                           str(tmp_path / "err.log"))
+
+    for script in (single, array):
+        body = script.read_text(encoding="utf-8")
+        assert "#SBATCH --signal=USR1@300\n" in body
+        assert "#SBATCH --exclusive\n" in body
+        assert "--requeue" not in body
+        assert "--qos" not in body

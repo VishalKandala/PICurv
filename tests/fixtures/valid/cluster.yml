@@ -18,4 +18,4 @@ execution:
     - "module purge"
   launcher: "srun"
   launcher_args: []
-  extra_sbatch: {}
+  sbatch_passthrough: {}

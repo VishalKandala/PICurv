@@ -7437,7 +7437,7 @@ def test_dry_run_cluster_post_uses_cluster_tasks(tmp_path):
                 "    - \"module purge\"",
                 "  launcher: \"srun\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7503,7 +7503,7 @@ def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
                 "    - \"module purge\"",
                 "  launcher: \"mpirun -mca pml ucx -mca btl '^uct,ofi' -mca mtl '^ofi'\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7574,7 +7574,7 @@ def test_dry_run_cluster_reads_shared_runtime_execution_config(tmp_path):
                 "execution:",
                 "  module_setup:",
                 "    - \"module purge\"",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7650,7 +7650,7 @@ def test_cluster_yml_launcher_args_override_shared_cluster_execution(tmp_path):
                 "    - \"module purge\"",
                 "  launcher_args:",
                 "    - --cluster-explicit",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7707,7 +7707,7 @@ def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
                 "  module_setup: []",
                 "  launcher: '\"mpirun -mca pml ucx'",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7746,7 +7746,7 @@ def test_validate_cluster_rejects_whitespace_packed_launcher_arg(tmp_path):
                 "  module_setup: []",
                 "  launcher: \"mpirun\"",
                 "  launcher_args: [\"-mca pml ucx\"]",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7785,7 +7785,7 @@ def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
                 "  module_setup: []",
                 "  launcher: \"srun\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -7826,7 +7826,7 @@ def test_validate_cluster_rejects_invalid_walltime_guard_values(tmp_path):
                 "  module_setup: []",
                 "  launcher: \"srun\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "  walltime_guard:",
                 "    warmup_steps: 0",
                 "    multiplier: 6.0",
@@ -7908,7 +7908,7 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
                 "    - \"module purge\"",
                 "  launcher: \"srun\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -9088,7 +9088,7 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
                 "    - \"module purge\"",
                 "  launcher: \"srun\"",
                 "  launcher_args: []",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),
@@ -9175,7 +9175,7 @@ def test_sweep_no_submit_uses_cluster_ranks_for_mpirun_post(tmp_path):
                 "    - none",
                 "    - -np",
                 "    - \"2\"",
-                "  extra_sbatch: {}",
+                "  sbatch_passthrough: {}",
                 "",
             ]
         ),

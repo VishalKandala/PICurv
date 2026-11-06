@@ -53,7 +53,7 @@ These configuration patterns are supported in the current codebase:
 4. For Slurm workflows, prefer `picurv run ... --cluster ... --no-submit` first, inspect `<run.scheduler>/`, then use `picurv submit --run-dir ...`.
 5. If a submitted Slurm run needs to be stopped, use `picurv cancel --run-dir ...` instead of relying on a separately tracked job ID. For solver jobs that should write a final off-cadence checkpoint first, use `picurv cancel --run-dir ... --stage solve --graceful`.
 6. Generated Slurm solver jobs enable the runtime walltime guard by default; tune it in `cluster.yml -> execution.walltime_guard` only when the default warmup/headroom policy needs adjustment.
-7. Keep `cluster.yml -> execution.extra_sbatch.signal` as the fallback path for preemption/termination signals or runs that may not reach the guard warmup window.
+7. Keep `cluster.yml -> execution.sbatch_passthrough.signal` as the fallback path for preemption/termination signals or runs that may not reach the guard warmup window.
 8. Promote stable reusable profiles back into `<repo>/config/` so team workflows converge.
 9. When designing verification studies, start from the verification pathway in `solver.yml` rather than embedding one-off study logic into production configs.
 
