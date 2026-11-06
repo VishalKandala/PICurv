@@ -1,0 +1,1 @@
+- Docs: `field_slice` examples import a precursor's files with `picurv inputs import --mode reference` instead of naming `../old_run` paths, which a workspace refuses.
