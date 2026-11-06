@@ -565,7 +565,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 
     // This function only needs to handle the particle finalization logic.
     // The Eulerian state is assumed to be fully loaded and consistent at this point.
-    if (simCtx->np > 0) {
+    if (ParticlesEnabled(simCtx)) {
 
         // Use the particle restart mode to decide the workflow.
         if (strcmp(simCtx->particleRestartMode, "load") == 0) {
@@ -648,7 +648,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         
 
         // For particles, reset their status to prepare for the new advection/location cycle
-        if (simCtx->np > 0) {
+        if (ParticlesEnabled(simCtx)) {
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "Resetting all particle statuses to NEEDS_LOCATION.\n");
             ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
         }
@@ -711,7 +711,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         //     3. LAGRANGIAN PARTICLE STEP
         // =================================================================
         
-        if (simCtx->np > 0) {
+        if (ParticlesEnabled(simCtx)) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Lagrangian particle system...\n");
             simCtx->particlesLostLastStep = 0;
             simCtx->particlesLostScalarLastStep = 0.0;
@@ -739,6 +739,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // b. Advect particles using the velocity interpolated from the *previous* step.
             //    P(t_{n+1}) = P(t_n) + V_p(t_n) * dt
             ierr = UpdateAllParticlePositions(user); CHKERRQ(ierr);
+
+            // b.1 Particles that entered through the inlets during this step join before the search.
+            ierr = InjectParticlesAtInlets(user); CHKERRQ(ierr);
 
             // c. Settle all particles: find their new host cells and migrate them across ranks.
             ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
@@ -813,7 +816,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         if (ShouldWriteDataOutput(simCtx, simCtx->step)) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %" PetscInt_FMT ".\n",simCtx->step);
             ierr = WriteCheckpointBundle(simCtx, "cadence"); CHKERRQ(ierr);
-            if (simCtx->np > 0) {
+            if (ParticlesEnabled(simCtx)) {
                 if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
                     AnalyticalFieldSupportsInterpolationError(simCtx)) {
                     LOG_INTERPOLATION_ERROR(user);
@@ -839,7 +842,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // Update Progress Bar: the slowest rank's mean step time, and the run's lost particles.
         if(simCtx->rank == 0) {
             PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti, steps_elapsed_sum / (PetscReal)steps_timed,
-                             (simCtx->np > 0) ? simCtx->particlesLostCumulative : -1);
+                             (ParticlesEnabled(simCtx)) ? simCtx->particlesLostCumulative : -1);
             if(get_log_level()>=LOG_WARNING) PetscPrintf(PETSC_COMM_SELF,"\n");
         }
         if (simCtx->walltimeGuardActive) {

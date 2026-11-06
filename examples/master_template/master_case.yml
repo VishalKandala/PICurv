@@ -475,6 +475,10 @@ boundary_conditions:
     type: INLET
     handler: prescribed_velocity
     source: {components: normal, expression: 1.5}  # Speed into the domain [m/s]
+    # particles:                      # Optional: inject particles here every step, in proportion to the flow.
+    #   number_density: 2.0e6         #   Particles per m^3 of entering fluid, number or expression in t
+    #                                 #   -> -particle_inlet_<n>_number_density. particle_policy defaults to reflect.
+    #   fields: {Psi: {expression: "y"}}  # Values at the face; default models.physics.particles.fields
     # constraints:                    # Optional, applied in this order:
     #   scale: 1.0                    #   multiplies the source
     #   bulk_velocity: "1.5*(1 + 0.2*sin(2*pi*t))"  # face-mean normal speed [m/s], number or expression in t

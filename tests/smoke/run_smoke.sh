@@ -1449,6 +1449,68 @@ assert int(rows[-1]["exited_cumulative"]) > 0, "no particle reached the outlet"
 PY
 }
 
+prepare_flat_case_particles_inlet() {
+  # An empty domain filled by the -Zeta inlet in a uniform flow: 2000/m^3 entering at 1 m/s
+  # through a unit face is 80 particles per 0.04 s step.
+  local case_dir="$1"
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+configs = {}
+for path in (case_path, solver_path, monitor_path, post_path):
+    with open(path, "r", encoding="utf-8") as f:
+        configs[path] = yaml.safe_load(f)
+case_cfg, solver_cfg, monitor_cfg, post_cfg = (configs[p] for p in (case_path, solver_path, monitor_path, post_path))
+
+case_cfg["run_control"].update(start_step=0, total_steps=8, dt_physical=0.04)
+case_cfg["grid"]["programmatic_settings"].update(im=8, jm=8, km=16, zMaxs=0.2)
+case_cfg["models"]["physics"]["particles"] = {"count": 0, "restart_mode": "init"}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.0, "v": 0.0, "w": 1.0}}}
+inlet = next(entry for entry in case_cfg["boundary_conditions"] if entry["type"] == "INLET")
+inlet["particles"] = {"number_density": 2000.0, "fields": {"Psi": {"expression": "1.0"}}}
+solver_cfg.setdefault("operation_mode", {})["eulerian_field_source"] = "analytical"
+monitor_cfg.setdefault("io", {}).update(data_output_frequency=4, particle_console_output_frequency=0)
+post_cfg.setdefault("run_control", {}).update(start_step=0, end_step=8, step_interval=4)
+post_cfg.setdefault("io", {}).update(output_directory="viz/particle_inlet", output_filename_prefix="Field", output_particles=False)
+
+for path, cfg in configs.items():
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+PY
+}
+
+require_inlet_budget_closes() {
+  # Every step: particles = injected - exited, none lost, the mean follows the flux, Psi closes.
+  local run_dir="$1"
+  local metrics="${run_dir}/output/analysis/metrics"
+  require_file "${metrics}/particle_injection.csv" "particle injection diagnostics"
+  require_file_contains "${run_dir}/config/bcs.run" "particle_policy=reflect" "injecting inlet particle policy in bcs.run"
+  python3 - "${metrics}" <<'PY' || die "the inlet budget does not close: ${metrics}"
+import csv
+import sys
+def rows(name):
+    return list(csv.DictReader(line for line in open(f"{sys.argv[1]}/{name}", encoding="utf-8") if not line.startswith("#")))
+injected = {int(r["step"]): r for r in rows("particle_injection.csv")}
+total, exited_psi, added_psi = 0, 0.0, 0.0
+search = [r for r in rows("search_metrics.csv") if int(r["step"]) in injected]
+assert len(search) == len(injected) == 8, f"{len(search)} search rows, {len(injected)} injection rows"
+for r in search:
+    entry = injected[int(r["step"])]
+    assert abs(float(entry["expected"]) - 80.0) < 1e-6, f"step {r['step']}: expected {entry['expected']}, not 80"
+    assert abs(float(entry["injected"]) - 80.0) < 40.0, f"step {r['step']}: injected {entry['injected']}"
+    total += int(float(entry["injected"])) - int(r["exited"])
+    added_psi += float(entry["psi"])
+    exited_psi += float(r["exited_psi_sum"])
+    assert int(r["lost"]) == 0, f"step {r['step']}: particles lost"
+    assert int(r["total_particles"]) == total, f"step {r['step']}: {r['total_particles']} particles, budget {total}"
+assert total > 0, "no particle entered"
+assert int(search[-1]["exited_cumulative"]) > 0, "no particle reached the outlet"
+assert abs(added_psi - exited_psi - total) < 1e-6, "every particle carries Psi = 1, so the scalar counts the particles"
+PY
+}
+
 prepare_flat_case_parabolic_stress() {
   local case_dir="$1"
   python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
@@ -2544,6 +2606,18 @@ PY_SINGLE
     "${outflow_case}/config/post.yml" \
     "flat_particles_outflow"
   require_outflow_exits_counted "${LAST_RUN_DIR}" 64
+
+  local inlet_case="${tmp_root}/flat-particles-inlet"
+  "${picurv_exe}" init flat_channel --dest "${inlet_case}" >/dev/null
+  prepare_flat_case_particles_inlet "${inlet_case}"
+  run_case_workflow \
+    "${inlet_case}" \
+    "${inlet_case}/config/case.yml" \
+    "${inlet_case}/config/solver.yml" \
+    "${inlet_case}/config/monitor.yml" \
+    "${inlet_case}/config/post.yml" \
+    "flat_particles_inlet"
+  require_inlet_budget_closes "${LAST_RUN_DIR}"
 }
 
 run_multi_rank_runtime_smoke() {

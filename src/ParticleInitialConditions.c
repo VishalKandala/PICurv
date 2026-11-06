@@ -36,13 +36,15 @@ typedef struct {
 struct ParticleFieldPlan {
     PetscInt              count;
     ParticleFieldBinding *bindings;
+    Vec                   local_fraction; /**< Grid-line fractions, computed once when an expression first reads them. */
+    Vec                   local_length;   /**< Grid-line lengths, likewise. */
 };
 
 /**
  * @brief Implementation of \ref ParticleFieldPlanCreate().
  * @see ParticleFieldPlanCreate()
  */
-PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
+PetscErrorCode ParticleFieldPlanCreate(const char *prefix, ParticleFieldPlan **plan)
 {
     PetscInt  count = 0;
     PetscBool found = PETSC_FALSE;
@@ -52,7 +54,7 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
     PROFILE_FUNCTION_BEGIN;
     PetscCheck(plan, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Plan output is required.");
     *plan = NULL;
-    PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_fields_count"));
+    PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_count", prefix));
     PetscCall(PetscOptionsGetInt(NULL, NULL, option, &count, &found));
     if (!found || count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     PetscCheck(count > 0 && count <= PARTICLE_FIELD_ID_COUNT, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
@@ -66,7 +68,7 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
         const ParticleFieldDescriptor *descriptor = NULL;
         char                           name[64];
 
-        PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_fields_%" PetscInt_FMT "_name", i));
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_%" PetscInt_FMT "_name", prefix, i));
         PetscCall(PetscOptionsGetString(NULL, NULL, option, name, sizeof(name), &found));
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "%s is missing.", option);
         PetscCall(ParticleFieldIdFromName(name, &binding->field));
@@ -87,7 +89,7 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
         for (PetscInt c = 0; c < binding->components; ++c) {
             char text[PARTICLE_FIELD_EXPRESSION_LENGTH];
 
-            PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_fields_%" PetscInt_FMT "_expr_%" PetscInt_FMT, i, c));
+            PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_%" PetscInt_FMT "_expr_%" PetscInt_FMT, prefix, i, c));
             PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
             PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "%s is missing.", option);
             PetscCall(PicurvExpressionCompile(text, kParticleVariables, PARTICLE_VARIABLE_COUNT, PETSC_TRUE,
@@ -119,7 +121,7 @@ static PetscErrorCode PlanReadsGridLines(const ParticleFieldPlan *plan, PetscBoo
  * @brief Implementation of \ref ParticleFieldPlanApply().
  * @see ParticleFieldPlanApply()
  */
-PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *plan,
+PetscErrorCode ParticleFieldPlanApply(UserCtx *user, ParticleFieldPlan *plan,
                                       const ParticleFieldEvent *event, PetscInt first, PetscInt end)
 {
     SimCtx           *simCtx = NULL;
@@ -127,7 +129,6 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
     const PetscInt64 *pids = NULL;
     const PetscInt   *cells = NULL;
     PetscBool         grid_lines = PETSC_FALSE;
-    Vec               fraction = NULL, length = NULL, local_fraction = NULL, local_length = NULL;
     const Cmpnts   ***frac = NULL, ***len = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
     const PetscReal ***aj = NULL;
 
@@ -138,16 +139,19 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
     simCtx = user->simCtx;
     /* Before the empty-range return: the fractions are collective, and a rank may hold no particle. */
     PetscCall(PlanReadsGridLines(plan, &grid_lines));
-    if (grid_lines) {
+    if (grid_lines && !plan->local_fraction) {
+        Vec fraction = NULL, length = NULL;
         PetscCall(DMCreateGlobalVector(user->fda, &fraction));
         PetscCall(DMCreateGlobalVector(user->fda, &length));
         PetscCall(ComputeGridLineFractions(user, fraction, length));
-        PetscCall(DMCreateLocalVector(user->fda, &local_fraction));
-        PetscCall(DMCreateLocalVector(user->fda, &local_length));
-        PetscCall(DMGlobalToLocalBegin(user->fda, fraction, INSERT_VALUES, local_fraction));
-        PetscCall(DMGlobalToLocalEnd(user->fda, fraction, INSERT_VALUES, local_fraction));
-        PetscCall(DMGlobalToLocalBegin(user->fda, length, INSERT_VALUES, local_length));
-        PetscCall(DMGlobalToLocalEnd(user->fda, length, INSERT_VALUES, local_length));
+        PetscCall(DMCreateLocalVector(user->fda, &plan->local_fraction));
+        PetscCall(DMCreateLocalVector(user->fda, &plan->local_length));
+        PetscCall(DMGlobalToLocalBegin(user->fda, fraction, INSERT_VALUES, plan->local_fraction));
+        PetscCall(DMGlobalToLocalEnd(user->fda, fraction, INSERT_VALUES, plan->local_fraction));
+        PetscCall(DMGlobalToLocalBegin(user->fda, length, INSERT_VALUES, plan->local_length));
+        PetscCall(DMGlobalToLocalEnd(user->fda, length, INSERT_VALUES, plan->local_length));
+        PetscCall(VecDestroy(&length));
+        PetscCall(VecDestroy(&fraction));
     }
     if (end > first) {
         PetscCheck(user->swarm, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm is required.");
@@ -156,8 +160,8 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
         if (grid_lines) {
             PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
             PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
-            PetscCall(DMDAVecGetArrayRead(user->fda, local_fraction, &frac));
-            PetscCall(DMDAVecGetArrayRead(user->fda, local_length, &len));
+            PetscCall(DMDAVecGetArrayRead(user->fda, plan->local_fraction, &frac));
+            PetscCall(DMDAVecGetArrayRead(user->fda, plan->local_length, &len));
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
@@ -217,18 +221,14 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
-            PetscCall(DMDAVecRestoreArrayRead(user->fda, local_length, &len));
-            PetscCall(DMDAVecRestoreArrayRead(user->fda, local_fraction, &frac));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, plan->local_length, &len));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, plan->local_fraction, &frac));
             PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
             PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
         }
         PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
         PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
     }
-    PetscCall(VecDestroy(&local_length));
-    PetscCall(VecDestroy(&local_fraction));
-    PetscCall(VecDestroy(&length));
-    PetscCall(VecDestroy(&fraction));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -331,6 +331,8 @@ PetscErrorCode ParticleFieldPlanDestroy(ParticleFieldPlan **plan)
             PetscCall(PicurvExpressionDestroy(&(*plan)->bindings[b].component[c]));
         }
     }
+    PetscCall(VecDestroy(&(*plan)->local_length));
+    PetscCall(VecDestroy(&(*plan)->local_fraction));
     PetscCall(PetscFree((*plan)->bindings));
     PetscCall(PetscFree(*plan));
     PROFILE_HELPER_END;

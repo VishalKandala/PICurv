@@ -82,6 +82,8 @@ particle `fields`.
 | `case.yml: boundary_conditions.[].source` | VELOCITY | evaluator | U |
 | `case.yml: boundary_conditions.[].[].constraints` | VELOCITY | evaluator | U |
 | `case.yml: boundary_conditions.[].[].source` | VELOCITY | evaluator | U |
+| `case.yml: boundary_conditions.[].particles` | PAYLOAD | evaluator | by payload field |
+| `case.yml: boundary_conditions.[].[].particles` | PAYLOAD | evaluator | by payload field |
 | `case.yml: grid.generator` | LENGTH | staging | L |
 | `case.yml: grid.programmatic_settings.xMaxs` | LENGTH | c | L |
 | `case.yml: grid.programmatic_settings.xMins` | LENGTH | c | L |

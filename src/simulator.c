@@ -71,7 +71,7 @@ int main(int argc, char **argv)
   ierr = InitializeEulerianState(simCtx); CHKERRQ(ierr);
 
   // 5. If requested, initialize the Lagrangian Particle Swarm.
-  if (simCtx->np > 0) {
+  if (ParticlesEnabled(simCtx)) {
     ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
     }
 
@@ -98,7 +98,7 @@ int main(int argc, char **argv)
       // the flow solve and particle advection steps.
 
     if(simCtx->StartStep == 0){
-        if(simCtx->np>0){
+        if(ParticlesEnabled(simCtx)){
         ierr = PerformInitializedParticleSetup(simCtx); CHKERRQ(ierr);
       }else{ 
         ierr = WriteCheckpointBundle(simCtx, "initial"); CHKERRQ(ierr);

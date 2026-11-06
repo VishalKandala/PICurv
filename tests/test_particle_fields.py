@@ -201,3 +201,89 @@ def test_a_point_source_without_draws_warns(capsys):
     validate(*load_configs({"count": 100, "init_mode": "PointSource", "point_source": point,
                             "fields": {"Psi": {"expression": "where(uniform() < 0.5, 0, 1)"}}}))
     assert "has no random draw" not in capsys.readouterr().err
+
+
+def inlet_case(particles):
+    """!
+    @brief The valid fixture case with `particles` on its inlet and no seeded population.
+    @param[in] particles Mapping for the inlet's `particles`.
+    @return `(case, solver, monitor)` mappings.
+    """
+    case, solver, monitor = load_configs({"count": 0, "restart_mode": "init"})
+    entry = next(bc for bc in case["boundary_conditions"] if bc["type"] == "INLET")
+    entry["particles"] = deepcopy(particles)
+    return case, solver, monitor
+
+
+def test_an_inlet_becomes_runtime_options_and_reflects_by_default():
+    """!
+    @brief An injecting inlet's options reach the runtime; a diffusing particle stays in the domain.
+    """
+    case, _, _ = inlet_case({"number_density": "n0 * (1 + t)", "fields": {"Psi": {"expression": "y"}}})
+    case["constants"] = {"n0": 1000.0}
+    prepared = CORE.validate_and_prepare_boundary_conditions(case)
+    entry = next(item for block in prepared for item in block if "particles" in item)
+    assert entry["params"]["particle_policy"] == "reflect"
+    assert entry["particles"]["number_density"] == "(1000.0) * (1 + t)"
+    assert entry["particles"]["fields"] == [{"name": "Psi", "expressions": ["y"]}]
+    assert CORE.case_injects_particles(case)
+
+    entry = next(bc for bc in case["boundary_conditions"] if bc.get("particles"))
+    entry["particle_policy"] = "remove"
+    prepared = CORE.validate_and_prepare_boundary_conditions(case)
+    entry = next(item for block in prepared for item in block if "particles" in item)
+    assert entry["params"]["particle_policy"] == "remove"
+
+
+def test_an_inlet_lets_a_case_set_fields_with_no_seeded_particles():
+    """!
+    @brief The case's `fields` apply to an inlet's particles, so they need no seeded population.
+    """
+    case, solver, monitor = inlet_case({"number_density": 1000.0})
+    case["models"]["physics"]["particles"]["fields"] = {"Psi": {"expression": "x"}}
+    validate(case, solver, monitor)
+
+
+@pytest.mark.parametrize(
+    "particles, message",
+    [
+        ({"fields": {"Psi": {"expression": "x"}}}, "takes number_density"),
+        ({"number_density": 1.0, "rate": 2}, "takes number_density"),
+        ({"number_density": 0.0}, "must be positive"),
+        ({"number_density": "x + 1"}, "number_density"),
+        ({"number_density": True}, "number_density"),
+        ({"number_density": 1.0, "fields": {"velocity": {"expression": "1"}}}, "not a field a case can set"),
+    ],
+)
+def test_invalid_inlets_are_refused(particles, message):
+    """!
+    @brief An inlet's number density is a positive value in `t`, and its fields are settable ones.
+    @param[in] particles The inlet's `particles` mapping.
+    @param[in] message Pattern the refusal must match.
+    """
+    case, _, _ = inlet_case(particles)
+    with pytest.raises(ValueError, match=message):
+        CORE.validate_and_prepare_boundary_conditions(case)
+
+
+def test_only_an_inlet_injects():
+    """!
+    @brief A wall or an outlet refuses `particles`.
+    """
+    case, _, _ = load_configs({"count": 0, "restart_mode": "init"})
+    entry = next(bc for bc in case["boundary_conditions"] if bc["type"] == "WALL")
+    entry["particles"] = {"number_density": 1.0}
+    with pytest.raises(ValueError, match="only an INLET face injects"):
+        CORE.validate_and_prepare_boundary_conditions(case)
+
+
+def test_a_prescribed_scalar_source_conflicts_with_an_inlet_value(capsys):
+    """!
+    @brief A verification scalar prescribes Psi at every step, so an inlet's value would not survive.
+    @param[in] capsys Pytest stream capture.
+    """
+    case, solver, monitor = inlet_case({"number_density": 1000.0, "fields": {"Psi": {"expression": "y"}}})
+    solver.setdefault("verification", {})["sources"] = {"scalar": {"expression": "x"}}
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)
+    assert "particles.fields cannot be combined" in capsys.readouterr().err

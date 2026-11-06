@@ -230,4 +230,36 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle);
  */
 PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx);
 
+/**
+ * @brief Read the inlets that inject particles from the options database.
+ * @details Reads `-particle_inlet_count`, and for each inlet `n`, `-particle_inlet_<n>_face`,
+ *          `-particle_inlet_<n>_number_density` (particles per m^3, an expression in `t`) and the
+ *          field plan under `particle_inlet_<n>_fields`.
+ * @param[in,out] simCtx Context receiving the inlets; none when the count is absent or zero.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ParticleInletsCreate(SimCtx *simCtx);
+
+/**
+ * @brief Release what ParticleInletsCreate() and InjectParticlesAtInlets() allocated.
+ * @param[in,out] simCtx Context holding the inlets.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx);
+
+/**
+ * @brief Add the particles that entered through each injecting inlet during this step.
+ * @details Collective. A face cell receives on average `n (u.A) dt` particles, none where the flow
+ *          leaves, so the entering fluid has number density `n` whatever its velocity profile.
+ *          Counts, positions and identities come from keyed draws on the grid position, the step
+ *          and the particle, so they carry no state and do not depend on the rank layout. Field
+ *          values are set on the face, where the particle crossed it, and the particle then moves
+ *          in along the normal by a uniform share of `u_n dt`. The new particles are left
+ *          `NEEDS_LOCATION` for the settlement that follows. Writes `particle_injection.csv`.
+ * @param[in,out] user Finest-level context of the block holding the swarm; reads `lUcont`.
+ * @return PetscErrorCode 0 on success; an error on a face that is not an INLET, an invalid number
+ *         density, or a particle-ID or particle-count limit being reached.
+ */
+PetscErrorCode InjectParticlesAtInlets(UserCtx *user);
+
 #endif // PARTICLE_SWARM_H

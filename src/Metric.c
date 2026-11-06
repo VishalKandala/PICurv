@@ -2268,7 +2268,7 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
     }
 
     // Face planes for particle search and interpolation, from the final coordinates and lCent.
-    if (simCtx->np > 0) {
+    if (ParticlesEnabled(simCtx)) {
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *user = &mgctx[usermg->mglevels - 1].user[bi];
             ierr = MetricComputeFacePlanes(user); CHKERRQ(ierr);

@@ -80,7 +80,7 @@ PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *
     if (!simCtx || !descriptor || !(descriptor->capabilities & FIELD_CAPABILITY_CHECKPOINT)) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if ((availability & FIELD_AVAILABILITY_TURBULENCE) && !simCtx->les) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) { PROFILE_HELPER_END; return PETSC_FALSE; }
-    if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_PARTICLES) && !ParticlesEnabled(simCtx)) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if ((availability & FIELD_AVAILABILITY_WALL_MODEL) && !simCtx->wallfunction) { PROFILE_HELPER_END; return PETSC_FALSE; }
     PROFILE_HELPER_END;
     return PETSC_TRUE;
@@ -1403,7 +1403,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     PetscCall(ValidateCheckpointBundle(simCtx, user - user->_this,
                                        checkpoint_directory, ti, &checkpoint_time, NULL,
                                        &particles_saved, &les_saved));
-    PetscCheck(!(simCtx->np > 0 && !strcmp(simCtx->particleRestartMode, "load")) || particles_saved,
+    PetscCheck(!(ParticlesEnabled(simCtx) && !strcmp(simCtx->particleRestartMode, "load")) || particles_saved,
                PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Particle restart_mode=load was requested, but checkpoint step %" PetscInt_FMT
                " contains no particle state.", ti);
@@ -2151,7 +2151,7 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directo
     PROFILE_FUNCTION_BEGIN;
 
     // If no swarm is configured or there are no particles, do nothing and return.
-    if (!user->swarm || simCtx->np <= 0) {
+    if (!user->swarm || !ParticlesEnabled(simCtx)) {
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -2255,7 +2255,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
             if (CheckpointFieldIsEnabled(simCtx, descriptor)) ++payload_count;
         }
     }
-    if (simCtx->np > 0) {
+    if (ParticlesEnabled(simCtx)) {
         for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
             const ParticleFieldDescriptor *descriptor = NULL;
             PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
@@ -2302,7 +2302,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            PICURV_RELEASE_VERSION, PICURV_GIT_COMMIT, PICURV_BUILD_DIRTY,
                            (int)sizeof(PetscInt), simCtx->step, (double)simCtx->ti, (double)simCtx->dt,
                            reason, geometry_digest, simCtx->block_number,
-                           simCtx->np > 0 ? "true" : "false",
+                           ParticlesEnabled(simCtx) ? "true" : "false",
                            particle_count,
                            simCtx->les ? "true" : "false",
                            payload_count) > 0,
@@ -2414,7 +2414,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                                                        "petsc_vec_binary_natural"));
             }
         }
-        if (simCtx->np > 0) {
+        if (ParticlesEnabled(simCtx)) {
             for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
                 const ParticleFieldDescriptor *descriptor = NULL;
                 char relative_path[PETSC_MAX_PATH_LEN];
@@ -2556,7 +2556,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
                                 temporary_directory, PICURV_EULERIAN_DIRECTORY, block));
         PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
     }
-    if (simCtx->np > 0) {
+    if (ParticlesEnabled(simCtx)) {
         PetscCall(PetscSNPrintf(nested_directory, sizeof(nested_directory), "%s/%s",
                                 temporary_directory, PICURV_PARTICLE_DIRECTORY));
         PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
@@ -2582,7 +2582,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         PetscCall(WriteSimulationFields(&user[block], temporary_directory));
     }
-    if (simCtx->np > 0) PetscCall(WriteAllSwarmFields(user, temporary_directory));
+    if (ParticlesEnabled(simCtx)) PetscCall(WriteAllSwarmFields(user, temporary_directory));
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         PetscCall(WriteStatisticsFields(&user[block], temporary_directory));
     }
@@ -2803,7 +2803,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                            simCtx->solutionConvergenceEnabled ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %" PetscInt_FMT "\n", total_num_particles); CHKERRQ(ierr);
-        if (simCtx->np > 0) {
+        if (ParticlesEnabled(simCtx)) {
             const char *particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
 
             if (simCtx->particleConsoleOutputFreq > 0) {

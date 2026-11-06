@@ -7,6 +7,8 @@
 
 #include "ParticleMotion.h"
 #include "ParticleSwarm.h"
+#include "expression.h"
+#include "initialcondition.h"
 #include "Boundaries.h"
 #include "grid.h"
 #include "Metric.h"
@@ -1027,6 +1029,133 @@ static PetscErrorCode TestLESAveragingIsDecompositionIndependent(void)
 }
 
 /**
+ * @brief Tests that injection follows the flux, is keyed on the grid, and carries no state.
+ * @details An empty domain, with a different flux through each inlet face cell and outflow through
+ *          every third. The global count and identities are computed from the formula over all
+ *          face cells, so they hold whatever the decomposition. Each particle carries the value
+ *          at the face, sits within u dt of it, awaits location, and a second call for the same
+ *          step reproduces the first.
+ */
+static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
+{
+    const char *options = "-particle_inlet_count 1\n"
+                          "-particle_inlet_0_face 4\n"
+                          "-particle_inlet_0_number_density \"2000.0 + 0*t\"\n"
+                          "-particle_inlet_0_fields_count 1\n"
+                          "-particle_inlet_0_fields_0_name Psi\n"
+                          "-particle_inlet_0_fields_0_expr_0 \"z + 1\"\n";
+    SimCtx    *simCtx = NULL;
+    UserCtx   *user = NULL;
+    char       tmpdir[PETSC_MAX_PATH_LEN];
+    Cmpnts  ***ucont = NULL;
+    PetscReal  positions_first = 0.0, positions_second = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PicurvAssertBool((PetscBool)(simCtx->np == 0 && ParticlesEnabled(simCtx)), "an inlet enables particles in an empty domain"));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+
+    const PetscInt   nx = user->info.mx - 2, ny = user->info.my - 2, nz = user->info.mz - 2;
+    const PetscInt64 faces = 2 * ((PetscInt64)nx * ny + (PetscInt64)ny * nz + (PetscInt64)nz * nx);
+    const PetscInt64 face_start = 2 * ((PetscInt64)ny * nz + (PetscInt64)nz * nx);
+    const PetscReal  L = simCtx->scaling.L_ref;
+    simCtx->step = 3;
+    simCtx->dt = 0.1;
+
+    /* A flux per face cell that the decomposition cannot change: outflow through every third. */
+#define TEST_INLET_FLUX(i_, j_) (((i_) % 3 == 0) ? -0.01 : 0.002 * ((i_) + 2 * (j_)))
+    PetscCall(VecSet(user->lUcont, 0.0));
+    PetscCall(DMDAVecGetArray(user->fda, user->lUcont, &ucont));
+    if (user->info.gzs <= 0) {
+        for (PetscInt j = user->info.gys; j < user->info.gys + user->info.gym; ++j)
+        for (PetscInt i = user->info.gxs; i < user->info.gxs + user->info.gxm; ++i) {
+            ucont[0][j][i].z = TEST_INLET_FLUX(i, j);
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lUcont, &ucont));
+
+    PetscInt64 expected_count = 0, expected_pid_sum = 0;
+    for (PetscInt j = 1; j <= ny; ++j)
+    for (PetscInt i = 1; i <= nx; ++i) {
+        const PetscInt64 id = simCtx->step * faces + face_start + (i - 1) + (PetscInt64)nx * (j - 1);
+        const PetscReal  mean = PetscMax(TEST_INLET_FLUX(i, j), 0.0) * 2000.0 * L * L * L * simCtx->dt;
+        const PetscReal  whole = PetscFloorReal(mean);
+        const uint64_t   hash = PicurvParticleDrawHash((PetscInt64)simCtx->particleRandomSeed, PICURV_DRAW_SPACE_INLET, 0, id, 0);
+        const PetscInt   n = (PetscInt)whole + ((PicurvUnitFromHash(hash) < mean - whole) ? 1 : 0);
+        for (PetscInt k = 0; k < n; ++k) expected_pid_sum += ((PetscInt64)1 << 40) + id * 1024 + k;
+        expected_count += n;
+    }
+    PetscCall(PicurvAssertBool((PetscBool)(expected_count > 0), "the fixture must inject something"));
+
+    for (PetscInt pass = 0; pass < 2; ++pass) {
+        PetscInt          nlocal = 0, nglobal = 0;
+        PetscInt64        pid_sum = 0;
+        PetscReal         position_sum = 0.0;
+        const PetscReal  *position = NULL, *psi = NULL;
+        const PetscInt64 *pid = NULL;
+        const PetscInt   *status = NULL;
+
+        PetscCall(DMSwarmSetLocalSizes(user->swarm, 0, -1));
+        PetscCall(InjectParticlesAtInlets(user));
+        PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+        PetscCall(DMSwarmGetSize(user->swarm, &nglobal));
+        PetscCall(PicurvAssertIntEqual((PetscInt)expected_count, nglobal, "the count follows the flux through every face cell"));
+        PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&position));
+        PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+        PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+        PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+        for (PetscInt p = 0; p < nlocal; ++p) {
+            PetscCall(PicurvAssertBool((PetscBool)(status[p] == NEEDS_LOCATION), "a new particle awaits location"));
+            PetscCall(PicurvAssertBool((PetscBool)(position[3 * p + 2] > user->Min_Z), "a new particle is inside the inlet"));
+            /* The value was set on the face, before the particle moved in. */
+            PetscCall(PicurvAssertRealNear(user->Min_Z * L + 1.0, psi[p], 1.0e-3, "a new particle carries the value at the face"));
+            pid_sum += pid[p];
+            position_sum += position[3 * p] + 2.0 * position[3 * p + 1] + 3.0 * position[3 * p + 2];
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+        PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+        PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+        PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&position));
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &pid_sum, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &position_sum, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCall(PicurvAssertBool((PetscBool)(pid_sum == expected_pid_sum), "identities come from the grid position, the step and the count"));
+        if (pass == 0) positions_first = position_sum; else positions_second = position_sum;
+    }
+    PetscCall(PicurvAssertRealNear(positions_first, positions_second, 1.0e-9, "injection carries no state from one call to the next"));
+#undef TEST_INLET_FLUX
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that a face that is not an INLET refuses to inject.
+ */
+static PetscErrorCode TestInjectionRefusesAFaceThatIsNotAnInlet(void)
+{
+    const char    *options = "-particle_inlet_count 1\n-particle_inlet_0_face 0\n-particle_inlet_0_number_density \"1.0\"\n";
+    SimCtx        *simCtx = NULL;
+    UserCtx       *user = NULL;
+    char           tmpdir[PETSC_MAX_PATH_LEN];
+    PetscErrorCode refused;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    simCtx->step = 1;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    refused = InjectParticlesAtInlets(user);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertBool((PetscBool)(refused != 0), "a wall does not inject particles"));
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that, across a periodic seam and rank boundaries, the face planes the search and
  *        interpolation read after a ghost update are each cell's own planes.
  * @details Every grid cell made of physical nodes and every dual cell the interpolation can form
@@ -1124,6 +1253,8 @@ int main(int argc, char **argv)
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
         {"settlement-classifies-exit-once-across-passes", TestSettlementClassifiesExitOnceAcrossPasses},
         {"grid-line-fractions-follow-arc-length", TestGridLineFractionsFollowArcLength},
+        {"injection-follows-flux-and-is-keyed-on-the-grid", TestInjectionFollowsFluxAndIsKeyedOnTheGrid},
+        {"injection-refuses-a-face-that-is-not-an-inlet", TestInjectionRefusesAFaceThatIsNotAnInlet},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

@@ -1239,8 +1239,12 @@ For detailed handler semantics, validation constraints, and C dispatch path, see
 
 Optional per-face key `particle_policy: reflect | remove | wrap` sets what a particle
 crossing that face becomes. The default comes from the handler: both wall handlers reflect, the
-inlet and outlet handlers remove, the periodic handlers wrap. `wrap` is accepted on
-`PERIODIC` faces only, and they accept nothing else. See @ref p44_ppol_sec.
+inlet and outlet handlers remove, the periodic handlers wrap, and an inlet with `particles`
+reflects. `wrap` is accepted on `PERIODIC` faces only, and they accept nothing else. See
+@ref p44_ppol_sec.
+
+Optional key `particles: {number_density, fields}` on an `INLET` face of block 0 injects
+particles every step, in proportion to the flow. See @ref p45_inject_sec.
 
 Pulsatile expression example:
 

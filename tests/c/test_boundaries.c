@@ -265,7 +265,6 @@ static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     PetscBool generic_face = PETSC_FALSE;
-    PetscBool inlet_face = PETSC_FALSE;
     PetscBool any_face_serviceable = PETSC_FALSE;
 
     PetscFunctionBeginUser;
@@ -277,35 +276,8 @@ static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
             any_face_serviceable = PETSC_TRUE;
         }
 
-        user->inletFaceDefined = PETSC_TRUE;
-        user->identifiedInletBCFace = face;
-        PetscCall(CanRankServiceInletFace(user, &user->info, user->IM, user->JM, user->KM, &inlet_face));
-        PetscCall(PicurvAssertBool((PetscBool)(inlet_face == generic_face), "inlet face service check should match generic face check"));
     }
     PetscCall(PicurvAssertBool(any_face_serviceable, "at least one global face should be serviceable in a non-degenerate domain"));
-
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
- * @brief Tests that inlet-face service requires an inlet face to be defined.
- */
-
-static PetscErrorCode TestCanRankServiceInletFaceRequiresDefinition(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    PetscBool can_service = PETSC_FALSE;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-
-    user->inletFaceDefined = PETSC_FALSE;
-    for (BCFace face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; face++) {
-        user->identifiedInletBCFace = face;
-        PetscCall(CanRankServiceInletFace(user, &user->info, user->IM, user->JM, user->KM, &can_service));
-        PetscCall(PicurvAssertBool((PetscBool)!can_service, "undefined inlet face should not be serviceable"));
-    }
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -2244,7 +2216,6 @@ int main(int argc, char **argv)
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"can-rank-service-face-matches-inlet-when-defined", TestCanRankServiceFaceMatchesInletWhenDefined},
-        {"can-rank-service-inlet-face-requires-definition", TestCanRankServiceInletFaceRequiresDefinition},
         {"boundary-condition-factory-assignments", TestBoundaryConditionFactoryAssignments},
         {"boundary-condition-factory-implemented-handler-matrix", TestBoundaryConditionFactoryImplementedHandlerMatrix},
         {"boundary-condition-factory-rejects-unsupported-handler", TestBoundaryConditionFactoryRejectsUnsupportedHandler},

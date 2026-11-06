@@ -8796,7 +8796,10 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                     # Defensive fallback; should not happen due unknown-key gate above.
                     converted_params[key] = value
 
-            policy = str(bc.get("particle_policy", handler_spec["particle_policy"])).strip().lower()
+            # An injecting inlet fixes the total flux entering, advection and diffusion together;
+            # a particle that diffuses back across it stays in the domain, or the density falls.
+            default_policy = "reflect" if bc.get("particles") is not None else handler_spec["particle_policy"]
+            policy = str(bc.get("particle_policy", default_policy)).strip().lower()
             if policy not in PARTICLE_BOUNDARY_POLICIES:
                 raise ValueError(
                     f"Unsupported particle_policy '{bc.get('particle_policy')}' for face {face} in block {bi}. "
@@ -8842,6 +8845,12 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 for key in ("source", "constraints"):
                     if key in bc:
                         raise ValueError(f"{where}.{key} is only read by the 'prescribed_velocity' and 'moving' handlers.")
+            if bc.get("particles") is not None:
+                if bc_type != "INLET":
+                    raise ValueError(f"{where}.particles: only an INLET face injects particles.")
+                if bi != 0:
+                    raise ValueError(f"{where}.particles: particles live on block 0.")
+                prepared_entry["particles"] = normalize_inlet_particles(bc["particles"], case_cfg, f"{where}.particles")
             prepared_block.append(prepared_entry)
 
         missing_faces = sorted(expected_faces - set(seen_faces.keys()))
@@ -9030,12 +9039,17 @@ _CASE_SCHEMA = {
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
-    ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy", "source", "constraints"},
+    ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy", "source", "constraints",
+                                    "particles"},
     ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params", "particle_policy", "source",
-                                          "constraints"},
+                                          "constraints", "particles"},
     ("boundary_conditions", "[]", "params"): None,
     ("boundary_conditions", "[]", "[]", "params"): None,
     ("boundary_conditions", "[]", "constraints"): None,
+    ("boundary_conditions", "[]", "particles"): {"number_density", "fields"},
+    ("boundary_conditions", "[]", "[]", "particles"): {"number_density", "fields"},
+    ("boundary_conditions", "[]", "particles", "fields"): None,
+    ("boundary_conditions", "[]", "[]", "particles", "fields"): None,
     ("boundary_conditions", "[]", "[]", "constraints"): None,
     ("solver_parameters",): None,
 }
@@ -9400,6 +9414,9 @@ INPUT_QUANTITIES = {
     ("case", "boundary_conditions", "[]", "constraints"): (VELOCITY, "evaluator"),
     ("case", "boundary_conditions", "[]", "[]", "source"): (VELOCITY, "evaluator"),
     ("case", "boundary_conditions", "[]", "[]", "constraints"): (VELOCITY, "evaluator"),
+    # Particles per cubic metre, and field values in their physical units; the runtime converts.
+    ("case", "boundary_conditions", "[]", "particles"): (None, "evaluator"),
+    ("case", "boundary_conditions", "[]", "[]", "particles"): (None, "evaluator"),
     # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
     ("case", "models", "physics", "turbulence", "les"): UNITLESS,
     ("case", "models", "physics", "turbulence", "rans"): NOT_A_QUANTITY,
@@ -10414,8 +10431,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             except ValueError as e:
                 errors.append(f"  {case_path}: {e}")
                 particle_fields = []
-            if particle_fields and int(particles_cfg.get('count', 0) or 0) <= 0:
-                errors.append(f"  {case_path}: models.physics.particles.fields needs particles (count > 0).")
+            if particle_fields and int(particles_cfg.get('count', 0) or 0) <= 0 and not case_injects_particles(case_cfg):
+                errors.append(f"  {case_path}: models.physics.particles.fields needs particles "
+                              "(count > 0, or an inlet with particles).")
             if particle_fields and ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
                 errors.append(
                     f"  {case_path}: models.physics.particles.fields cannot be combined with "
@@ -10431,10 +10449,19 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                 resumes = int(rc.get('start_step', 0)) > 0
             except (TypeError, ValueError):
                 resumes = False
-            if particle_fields and resumes and str(particles_cfg.get('restart_mode', 'load')).lower() == 'load':
+            if particle_fields and resumes and str(particles_cfg.get('restart_mode', 'load')).lower() == 'load' \
+                    and not case_injects_particles(case_cfg):
                 warnings.append(
                     f"{case_path}: models.physics.particles.fields is ignored when particles are restored "
                     "(restart_mode: load); their values come from the checkpoint.")
+
+    if ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
+        raw_blocks = case_cfg.get('boundary_conditions') or []
+        for entry in (raw_blocks if raw_blocks and isinstance(raw_blocks[0], dict) else []):
+            if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
+                errors.append(
+                    f"  {case_path}: boundary_conditions {entry.get('face')}.particles.fields cannot be combined with "
+                    f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
 
     # --- case.yml: domain and physics switches ---
     # Multi-block coupling, immersed boundaries and moving bodies are planned, not
@@ -10767,9 +10794,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             physics_cfg = (case_cfg.get('models') or {}).get('physics') if isinstance(case_cfg, dict) and isinstance(case_cfg.get('models') or {}, dict) else None
             particles_cfg = physics_cfg.get('particles') if isinstance(physics_cfg, dict) else None
             particle_count = particles_cfg.get('count', 0) if isinstance(particles_cfg, dict) else 0
-            if resolve_traced_particle_ids(monitor_cfg) and not particle_count:
+            if resolve_traced_particle_ids(monitor_cfg) and not particle_count and not case_injects_particles(case_cfg):
                 errors.append(f"  {monitor_path}: 'logging.trace_particles' needs particles; "
-                              "models.physics.particles.count is 0.")
+                              "models.physics.particles.count is 0 and no inlet injects any.")
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
         particle_console_freq = io_cfg.get('particle_console_output_frequency')
@@ -11234,6 +11261,11 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                 f"  {post_path}: statistics task 'msd' measures displacement from "
                 f"models.physics.particles.point_source, so it requires init_mode: PointSource "
                 f"(the case seeds with '{init_mode}')."
+            )
+        if case_injects_particles(case_cfg):
+            errors.append(
+                f"  {post_path}: statistics task 'msd' measures displacement from one release, "
+                "but this case injects particles at an inlet throughout the run."
             )
 
     legacy_stats_output_prefix = post_cfg.get('statistics_output_prefix')
@@ -12740,7 +12772,7 @@ def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
     if requirement == "particles":
         particles = physics.get("particles", {}) or {}
         try:
-            return int(particles.get("count", 0) or 0) > 0
+            return int(particles.get("count", 0) or 0) > 0 or case_injects_particles(case_cfg)
         except (TypeError, ValueError):
             return False
     turbulence = physics.get("turbulence", {}) or {}
@@ -14627,30 +14659,81 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
                         f"{where}.expression", ic_gen, random=True)
 
 
-def normalize_particle_fields(fields_cfg, case_cfg: dict) -> list:
+def normalize_particle_fields(fields_cfg, case_cfg: dict, where: str = "models.physics.particles.fields") -> list:
     """!
-    @brief Validate `models.physics.particles.fields` and lower each field's source to expressions.
+    @brief Validate a particle `fields` mapping and lower each field's source to expressions.
     @param[in] fields_cfg The `fields` mapping: a source per field, or a list of one per component.
     @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
+    @param[in] where Configuration path of the mapping.
     @return List of `{"name", "expressions"}` in configuration order.
     @throws ValueError on an unknown field, a wrong component count, or an invalid source.
     """
     if not isinstance(fields_cfg, dict) or not fields_cfg:
-        raise ValueError("models.physics.particles.fields must be a non-empty mapping of field names to sources.")
+        raise ValueError(f"{where} must be a non-empty mapping of field names to sources.")
     normalized = []
     for name, spec in fields_cfg.items():
         if name not in PARTICLE_SETTABLE_FIELDS:
             raise ValueError(
-                f"models.physics.particles.fields.{name}: not a field a case can set; the runtime "
+                f"{where}.{name}: not a field a case can set; the runtime "
                 f"re-derives it. Settable fields: {sorted(PARTICLE_SETTABLE_FIELDS)}.")
         components = PARTICLE_SETTABLE_FIELDS[name]
         specs = spec if components > 1 else [spec]
         if not isinstance(specs, list) or len(specs) != components:
-            raise ValueError(f"models.physics.particles.fields.{name} takes {components} component sources.")
-        expressions = [resolve_particle_source(item, case_cfg, f"models.physics.particles.fields.{name}")
-                       for item in specs]
+            raise ValueError(f"{where}.{name} takes {components} component sources.")
+        expressions = [resolve_particle_source(item, case_cfg, f"{where}.{name}") for item in specs]
         normalized.append({"name": name, "expressions": expressions})
     return normalized
+
+
+def particle_field_control_lines(prefix: str, fields: list, where: str) -> list:
+    """!
+    @brief Control-file options carrying normalized particle fields to the runtime.
+    @param[in] prefix Option prefix, e.g. `-particle_fields`.
+    @param[in] fields Output of `normalize_particle_fields()`.
+    @param[in] where Configuration path, for the newline guard.
+    @return Control lines.
+    """
+    lines = [f"{prefix}_count {len(fields)}"]
+    for index, entry in enumerate(fields):
+        lines.append(f"{prefix}_{index}_name {entry['name']}")
+        for component, expression in enumerate(entry["expressions"]):
+            text = expression_control_value(expression, f"{where}.{entry['name']}")
+            lines.append(f"{prefix}_{index}_expr_{component} \"{text}\"")
+    return lines
+
+
+def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
+    """!
+    @brief Validate a `particles` mapping on an inlet: its number density and its field values.
+    @param[in] spec The mapping.
+    @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
+    @param[in] where Configuration path of the mapping.
+    @return `{"number_density": text, "fields": list}`; fields empty when the case's apply.
+    @throws ValueError on an unknown key or an invalid value.
+    """
+    if not isinstance(spec, dict) or "number_density" not in spec or set(spec) - {"number_density", "fields"}:
+        raise ValueError(f"{where} takes number_density and optionally fields.")
+    ic_gen = load_ic_generator_module()
+    density = spec["number_density"]
+    if isinstance(density, (int, float)) and not isinstance(density, bool) and density <= 0:
+        raise ValueError(f"{where}.number_density must be positive (got {density}).")
+    text = _source_text(density, _source_constants({}, case_cfg, where, ic_gen), ("t",),
+                        f"{where}.number_density", ic_gen)
+    fields = normalize_particle_fields(spec["fields"], case_cfg, f"{where}.fields") if spec.get("fields") else []
+    return {"number_density": text, "fields": fields}
+
+
+def case_injects_particles(case_cfg: dict) -> bool:
+    """!
+    @brief Whether any inlet of the case injects particles.
+    @param[in] case_cfg Parsed case.yml.
+    @return True when a boundary entry carries `particles`; validation reports its errors.
+    """
+    raw_blocks = (case_cfg or {}).get("boundary_conditions") or []
+    if raw_blocks and isinstance(raw_blocks[0], dict):
+        raw_blocks = [raw_blocks]
+    return any(isinstance(entry, dict) and entry.get("particles") is not None
+               for block in raw_blocks for entry in (block if isinstance(block, list) else []))
 
 
 def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
@@ -16399,12 +16482,9 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
 
     if particles_cfg.get('fields'):
         particle_fields = normalize_particle_fields(particles_cfg['fields'], case_cfg)
-        control_lines.append(f"-particle_fields_count {len(particle_fields)}")
-        for index, entry in enumerate(particle_fields):
-            control_lines.append(f"-particle_fields_{index}_name {entry['name']}")
-            for component, expression in enumerate(entry["expressions"]):
-                text = expression_control_value(expression, f"models.physics.particles.fields.{entry['name']}")
-                control_lines.append(f"-particle_fields_{index}_expr_{component} \"{text}\"")
+        control_lines.extend(particle_field_control_lines("-particle_fields", particle_fields,
+                                                          "models.physics.particles.fields"))
+        for entry in particle_fields:
             print(f"  - Particle Field Initial Value: {entry['name']} = {' ; '.join(entry['expressions'])}")
 
     p_restart_mode = particles_cfg.get('restart_mode')
@@ -17111,6 +17191,16 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 control_lines.extend(velocity_source_control_lines(
                     f"-face_source_{entry['params']['source_id']}", entry["source"],
                     f"boundary_conditions[{block_index}] {entry['face']}.source"))
+    inlets = [entry for block in prepared_blocks for entry in block if "particles" in entry]
+    if inlets:
+        control_lines.append(f"-particle_inlet_count {len(inlets)}")
+    for index, entry in enumerate(inlets):
+        where = f"boundary_conditions {entry['face']}.particles"
+        prefix = f"-particle_inlet_{index}"
+        control_lines.append(f"{prefix}_face {list(BC_FACE_MAP.values()).index(entry['face'])}")
+        control_lines.append(f"{prefix}_number_density \"{expression_control_value(entry['particles']['number_density'], where)}\"")
+        if entry["particles"]["fields"]:
+            control_lines.extend(particle_field_control_lines(f"{prefix}_fields", entry["particles"]["fields"], f"{where}.fields"))
 
     configs["decomposition_resolved"] = append_grid_da_processor_layout(
         control_lines, grid_cfg, num_procs,
@@ -25069,6 +25159,7 @@ SUMMARY_TABLES = {
     "wall-model": ("metrics_dir", "wall_model.csv"),
     "driven-flow": ("metrics_dir", "driven_flow.csv"),
     "particle-initial-fields": ("metrics_dir", "particle_initial_fields.csv"),
+    "particle-injection": ("metrics_dir", "particle_injection.csv"),
 }
 
 

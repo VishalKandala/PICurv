@@ -21,7 +21,8 @@ Order inside the coupled step, as implemented in @ref AdvanceSimulation
 1. refresh Eulerian transport properties when a turbulence model is active:
    @ref ComputeEulerianDiffusivity and @ref ComputeEulerianDiffusivityGradient
 2. advect particle positions using the velocity interpolated at the **previous**
-   step: @ref UpdateAllParticlePositions
+   step: @ref UpdateAllParticlePositions, then add the particles entering through any
+   inlet that carries `particles`: @ref InjectParticlesAtInlets (@ref p45_inject_sec)
 3. settle particles - locate new host cells and migrate across ranks:
    @ref LocateAllParticlesInGrid. After each migration the particles that stayed come first
    and the received ones follow, so the newcomers flagged for the next pass are the tail

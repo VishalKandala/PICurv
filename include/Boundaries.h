@@ -122,28 +122,6 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
 PetscErrorCode BoundarySystem_Destroy(UserCtx *user);
 
 /**
- * @brief Determines if the current MPI rank owns any part of the globally defined inlet face,
- *        making it responsible for placing particles on that portion of the surface.
- *
- * The determination is based on the rank's owned nodes (from `DMDALocalInfo`) and
- * the global node counts, in conjunction with the `user->identifiedInletBCFace`.
- * A rank can service an inlet face if it owns the cells adjacent to that global boundary
- * and has a non-zero extent (owns cells) in the tangential dimensions of that face.
- *
- * @param user Pointer to the UserCtx structure, containing `identifiedInletBCFace`.
- * @param info Pointer to the DMDALocalInfo for the current rank's DA (node-based).
- * @param IM_nodes_global Global number of nodes in the I-direction (e.g., user->IM + 1 if user->IM is cell count).
- * @param JM_nodes_global Global number of nodes in the J-direction.
- * @param KM_nodes_global Global number of nodes in the K-direction.
- * @param[out] can_service_inlet_out Pointer to a PetscBool; set to PETSC_TRUE if the rank
- *                                   services (part of) the inlet, PETSC_FALSE otherwise.
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
-                                              PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
-                                              PetscBool *can_service_inlet_out);
-
-/**
  * @brief Determines if the current MPI rank owns any part of a specified global face.
  *
  * This function is a general utility for parallel boundary operations. It checks if the

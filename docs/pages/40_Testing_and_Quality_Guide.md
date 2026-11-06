@@ -497,6 +497,7 @@ The smoke suite uses these named runtime sequences:
 - `S3`: tiny restart runs from `S2` with `particle_restart_mode=load` and `particle_restart_mode=init`
 - `S4`: tiny Brownian analytical solve+post with particle outputs and MSD statistics
 - `S4b`: tiny flat-channel analytical uniform-stream run carrying 64 particles out through the outlet; checks every step that the particle count falls by exactly the counted exits and none is lost (`particle_policy: remove`)
+- `S4c`: tiny flat-channel analytical uniform-stream run from an empty domain, filled by an inlet carrying `particles`; checks every step that the expected count follows the flux, that particles equal injected minus exited with none lost, and that `Psi` closes
 - `S5`: multi-rank tiny solve+post runs for flat and bent channels, plus flat particle base/restart (`load` and `init`) branches
 - `S6`: restart-equivalence run for flat channel (continuous vs split restart continuity metric agreement)
 - `S7`: periodic constant-flux validate + dry-run contract coverage in the opt-in stress tier
@@ -511,7 +512,7 @@ Runtime file coverage map (unit targets + runtime sequences):
 - `src/Filter.c`: `unit-solver`
 - `src/field_catalog.c`, `src/particle_field_catalog.c`: `unit-setup`, `unit-periodic`, `unit-runtime`, `unit-solver`, `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
 - `src/Metric.c`: `unit-metric`, `unit-les`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
-- `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S4b`, `S5`
+- `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S4b`, `S4c`, `S5`
 - `src/ParticlePhysics.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticleSwarm.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/grid.c`: `unit-grid`, `unit-setup`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`, `S8`

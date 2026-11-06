@@ -90,6 +90,7 @@ Per-step sequence:
    - @ref FlowSolver for solve mode, or load/analytical branch,
 4. Lagrangian step:
    - @ref UpdateAllParticlePositions,
+   - @ref InjectParticlesAtInlets, for an inlet that carries `particles`,
    - @ref LocateAllParticlesInGrid and migration,
    - @ref CheckAndRemoveLostParticles,
    - @ref InterpolateAllFieldsToSwarm,

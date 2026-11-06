@@ -586,6 +586,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 9: Particle / DMSwarm Data & Settings ---
     simCtx->np = 0;
+    simCtx->particleInlets = NULL;
+    simCtx->particleInletCount = 0;
     simCtx->particleRandomSeed = 12345;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
@@ -1140,8 +1142,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_random_seed", &simCtx->particleRandomSeed, NULL); CHKERRQ(ierr);
     PetscCheck(simCtx->particleRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-particle_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->particleRandomSeed);
-    ierr = ParticleFieldPlanCreate(&simCtx->particleFieldPlan); CHKERRQ(ierr);
-    PetscCheck(!simCtx->particleFieldPlan || simCtx->np > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+    ierr = ParticleFieldPlanCreate("particle_fields", &simCtx->particleFieldPlan); CHKERRQ(ierr);
+    ierr = ParticleInletsCreate(simCtx); CHKERRQ(ierr);
+    PetscCheck(!simCtx->particleFieldPlan || ParticlesEnabled(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                "Particle field initial values are configured but the run has no particles.");
     PetscCheck(!simCtx->particleFieldPlan || !VerificationScalarOverrideActive(simCtx), PETSC_COMM_WORLD,
                PETSC_ERR_ARG_WRONG,
@@ -1209,7 +1212,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     }
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %" PetscInt_FMT "\n", simCtx->np);
-    if (simCtx->np > 0) {
+    if (ParticlesEnabled(simCtx)) {
       if (simCtx->particleConsoleOutputFreq > 0) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %" PetscInt_FMT " step(s)\n", simCtx->particleConsoleOutputFreq);
       } else {
@@ -1217,7 +1220,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
       }
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %" PetscInt_FMT " particle(s)\n", simCtx->LoggingFrequency);
     }
-    if (simCtx->StartStep > 0 && simCtx->np > 0) {
+    if (simCtx->StartStep > 0 && ParticlesEnabled(simCtx)) {
       LOG_ALLOW(GLOBAL, LOG_INFO, "    - Particle Restart Mode: %s\n", simCtx->particleRestartMode);
     }
     
@@ -2235,7 +2238,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = VecSet(user->lNu_Wall, 0.0); CHKERRQ(ierr);
             }
 	    // --- Group H: Particle Methods 	
-	    if(simCtx->np>0){
+	    if(ParticlesEnabled(simCtx)){
 	      ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
         ierr = DMCreateLocalVector(user->da,&user->lParticleCount); CHKERRQ(ierr); ierr = VecSet(user->lParticleCount,0.0); CHKERRQ(ierr);
         // Scalar field to hold particle scalar property (e.g., temperature, concentration)
@@ -2321,7 +2324,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Derived field vectors P_nodal, Ucat_nodal, and Qcrit created.\n");
 
-                if(simCtx->np>0){
+                if(ParticlesEnabled(simCtx)){
                 ierr = VecDuplicate(user->Psi, &user->Psi_nodal); CHKERRQ(ierr);
                 ierr = VecSet(user->Psi_nodal, 0.0); CHKERRQ(ierr);
 
@@ -4198,6 +4201,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     ierr = DestroySolutionConvergenceState(simCtx); CHKERRQ(ierr);
     ierr = DestroyFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
     ierr = ParticleFieldPlanDestroy(&simCtx->particleFieldPlan); CHKERRQ(ierr);
+    ierr = ParticleInletsDestroy(simCtx); CHKERRQ(ierr);
     ierr = AnalyticalFieldDestroy(simCtx); CHKERRQ(ierr);
     ierr = VerificationFieldsDestroy(simCtx); CHKERRQ(ierr);
 

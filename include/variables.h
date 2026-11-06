@@ -108,6 +108,7 @@ extern "C" {
 // These declarations allow pointers to these types before their full definition.
 typedef struct SimCtx SimCtx;
 struct ParticleFieldPlan;
+struct ParticleInlet;
 struct AnalyticalField;
 struct PicurvWindow;
 struct PicurvWindowStorage;
@@ -1027,6 +1028,8 @@ typedef struct SimCtx {
     PetscInt64 particlesExitedCumulative;
     PetscReal particlesExitedScalarLastStep; /**< Sum of Psi over the particles that left the domain this step. */
     struct ParticleFieldPlan *particleFieldPlan; /**< Configured initial particle-field values, or NULL. */
+    struct ParticleInlet *particleInlets; /**< Inlet faces that inject particles, or NULL. */
+    PetscInt particleInletCount;          /**< Entries of `particleInlets`. */
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;
@@ -1097,6 +1100,16 @@ typedef struct SimCtx {
    PetscReal	r[101], tin[101], uinr[101][1001];
 
 } SimCtx;
+
+/**
+ * @brief Whether the run carries particles: a seeded or restored population, or inlets that inject them.
+ * @param[in] simCtx Simulation context.
+ * @return PETSC_TRUE when particle state and steps are needed.
+ */
+static inline PetscBool ParticlesEnabled(const SimCtx *simCtx)
+{
+    return (PetscBool)(simCtx->np > 0 || simCtx->particleInletCount > 0);
+}
 
 /** @deprecated Use mom_dt_jameson_residual_norm_noise_allowance_factor. */
 #define mom_dt_rk4_residual_norm_noise_allowance_factor mom_dt_jameson_residual_norm_noise_allowance_factor

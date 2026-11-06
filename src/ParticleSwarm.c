@@ -2,6 +2,7 @@
 
 #include "ParticleSwarm.h"
 #include "ParticleInitialConditions.h"
+#include "verification_sources.h"
 
 #define INTERPOLATION_DISTANCE_TOLERANCE 1.0e-14
 
@@ -179,7 +180,7 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     if (face >= 0) {
         const PetscInt a = face / 2;
         PetscBool      holds_face = PETSC_FALSE;
-        PetscCall(CanRankServiceInletFace(user, &user->info, nodes[0] - 1, nodes[1] - 1, nodes[2] - 1, &holds_face));
+        PetscCall(CanRankServiceFace(&user->info, user->IM, user->JM, user->KM, (BCFace)face, &holds_face));
         global_cells[a] = 1;
         if (face % 2) global_origin[a] = nodes[a] - 3; /* origin node of the last cell */
         if (holds_face) {
@@ -742,8 +743,8 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     // Validate input parameters
-    if (numParticles <= 0) {
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Number of particles must be positive. Given: %" PetscInt_FMT "\n", numParticles);
+    if (numParticles < 0) {
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Number of particles must not be negative. Given: %" PetscInt_FMT "\n", numParticles);
         PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_OUTOFRANGE;
     }
@@ -761,6 +762,8 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     if (user->simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME) {
         ierr = DistributeParticlesByOwnedMeasure(user, -1, numParticles, particlesPerProcess); CHKERRQ(ierr);
     } else if (user->simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM) {
+        PetscCheck(user->inletFaceDefined, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                   "Surface particle seeding needs an INLET face.");
         ierr = DistributeParticlesByOwnedMeasure(user, (PetscInt)user->identifiedInletBCFace, numParticles, particlesPerProcess); CHKERRQ(ierr);
     } else {
         ierr = DistributeParticles(numParticles, rank, size, particlesPerProcess, &remainder); CHKERRQ(ierr);
@@ -1102,6 +1105,315 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle swarm setup complete.\n");
 
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/* ------------------------------------------------------------------------- */
+/*                            Injection at inlets                            */
+/* ------------------------------------------------------------------------- */
+
+/* A checkpoint stores a particle ID as a double, so every ID stays below 2^53. Seeded IDs stay
+   below the base; an injected ID is base + (step * faces + face cell) * per_cell + k, which
+   depends only on the grid, and so stays unique when a restart changes the rate or the inlets. */
+#define PARTICLE_INLET_PID_BASE     ((PetscInt64)1 << 40)
+#define PARTICLE_INLET_PIDS_PER_CELL ((PetscInt64)1 << 10)
+#define PARTICLE_PID_LIMIT          ((PetscInt64)1 << 53)
+#define PARTICLE_INLET_FACE_COUNT   6
+#define PARTICLE_INLET_SUMS         4
+
+/** @brief One inlet face that injects particles. */
+struct ParticleInlet {
+    BCFace             face;
+    PicurvExpression  *number_density; /**< Particles per m^3 of entering fluid, in `t`. */
+    ParticleFieldPlan *plan;           /**< This inlet's field values; NULL uses the case's. */
+    SeedingCellTable   table;          /**< The owned cells on the face; built at the first injection. */
+    PetscBool          table_built;
+};
+
+/**
+ * @brief Implementation of \ref ParticleInletsCreate().
+ * @see ParticleInletsCreate()
+ */
+PetscErrorCode ParticleInletsCreate(SimCtx *simCtx)
+{
+    static const char *const names[] = {"t"};
+    PetscInt  count = 0;
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-particle_inlet_count", &count, &found));
+    if (!found || count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    PetscCheck(count > 0 && count <= PARTICLE_INLET_FACE_COUNT, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-particle_inlet_count must be between 0 and %d (got %" PetscInt_FMT ").",
+               PARTICLE_INLET_FACE_COUNT, count);
+    PetscCheck((PetscInt64)simCtx->np < PARTICLE_INLET_PID_BASE, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "Injected particle IDs start at %" PetscInt64_FMT ", so a run with particle inlets seeds fewer "
+               "particles than that (got %" PetscInt_FMT ").", PARTICLE_INLET_PID_BASE, simCtx->np);
+    PetscCall(PetscCalloc1(count, &simCtx->particleInlets));
+    simCtx->particleInletCount = count;
+    for (PetscInt n = 0; n < count; ++n) {
+        struct ParticleInlet *inlet = &simCtx->particleInlets[n];
+        char     option[256], text[4096];
+        PetscInt face = -1;
+
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_inlet_%" PetscInt_FMT "_face", n));
+        PetscCall(PetscOptionsGetInt(NULL, NULL, option, &face, &found));
+        PetscCheck(found && face >= 0 && face < PARTICLE_INLET_FACE_COUNT, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "%s must name a face from 0 to %d.", option, PARTICLE_INLET_FACE_COUNT - 1);
+        inlet->face = (BCFace)face;
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_inlet_%" PetscInt_FMT "_number_density", n));
+        PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
+        PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "%s is missing.", option);
+        PetscCall(PicurvExpressionCompile(text, names, 1, PETSC_FALSE, &inlet->number_density));
+        PetscCall(PetscSNPrintf(option, sizeof(option), "particle_inlet_%" PetscInt_FMT "_fields", n));
+        PetscCall(ParticleFieldPlanCreate(option, &inlet->plan));
+        PetscCheck(!inlet->plan || !VerificationScalarOverrideActive(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "An inlet's particle field values cannot be combined with the verification scalar source, "
+                   "which prescribes Psi at every step.");
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref ParticleInletsDestroy().
+ * @see ParticleInletsDestroy()
+ */
+PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
+        struct ParticleInlet *inlet = &simCtx->particleInlets[n];
+        PetscCall(PicurvExpressionDestroy(&inlet->number_density));
+        PetscCall(ParticleFieldPlanDestroy(&inlet->plan));
+        if (inlet->table_built) PetscCall(FreeSeedingCellTable(&inlet->table));
+    }
+    PetscCall(PetscFree(simCtx->particleInlets));
+    simCtx->particleInletCount = 0;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Add one inlet's particles for this step.
+ * @param[in,out] user     Grid context holding the swarm.
+ * @param[in,out] inlet    The inlet.
+ * @param[in]     event    Time of the step, and the identity keying field draws.
+ * @param[in]     first_id This step's first face-cell identity.
+ * @param[in,out] sums     Adds this rank's flow rate [m^3/s], expected and added particles, and Psi added.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, const ParticleFieldEvent *event,
+                                    PetscInt64 first_id, PetscReal sums[PARTICLE_INLET_SUMS])
+{
+    SimCtx                 *simCtx = user->simCtx;
+    DM                      swarm = user->swarm;
+    const SeedingCellTable *table = &inlet->table;
+    const PetscInt          nodes[3] = {user->info.mx, user->info.my, user->info.mz};
+    const PetscInt          normal = (PetscInt)inlet->face / 2, a = (normal == 0) ? 1 : 0, b = (normal == 2) ? 1 : 2;
+    const PetscBool         negative = (PetscBool)((PetscInt)inlet->face % 2 == 0);
+    const PetscReal         sign = negative ? 1.0 : -1.0, L_ref = simCtx->scaling.L_ref;
+    const PetscInt64        seed = (PetscInt64)simCtx->particleRandomSeed;
+    const PetscInt          n_cells = table->n[0] * table->n[1] * table->n[2];
+    const Vec               metric_vec = (normal == 0) ? user->lCsi : (normal == 1) ? user->lEta : user->lZet;
+    const Cmpnts         ***coor = NULL, ***ucont = NULL, ***metric = NULL;
+    const PetscInt64        cells[3] = {nodes[0] - 2, nodes[1] - 2, nodes[2] - 2};
+    PetscInt64              face_start = 0;
+    PetscInt64             *cell_id = NULL;
+    PetscInt               *count = NULL;
+    Cmpnts                 *travel = NULL, *inward = NULL;
+    PetscInt                first = 0, n_new = 0;
+    PetscReal               density = 0.0;
+    ParticleFieldPlan      *plan = inlet->plan ? inlet->plan : simCtx->particleFieldPlan;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PicurvExpressionEvaluate(inlet->number_density, &event->physical_time, NULL, &density));
+    PetscCheck(!PetscIsInfOrNanReal(density) && density >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "The number density of inlet %s is %g at t = %g; it must be finite and not negative.",
+               BCFaceToString(inlet->face), (double)density, (double)event->physical_time);
+    for (PetscInt f = 0; f < (PetscInt)inlet->face; ++f) face_start += cells[(f / 2 + 1) % 3] * cells[(f / 2 + 2) % 3];
+
+    // --- 1. How many enter each face cell: the mean's integer part, and one more by chance ---
+    PetscCall(PetscMalloc3(n_cells, &count, n_cells, &cell_id, n_cells, &travel));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, metric_vec, (void *)&metric));
+    for (PetscInt c = 0; c < n_cells; ++c) {
+        const PetscInt origin[3] = {table->origin[0] + c % table->n[0], table->origin[1] + (c / table->n[0]) % table->n[1],
+                                    table->origin[2] + c / (table->n[0] * table->n[1])};
+        PetscInt f[3] = {origin[0] + 1, origin[1] + 1, origin[2] + 1};
+        f[normal] = negative ? 0 : nodes[normal] - 2;
+        const Cmpnts    u = ucont[f[2]][f[1]][f[0]], m = metric[f[2]][f[1]][f[0]];
+        const PetscReal flux = PetscMax(sign * ((normal == 0) ? u.x : (normal == 1) ? u.y : u.z), 0.0);
+        const PetscReal expected = density * L_ref * L_ref * L_ref * flux * simCtx->dt;
+        const PetscReal whole = PetscFloorReal(expected);
+        /* u_n dt along the inward unit normal: (flux / |m|) dt (sign m / |m|). */
+        const PetscReal along_m = sign * flux * simCtx->dt / (m.x * m.x + m.y * m.y + m.z * m.z);
+
+        PetscCheck(whole < (PetscReal)PARTICLE_INLET_PIDS_PER_CELL, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+                   "Inlet %s would inject %g particles through one face cell in one step; the limit is %" PetscInt64_FMT
+                   ". Lower number_density or the time step.", BCFaceToString(inlet->face), (double)expected,
+                   PARTICLE_INLET_PIDS_PER_CELL - 1);
+        cell_id[c] = first_id + face_start + origin[a] + cells[a] * origin[b];
+        count[c] = (PetscInt)whole;
+        if (PicurvUnitFromHash(PicurvParticleDrawHash(seed, PICURV_DRAW_SPACE_INLET, 0, cell_id[c], 0)) < expected - whole) count[c]++;
+        travel[c].x = along_m * m.x; travel[c].y = along_m * m.y; travel[c].z = along_m * m.z;
+        n_new += count[c];
+        sums[0] += flux * simCtx->scaling.U_ref * L_ref * L_ref;
+        sums[1] += expected;
+    }
+    sums[2] += (PetscReal)n_new;
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, metric_vec, (void *)&metric));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, (void *)&ucont));
+
+    // --- 2. Where: on the face, uniformly by area, keyed on the particle's ID ---
+    PetscCall(DMSwarmGetLocalSize(swarm, &first));
+    PetscCall(PetscMalloc1(n_new, &inward));
+    if (n_new > 0) {
+        PetscReal  *positions = NULL, *weights = NULL;
+        PetscInt   *cell = NULL, *status = NULL;
+        PetscInt64 *pids = NULL;
+        PetscInt    p = first;
+
+        PetscCall(DMSwarmSetLocalSizes(swarm, first + n_new, -1));
+        for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+            const ParticleFieldDescriptor *descriptor = NULL;
+            PetscReal *field = NULL;
+
+            PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+            if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE)) continue;
+            PetscCall(DMSwarmGetField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+            for (PetscInt q = first; q < first + n_new; ++q) PetscCall(InitializeSwarmFieldValue(descriptor, q, field));
+            PetscCall(DMSwarmRestoreField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+        }
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
+        for (PetscInt c = 0; c < n_cells; ++c) {
+            for (PetscInt k = 0; k < count[c]; ++k, ++p) {
+                const PetscInt64 pid = PARTICLE_INLET_PID_BASE + cell_id[c] * PARTICLE_INLET_PIDS_PER_CELL + k;
+                const PetscReal  share = PicurvUnitFromHash(PicurvParticleDrawHash(seed, PICURV_DRAW_SPACE_INLET, 1, pid, 0));
+                PetscInt  ci, cj, ck;
+                PetscReal xi, eta, zta;
+                Cmpnts    point;
+
+                PetscCall(DrawSeedingPoint(user, coor, table, c, pid, &ci, &cj, &ck, &xi, &eta, &zta));
+                PetscCall(MetricLogicalToPhysical(user, coor, ci, cj, ck, xi, eta, zta, &point));
+                positions[3 * p + 0] = point.x; positions[3 * p + 1] = point.y; positions[3 * p + 2] = point.z;
+                weights[3 * p + 0] = xi; weights[3 * p + 1] = eta; weights[3 * p + 2] = zta;
+                cell[3 * p + 0] = ci; cell[3 * p + 1] = cj; cell[3 * p + 2] = ck;
+                pids[p] = pid;
+                status[p] = NEEDS_LOCATION;
+                inward[p - first].x = share * travel[c].x;
+                inward[p - first].y = share * travel[c].y;
+                inward[p - first].z = share * travel[c].z;
+                LOG_PARTICLE(simCtx, pid, "inject", "through %s on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
+                             BCFaceToString(inlet->face), (int)simCtx->rank, point.x, point.y, point.z, ci, cj, ck);
+            }
+        }
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
+    }
+
+    // --- 3. What it carries, set where it crossed the face. Every rank calls this: see the plan. ---
+    PetscCall(ParticleFieldPlanApply(user, plan, event, first, first + n_new));
+
+    // --- 4. How far it has come since; the search that follows finds its cell ---
+    if (n_new > 0) {
+        PetscReal *positions = NULL, *psi = NULL;
+
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&psi));
+        for (PetscInt q = 0; q < n_new; ++q) {
+            positions[3 * (first + q) + 0] += inward[q].x;
+            positions[3 * (first + q) + 1] += inward[q].y;
+            positions[3 * (first + q) + 2] += inward[q].z;
+            sums[3] += psi[first + q];
+        }
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&psi));
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+    }
+    PetscCall(PetscFree(inward));
+    PetscCall(PetscFree3(count, cell_id, travel));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref InjectParticlesAtInlets().
+ * @see InjectParticlesAtInlets()
+ */
+PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
+{
+    SimCtx            *simCtx = user->simCtx;
+    PetscReal          local[PARTICLE_INLET_FACE_COUNT][PARTICLE_INLET_SUMS] = {{0.0}};
+    PetscReal          global[PARTICLE_INLET_FACE_COUNT][PARTICLE_INLET_SUMS];
+    ParticleFieldEvent event = {0.0, 0};
+    PetscInt64         faces = 0, first_id;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    if (simCtx->particleInletCount == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    {
+        const PetscInt64 cells[3] = {user->info.mx - 2, user->info.my - 2, user->info.mz - 2};
+        faces = 2 * (cells[0] * cells[1] + cells[1] * cells[2] + cells[2] * cells[0]);
+    }
+    first_id = (PetscInt64)simCtx->step * faces;
+    PetscCheck((__int128)(simCtx->step + 1) * faces * PARTICLE_INLET_PIDS_PER_CELL + PARTICLE_INLET_PID_BASE < (__int128)PARTICLE_PID_LIMIT,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "Step %" PetscInt_FMT " on a grid with %" PetscInt64_FMT " boundary face cells passes the last particle ID a "
+               "checkpoint can store (2^53).", simCtx->step, faces);
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &event.physical_time));
+
+    for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
+        struct ParticleInlet *inlet = &simCtx->particleInlets[n];
+
+        if (!inlet->table_built) {
+            const Cmpnts ***coor = NULL;
+            PetscCheck(user->boundary_faces[inlet->face].mathematical_type == INLET, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                       "Face %s injects particles but is not an INLET.", BCFaceToString(inlet->face));
+            PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
+            PetscCall(BuildSeedingCellTable(user, coor, (PetscInt)inlet->face, 0, PETSC_TRUE, &inlet->table));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
+            inlet->table_built = PETSC_TRUE;
+        }
+        PetscCall(InjectAtInlet(user, inlet, &event, first_id, local[n]));
+    }
+
+    PetscCallMPI(MPI_Allreduce(local, global, PARTICLE_INLET_FACE_COUNT * PARTICLE_INLET_SUMS, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) {
+        FILE *file = NULL;
+
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "particle_injection.csv",
+                                           "step,physical_time,face,flow_rate,expected,injected,psi", PETSC_TRUE, &file));
+        for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
+            fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.0f,%.10e\n", (int)simCtx->step, (double)event.physical_time,
+                    BCFaceToString(simCtx->particleInlets[n].face), (double)global[n][0], (double)global[n][1],
+                    (double)global[n][2], (double)global[n][3]);
+        }
+        PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Unable to close the particle-injection diagnostics file.");
+    }
+    {
+        PetscInt   n_local = 0;
+        PetscInt64 local_total, total = 0;
+        char       object[128];
+
+        PetscCall(DMSwarmGetLocalSize(user->swarm, &n_local));
+        local_total = n_local;
+        PetscCallMPI(MPI_Allreduce(&local_total, &total, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCall(PetscSNPrintf(object, sizeof(object), "the %" PetscInt64_FMT " particles after injection (three components each)", total));
+        PetscCall(PicurvCheckPetscIntRange(PETSC_COMM_WORLD, 3 * total, object));
+    }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

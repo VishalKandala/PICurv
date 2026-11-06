@@ -496,7 +496,7 @@ PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
         return PETSC_FALSE;
     }
     PROFILE_FUNCTION_END;
-    return (PetscBool)(simCtx->np > 0 &&
+    return (PetscBool)(ParticlesEnabled(simCtx) &&
                        simCtx->particleConsoleOutputFreq > 0 &&
                        get_log_level() >= LOG_INFO);
 }
@@ -3330,7 +3330,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     }
     simCtx = user->simCtx;
 
-    if (simCtx->np <= 0) {
+    if (!ParticlesEnabled(simCtx)) {
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }

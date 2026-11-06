@@ -33,21 +33,22 @@ typedef struct {
 
 /**
  * @brief Read a plan from the options database.
- * @details Reads `-particle_fields_count`, and for each field `i`,
- *          `-particle_fields_<i>_name` and one expression per component,
- *          `-particle_fields_<i>_expr_<c>`. Every named field must be a particle-carried
- *          field of the catalog (capability `USER_INITIALIZE`).
+ * @details Reads `-<prefix>_count`, and for each field `i`, `-<prefix>_<i>_name` and one
+ *          expression per component, `-<prefix>_<i>_expr_<c>`. Every named field must be a
+ *          particle-carried field of the catalog (capability `USER_INITIALIZE`).
+ * @param[in]  prefix Option prefix without its dash: `particle_fields` for the t=0 population,
+ *                    `particle_inlet_<n>_fields` for an inlet.
  * @param[out] plan Compiled plan, or NULL when no field is configured.
  * @return Zero on success; `PETSC_ERR_ARG_WRONG` for an unknown or non-settable field or a
  *         malformed expression.
  */
-PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan);
+PetscErrorCode ParticleFieldPlanCreate(const char *prefix, ParticleFieldPlan **plan);
 
 /**
  * @brief Write the plan's values into swarm entries `[first, end)` of this rank.
- * @details Each rank evaluates its own entries. Collective when an expression reads a grid line's
- *          fraction or length, so every rank calls it even with an empty range; those need each
- *          particle's settled cell and weights. A value that is not finite is an error naming the
+ * @details Each rank evaluates its own entries. Every rank calls it even with an empty range: the
+ *          first call that reads a grid line's fraction or length is collective, computing them once
+ *          for the plan. Those expressions need each particle's cell and weights. A value that is not finite is an error naming the
  *          particle and its position.
  * @param[in,out] user  Block owning the swarm.
  * @param[in]     plan  Plan to apply; NULL does nothing.
@@ -56,7 +57,7 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan);
  * @param[in]     end   One past the last local entry.
  * @return Zero on success.
  */
-PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *plan,
+PetscErrorCode ParticleFieldPlanApply(UserCtx *user, ParticleFieldPlan *plan,
                                       const ParticleFieldEvent *event, PetscInt first, PetscInt end);
 
 /**

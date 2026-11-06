@@ -10,7 +10,8 @@
     "src/expression.c",
     "src/BC_Handlers.c",
     "src/initialcondition.c",
-    "src/verification_sources.c"
+    "src/verification_sources.c",
+    "src/ParticleSwarm.c"
   ],
   "known_petsc_options": [
     "-TwoD",
@@ -98,6 +99,7 @@
     "-output_dir",
     "-output_particles",
     "-particle_console_output_freq",
+    "-particle_inlet_count",
     "-particle_random_seed",
     "-particle_restart_mode",
     "-picurv_trace_particles",
@@ -179,8 +181,10 @@
     "-field_statistics_window_%_step_cadence",
     "-field_statistics_window_%_time_cadence",
     "-field_statistics_window_%_weighting",
-    "-particle_fields_%_expr_%",
-    "-particle_fields_%_name",
-    "-particle_fields_count"
+    "-%_%_expr_%",
+    "-%_%_name",
+    "-%_count",
+    "-particle_inlet_%_face",
+    "-particle_inlet_%_number_density"
   ]
 }

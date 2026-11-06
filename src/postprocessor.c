@@ -150,7 +150,7 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
             char *out_field = strtok(NULL, ">");
             if (!in_field || !out_field) SETERRQ(PETSC_COMM_SELF, 1, "CellToNodeAverage requires 'in>out' syntax (e.g., P>P_nodal).");
             if(strcmp(in_field,out_field)==0) SETERRQ(PETSC_COMM_SELF, 1, "CellToNodeAverage input and output fields must be different.");
-            if(user->simCtx->np == 0 && (strcmp(out_field,"Psi_nodal")==0 || strcmp(in_field,"Psi_nodal")==0)){
+            if(!ParticlesEnabled(user->simCtx) && (strcmp(out_field,"Psi_nodal")==0 || strcmp(in_field,"Psi_nodal")==0)){
                 LOG(GLOBAL,LOG_WARNING,"CellToNodeAverage cannot process 'Psi_nodal' when no particles are present in the simulation.\n");
                 step_token = strtok_r(NULL, ";", &step_saveptr);
                 continue;
@@ -247,7 +247,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
                         "Field 'Qcrit' is cell-centred and cannot be written as point data. "
                         "Add a nodal_average task (input_field: Qcrit, output_field: Qcrit_nodal) and write 'Qcrit_nodal'.");
             } else if (!strcasecmp(field_name, "Psi_nodal")){
-                if(user->simCtx->np==0){
+                if(!ParticlesEnabled(user->simCtx)){
                     LOG_ALLOW(LOCAL, LOG_WARNING, "Field 'Psi_nodal' requested but no particles are present. Skipping.\n");
                     field_name = strtok(NULL, ",");
                     continue;
@@ -797,7 +797,7 @@ int main(int argc, char **argv)
     }
     PetscBool needs_particle_stage = (pps->outputParticles || pps->particle_pipeline[0] != '\0' || pps->statistics_pipeline[0] != '\0' || needs_particle_ensembles) ? PETSC_TRUE : PETSC_FALSE;
     if(needs_particle_stage) {
-        if(simCtx->np > 0){
+        if(ParticlesEnabled(simCtx)){
             ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
             // Create a post-processing specific DMSwarm
             ierr = SetupPostProcessSwarm(user,pps); CHKERRQ(ierr);

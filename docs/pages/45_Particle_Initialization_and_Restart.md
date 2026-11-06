@@ -117,7 +117,7 @@ reference scale as they are stored (**@subpage 19_Nondimensionalization**). `Psi
 dimensionless.
 
 **Validation.** `picurv validate` refuses an unknown or re-derived field, an expression
-outside the language, a region with a missing or unknown key, `fields` without particles,
+outside the language, a region with a missing or unknown key, `fields` without particles or an inlet with particles,
 and `fields` together with `solver.yml` `verification.sources.scalar`, which prescribes
 `Psi` at every step. It warns when a `PointSource` value has no draw, because every
 particle then starts at one point with one value.
@@ -129,6 +129,70 @@ per field and component, with a ten-bin histogram between the minimum and maximu
 
 Mapping to control flags: `-particle_fields_count`, then per field `-particle_fields_<i>_name`
 and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expression.
+
+@section p45_inject_sec 1.2 Injection at an Inlet
+
+**Status: experimental.** See the evidence below; nothing has been measured at scale.
+
+An INLET face adds particles every step when its entry carries `particles`. Nothing needs
+to be seeded, so `count: 0` starts a flow-through case from an empty domain, and two inlets
+can carry different values:
+
+```yaml
+boundary_conditions:
+- face: -Zeta
+  type: INLET
+  handler: prescribed_velocity
+  source: {components: normal, expression: "6*y*(1-y)"}
+  particles:
+    number_density: 2.0e6                # particles per m^3 of entering fluid; a number or an expression in t
+    fields: {Psi: {expression: "y"}}     # optional; the case's particles.fields otherwise
+```
+
+**Rate.** Each particle stands for an equal share of fluid, so particles enter in proportion
+to the flow. A face cell with volume flux `Q` receives on average `n Q dt` particles per step
+and none where the flow leaves, which keeps the number density `n` under any velocity
+profile. Expect a steady population of about `n V` for a domain of volume `V`, after one
+flow-through time; the particles per cell follow from the grid, so small cells hold fewer.
+Nothing adds or removes particles to even this out, so recirculating or stagnant regions
+fed slowly by the inlet can run short. `particles_per_cell_min` in `search_metrics.csv` shows it.
+
+**Placement.** A particle's value is evaluated on the face, where it crossed, at the step's
+time, as on a seeded particle (@ref p45_particle_values_sec): `x y z t xi eta zeta L_xi L_eta L_zeta
+pid uniform() normal()`, with `xi eta zeta` from the crossing cell. It then moves in along
+the face normal by a uniform share of `u_n dt`, so one step's particles do not travel as a
+sheet, and the search that follows the particle update locates it.
+
+**Inlet policy.** An injecting inlet defaults to `particle_policy: reflect`. The inlet then
+fixes the total flux entering, and a particle diffusing back across it stays in the domain.
+With `remove` those particles are lost and the population settles below `n V`.
+
+**Keyed draws and restart.** The number entering a face cell, each position, and each
+identity follow from the seed, the face cell's position in the grid, and the step. Nothing is
+stored, so a restart continues the same sequence, and the rank layout does not enter. The
+flow still does: a face cell's mean count follows the flux, so round-off or a restart's flow
+difference can change a count in the rare case the mean lies that close to the draw.
+
+**Limits.** An injected ID is `2^40 + (step F + cell) 2^10 + k`, with `F` the grid's boundary
+face cells and `k` numbering a face cell's particles in one step. A checkpoint stores IDs as
+doubles, so a step is refused once an ID would pass `2^53`, and so is a step sending 1024 or
+more particles through one face cell. Seeding at least `2^40` particles alongside an inlet is
+refused. Inlets inject on block 0 only, and the statistics task `msd` is refused because it
+measures displacement from one release. On a 32-bit-index build `logging.trace_particles` reads
+IDs as 32-bit integers, so it cannot name an injected particle. An inlet's `fields` cannot be
+combined with `verification.sources.scalar`, which prescribes `Psi` at every step.
+
+**Diagnostics.** `particle_injection.csv` under `<run.analysis.metrics>` records each inlet's
+flow rate, expected and injected particles and `Psi` added, every step. With `exited` and
+`exited_psi_sum` in `search_metrics.csv` these close the particle and scalar budgets.
+
+**Evidence.** Unit verified: `make unit-mpi` (`injection-follows-flux-and-is-keyed-on-the-grid`)
+checks counts and identities against the formula at 2 and 4 ranks. Integration verified:
+`make smoke` (`S4c`) fills an empty domain in an analytical uniform stream and closes the
+particle and `Psi` budgets every step.
+
+Mapping to control flags: `-particle_inlet_count`, then per inlet `-particle_inlet_<n>_face`,
+`-particle_inlet_<n>_number_density` and the field options under `-particle_inlet_<n>_fields_*`.
 
 @section p45_mode_values_sec 2. Accepted `init_mode` Values
 
