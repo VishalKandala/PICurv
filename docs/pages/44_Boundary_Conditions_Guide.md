@@ -778,8 +778,21 @@ it reads the source `PICGRID` header. Sliced dimensional profiles and
 `profile.info` are written under `<run.inputs>/inlet_profiles/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
-A recording slices a plane of a precursor run at each of its checkpoints. `field_files` names them
-by a pattern of their step numbers, and `frame_interval` is the time between the frames it gives:
+A recording slices a plane of a precursor run at each of its checkpoints. A workspace reads only its
+own paths, so register the precursor's files first; `--mode reference` records where they are without
+copying them:
+
+```bash
+picurv inputs import grid <precursor_run>/inputs/grid/grid.run --name precursor.run --mode reference
+for step in $(seq 10000 10 20000); do
+  picurv inputs import reference-field \
+    "<precursor_run>/output/checkpoints/$(printf 'step_%012d' "$step")/eulerian/block_0000/Ucat.dat" \
+    --name "$(printf 'Ucat_%012d.dat' "$step")" --mode reference
+done
+```
+
+`field_files` then names them by a pattern of their step numbers, and `frame_interval` is the time
+between the frames it gives:
 
 ```yaml
 source:
@@ -787,13 +800,13 @@ source:
   components: cartesian
   repeat: true
   field_files:
-    pattern: ../precursor/output/checkpoints/step_{step:012d}/eulerian/block_0000/Ucat.dat
+    pattern: inputs/reference_fields/Ucat_{step:012d}.dat.reference.yml
     first: 10000
     last: 20000
     every: 10
   frame_interval: 0.05
-  grid_file: ../precursor/inputs/grid/grid.run
-  source_case: ../precursor/config/case.yml
+  grid_file: inputs/grids/precursor.run.reference.yml
+  velocity_scale: 1.0     # Or source_case: a copy of the precursor's case.yml in this workspace
   slice: {face: "+Zeta", orientation: opposite}
 ```
 
@@ -806,9 +819,9 @@ boundary_conditions:
     handler: prescribed_velocity
     source:
       type: field_slice
-      field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-      grid_file: ../old_run/inputs/grid/grid.run
-      source_case: ../old_run/config/case.yml
+      field_file: inputs/reference_fields/Ucat.dat.reference.yml  # picurv inputs import reference-field <old_run>/.../Ucat.dat --mode reference
+      grid_file: inputs/grids/old_grid.run                       # picurv inputs import grid <old_run>/inputs/grid/grid.run --name old_grid.run
+      source_case: config/old_case.yml                          # A copy of the old case.yml
       slice:
         face: "+Zeta"
         orientation: opposite

@@ -1945,6 +1945,41 @@ def test_profile_gen_field_slice_cli_records_velocities_over_time(tmp_path):
     assert [float(v) for v in lines[7].split()] == pytest.approx([2.0, -4.0, -10.0])
 
 
+def test_a_recording_reads_frames_imported_by_reference(tmp_path):
+    """!
+    @brief Test a workspace recording: frames imported by reference resolve through the pattern to their files.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    precursor = tmp_path / "precursor"
+    precursor.mkdir()
+    grid = write_canonical_picgrid(precursor / "grid.picgrid", dims=(3, 3, 3))
+    workspace = tmp_path / "workspace"
+    (workspace / "config").mkdir(parents=True)
+    (workspace / ".picurv-workspace.yml").write_text("schema_version: 1\n", encoding="utf-8")
+    picurv.import_workspace_input(str(workspace), "grid", str(grid), name="precursor.picgrid", mode="reference")
+    for step, w in ((10, 3.0), (20, 5.0)):
+        frame = write_petsc_vec_binary(precursor / f"Ucat_{step}.dat", [0.0, 0.0, w] * 4 ** 3)
+        picurv.import_workspace_input(str(workspace), "reference-field", str(frame), name=f"Ucat_{step:012d}.dat", mode="reference")
+
+    source = picurv._normalize_profile_source({
+        "type": "field_slice",
+        "field_files": {"pattern": "inputs/reference_fields/Ucat_{step:012d}.dat.reference.yml", "first": 10, "last": 20, "every": 10},
+        "frame_interval": 0.5,
+        "grid_file": "inputs/grids/precursor.picgrid.reference.yml",
+        "velocity_scale": 1.0,
+        "slice": {"face": "+Zeta"},
+    }, "src")
+    output = workspace / "recording.picslice"
+    summary = picurv.generate_field_slice_picslice(
+        str(output), (2, 2), source, str(grid), "-Zeta", 0, str(workspace / "config" / "case.yml"))
+
+    assert summary["frames"] == 2
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["PICSLICE", "2", "2 2 1 0.5"]
+    assert [float(value) for value in lines[3:]] == pytest.approx([3.0] * 4 + [5.0] * 4)
+
+
 def test_profile_gen_field_slice_cli_supports_axis_index_selector(tmp_path):
     """!
     @brief Test explicit axis/index field-slice selection.

@@ -1267,9 +1267,9 @@ Field-sliced profile example:
   handler: prescribed_velocity
   source:
     type: field_slice
-    field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-    grid_file: ../old_run/inputs/grid/grid.run
-    source_case: ../old_run/config/case.yml
+    field_file: inputs/reference_fields/Ucat.dat.reference.yml  # picurv inputs import reference-field <old_run>/.../Ucat.dat --mode reference
+    grid_file: inputs/grids/old_grid.run                       # picurv inputs import grid <old_run>/inputs/grid/grid.run --name old_grid.run
+    source_case: config/old_case.yml                          # A copy of the old case.yml
     slice:
       face: "+Zeta"
       orientation: opposite
