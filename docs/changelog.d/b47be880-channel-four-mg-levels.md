@@ -1,0 +1,1 @@
+- Changed: `examples/turbulent_channel` uses four multigrid levels, leaving 8,192 unknowns in the redundant coarse LU rather than 65,536, which took about 2 of the 4.05 s/step and 138 s of setup on 64 ranks. The solver has not been run at four levels on this grid, so the speedup and the Poisson iteration count on its stretched grid are not measured.

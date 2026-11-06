@@ -1,0 +1,1 @@
+- Breaking: `execution.extra_sbatch` is now `execution.sbatch_passthrough`, and it takes only a mapping (`key: value` writes `--key=value`, `key: true` writes `--key`). The old name is refused with the replacement named. Cluster profiles using it must be edited.
