@@ -78,12 +78,12 @@ static PetscErrorCode TestAnalyticalScalarVerificationHelpers(void)
     positions[3] = 0.8; positions[4] = 0.6; positions[5] = 0.4;
     PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
 
-    PetscCall(SetAnalyticalScalarFieldOnParticles(user, PARTICLE_FIELD_ID_PSI));
+    PetscCall(SetVerificationScalarOnParticles(user, PARTICLE_FIELD_ID_PSI));
     PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
     PetscCall(PicurvAssertRealNear(2.5, psi[0], 1.0e-12,
-                                   "SetAnalyticalScalarFieldOnParticles should overwrite the first particle scalar"));
+                                   "SetVerificationScalarOnParticles should overwrite the first particle scalar"));
     PetscCall(PicurvAssertRealNear(2.5, psi[1], 1.0e-12,
-                                   "SetAnalyticalScalarFieldOnParticles should overwrite the second particle scalar"));
+                                   "SetVerificationScalarOnParticles should overwrite the second particle scalar"));
     PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
 
     PetscCall(VerificationFieldCompile("1.0 + 2.0*x", &simCtx->verificationScalar));
@@ -93,7 +93,7 @@ static PetscErrorCode TestAnalyticalScalarVerificationHelpers(void)
                                    "linear-x scalar profile should evaluate phi0 + slope_x * x"));
 
     PetscCall(VecDuplicate(user->Psi, &target));
-    PetscCall(SetAnalyticalScalarFieldAtCellCenters(user, target));
+    PetscCall(SetVerificationScalarAtCellCenters(user, target));
     PetscCall(DMDAVecGetArrayRead(user->da, target, &target_arr));
     PetscCall(PicurvAssertRealNear(1.25, target_arr[1][1][1], 1.0e-12,
                                    "cell-center scalar fill should use the physical x center coordinate"));
@@ -260,6 +260,41 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Tests that a boundary value is the source at its own face's centre on both sides: a + face's
+ *        value lives in the dummy layer, one past the layer of its flux and centre.
+ */
+static PetscErrorCode TestAnalyticalBoundaryValuesAreAtFaceCentres(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***cent_x = NULL, ***ubcs = NULL, ***ucat = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    const PetscInt mx = user->info.mx;
+    PetscCall(UseAnalyticalSource(simCtx, "x", "0", "0", NULL));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCentx, &cent_x));
+    cent_x[1][1][0].x = 0.25;
+    cent_x[1][1][mx - 2].x = 2.0;
+    cent_x[1][1][mx - 1].x = -7.0; /* The dummy layer has no face centre. */
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCentx, &cent_x));
+
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(PicurvAssertRealNear(0.25, ubcs[1][1][0].x, 1.0e-12, "the - face's value should be the source at its centre"));
+    PetscCall(PicurvAssertRealNear(2.0, ubcs[1][1][mx - 1].x, 1.0e-12, "the + face's value should be the source at its centre"));
+    PetscCall(PicurvAssertRealNear(2.0, 0.5 * (ucat[1][1][mx - 1].x + ucat[1][1][mx - 2].x), 1.0e-12,
+                                   "the dummy and last cell should average to the + face's value"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Tests the source evaluated at particle positions, and the fields it cannot be evaluated for.
  */
@@ -1084,6 +1119,7 @@ int main(int argc, char **argv)
         {"analytical-scalar-verification-helpers", TestAnalyticalScalarVerificationHelpers},
         {"analytical-solution-engine-follows-its-source", TestAnalyticalSolutionEngineFollowsItsSource},
         {"analytical-solution-engine-taylor-green-samples", TestAnalyticalSolutionEngineTaylorGreenSamples},
+        {"analytical-boundary-values-are-at-face-centres", TestAnalyticalBoundaryValuesAreAtFaceCentres},
         {"analytical-solution-for-particles-evaluates-the-source", TestAnalyticalSolutionForParticlesEvaluatesTheSource},
         {"compute-eddy-viscosity-les-deterministic-field", TestComputeEddyViscosityLESDeterministicField},
         {"flow-solver-rejects-unsupported-momentum-solver-type", TestFlowSolverRejectsUnsupportedMomentumSolverType},

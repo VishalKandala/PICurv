@@ -3127,7 +3127,6 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
 PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 {
     PetscErrorCode ierr;
-    const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P};
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -3137,6 +3136,24 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
     // Ensure flow-dependent Ubcs handlers see the newly reconstructed Ucat.
     ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
     ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
+    ierr = FinalizeCellFieldsFromBoundaryValues(user); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post-projection cell-centered fields finalized.\n");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref FinalizeCellFieldsFromBoundaryValues().
+ * @see FinalizeCellFieldsFromBoundaryValues()
+ */
+PetscErrorCode FinalizeCellFieldsFromBoundaryValues(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // Establish flat non-periodic faces and periodic endpoints before corners.
     ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
@@ -3153,8 +3170,7 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
     ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post-projection cell-centered fields finalized.\n");
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

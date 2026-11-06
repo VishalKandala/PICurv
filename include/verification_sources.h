@@ -2,6 +2,7 @@
 #define VERIFICATION_SOURCES_H
 
 #include "variables.h"
+#include "particle_field_catalog.h"
 
 /**
  * @brief Reports whether a verification-only diffusivity override is active.
@@ -68,5 +69,23 @@ PetscErrorCode VerificationFieldsDestroy(SimCtx *simCtx);
  */
 PetscErrorCode VerificationFieldEvaluate(const SimCtx *simCtx, const VerificationFieldConfig *field, Cmpnts point,
                                          PetscReal solver_time, PetscReal *value);
+
+/**
+ * @brief Writes the configured verification scalar profile onto a particle swarm scalar field.
+ *
+ * @param[in,out] user             Block-local context providing particle positions.
+ * @param[in]     particle_field_id Typed identity of the scalar swarm field to overwrite.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SetVerificationScalarOnParticles(UserCtx *user, ParticleFieldId particle_field_id);
+
+/**
+ * @brief Writes the configured verification scalar profile at physical cell centers into a scalar Vec.
+ *
+ * @param[in]     user      Block-local context providing the cell-center coordinates.
+ * @param[in,out] targetVec Scalar Vec on `user->da` storage to fill with analytical reference values.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SetVerificationScalarAtCellCenters(UserCtx *user, Vec targetVec);
 
 #endif /* VERIFICATION_SOURCES_H */

@@ -212,6 +212,39 @@ static inline void PicurvSourceSetVariables(PetscReal *values, Cmpnts point, Cmp
     values[PICURV_SOURCE_VAR_L_ZETA] = length.z * L_ref;
 }
 
+/** @brief What a source reads at each boundary-face slot this rank owns, gathered once. */
+typedef struct {
+    PetscInt   normal;  /**< Logical axis of the face normal. */
+    PetscInt   a, b;    /**< The two tangential axes. */
+    PetscInt   layer;   /**< Index along the normal of the face's metric and flux. */
+    PetscInt   lo[2];   /**< First tangential indices of the owned slots. */
+    PetscInt   n[2];    /**< Owned slots along the two tangential axes; 0 off the face. */
+    PetscReal (*values)[PICURV_SOURCE_VAR_COUNT]; /**< Variables per slot; `t` is the caller's. */
+    Cmpnts    (*edges)[3];                        /**< Directions per slot, for the curvilinear frame. */
+} PicurvSourceFaceSlots;
+
+/**
+ * @brief Gather each owned slot of a boundary face: face-centre position, the grid-line fractions
+ *        and lengths of the interior cell behind it, and its directions. A curvilinear component
+ *        is the speed through the grid face, as on every target, so along the face's own axis
+ *        the direction follows the face metric rather than the cell's edge.
+ * @param[in]  user     Block with current metric and face-centre ghosts.
+ * @param[in]  face_id  Face.
+ * @param[in]  fraction Grid-line fractions, from ComputeGridLineFractions().
+ * @param[in]  length   Grid-line lengths, from ComputeGridLineFractions().
+ * @param[out] slots    The slots; release with PicurvSourceFaceSlotsDestroy().
+ * @return PETSc error code.
+ */
+PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fraction, Vec length,
+                                           PicurvSourceFaceSlots *slots);
+
+/**
+ * @brief Release what PicurvSourceFaceSlotsCreate() allocated.
+ * @param[in,out] slots The slots.
+ * @return PETSc error code.
+ */
+PetscErrorCode PicurvSourceFaceSlotsDestroy(PicurvSourceFaceSlots *slots);
+
 /**
  * @brief Evaluate a source at one point.
  * @param[in]  source Compiled source.

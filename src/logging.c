@@ -3146,7 +3146,7 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
     lzs = (zs == 0) ? zs + 1 : zs; lze = (ze == mz) ? ze - 1 : ze;
 
     ierr = VecDuplicate(user->Psi, &reference_vec); CHKERRQ(ierr);
-    ierr = SetAnalyticalScalarFieldAtCellCenters(user, reference_vec); CHKERRQ(ierr);
+    ierr = SetVerificationScalarAtCellCenters(user, reference_vec); CHKERRQ(ierr);
 
     ierr = DMDAVecGetArrayRead(user->da, user->Psi, &psi); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->da, reference_vec, &psi_ref); CHKERRQ(ierr);

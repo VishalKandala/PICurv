@@ -544,6 +544,16 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user);
 PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user);
 
 /**
+ * @brief Brings Ucat's and P's dummy cells, periodic endpoints, corners and ghosts in line with
+ *        their interior values and the boundary values already in `Ubcs`.
+ * @details The part of FinalizePostProjectionCellFields() that does not ask the handlers to
+ *          refresh `Ubcs`, for a caller that sets the boundary values itself. Collective.
+ * @param[in,out] user Block whose global Ucat, P and `Ubcs` are current.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeCellFieldsFromBoundaryValues(UserCtx *user);
+
+/**
  * @brief Main boundary-condition orchestrator executed during solver timestepping.
  *
  * This routine performs the full BC workflow for the current block, including

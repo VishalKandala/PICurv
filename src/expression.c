@@ -12,6 +12,7 @@
 
 #include "expression.h"
 #include "Metric.h"
+#include "Boundaries.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1052,6 +1053,90 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
     PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvSourceFaceSlotsCreate().
+ * @see PicurvSourceFaceSlotsCreate()
+ */
+PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fraction, Vec length,
+                                           PicurvSourceFaceSlots *slots)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+    const PetscInt nodes[3] = {info->mx, info->my, info->mz};
+    const PetscReal L_ref = user->simCtx->scaling.L_ref;
+    const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
+    PetscBool can_service = PETSC_FALSE;
+    PetscInt  n_slots;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    slots->normal = (PetscInt)face_id / 2;
+    slots->a = (slots->normal == 0) ? 1 : 0;
+    slots->b = (slots->normal == 2) ? 1 : 2;
+    const PetscInt normal = slots->normal, a = slots->a, b = slots->b;
+    PetscCall(CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service));
+    slots->layer = negative ? start[normal] : nodes[normal] - 2;
+    slots->lo[0] = (start[a] == 0) ? 1 : start[a];
+    slots->lo[1] = (start[b] == 0) ? 1 : start[b];
+    slots->n[0] = can_service ? ((end[a] == nodes[a]) ? nodes[a] - 1 : end[a]) - slots->lo[0] : 0;
+    slots->n[1] = can_service ? ((end[b] == nodes[b]) ? nodes[b] - 1 : end[b]) - slots->lo[1] : 0;
+    n_slots = slots->n[0] * slots->n[1];
+    PetscCall(PetscMalloc2(n_slots, &slots->values, n_slots, &slots->edges));
+
+    if (n_slots > 0) {
+        /* The interior cell behind the slot layer. */
+        const PetscInt cell = negative ? slots->layer + 1 : slots->layer;
+        const Vec centres = (normal == 0) ? user->lCentx : (normal == 1) ? user->lCenty : user->lCentz;
+        const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet;
+        const PetscReal ***aj;
+        PetscCall(DMDAVecGetArrayRead(user->fda, centres, &cent));
+        PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+        PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+        for (PetscInt q = 0; q < slots->n[1]; ++q)
+        for (PetscInt p = 0; p < slots->n[0]; ++p) {
+            const PetscInt s = p + slots->n[0] * q;
+            PetscInt f[3], c[3];
+            f[normal] = slots->layer; f[a] = slots->lo[0] + p; f[b] = slots->lo[1] + q;
+            c[normal] = cell; c[a] = f[a]; c[b] = f[b];
+            PicurvSourceSetVariables(slots->values[s], cent[f[2]][f[1]][f[0]], frac[c[2]][c[1]][c[0]], len[c[2]][c[1]][c[0]], L_ref);
+            slots->values[s][PICURV_SOURCE_VAR_T] = 0.0;
+            /* On the face itself the fraction along the normal line is exactly 0 or 1. */
+            slots->values[s][PICURV_SOURCE_VAR_XI + normal] = negative ? 0.0 : 1.0;
+            PetscCall(ComputeCellEdgeVectors(aj[c[2]][c[1]][c[0]], csi[c[2]][c[1]][c[0]], eta[c[2]][c[1]][c[0]], zet[c[2]][c[1]][c[0]], slots->edges[s]));
+            const Cmpnts m = (normal == 0) ? csi[f[2]][f[1]][f[0]] : (normal == 1) ? eta[f[2]][f[1]][f[0]] : zet[f[2]][f[1]][f[0]];
+            const Cmpnts through = {user->GridOrientation * m.x, user->GridOrientation * m.y, user->GridOrientation * m.z};
+            slots->edges[s][normal] = through;
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, centres, &cent));
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvSourceFaceSlotsDestroy().
+ * @see PicurvSourceFaceSlotsDestroy()
+ */
+PetscErrorCode PicurvSourceFaceSlotsDestroy(PicurvSourceFaceSlots *slots)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PetscFree2(slots->values, slots->edges));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

@@ -1,23 +1,7 @@
 #ifndef ANALYTICALSOLUTIONS_H
 #define ANALYTICALSOLUTIONS_H
 
-#include <petscpf.h>
-#include <petscdmswarm.h>
-#include <stdlib.h>
-#include <time.h>
-#include <math.h>
-#include <petsctime.h>
-#include <petscdmcomposite.h>
-
-// Include additional headers
-#include "variables.h"         // Shared type definitions
-#include "ParticleSwarm.h"  // Particle swarm functions
-#include "walkingsearch.h"  // Particle location functions
-#include "grid.h"           // Grid functions
-#include "logging.h"        // Logging macros
-#include "io.h"             // Data Input and Output functions
-#include "setup.h"          // Setup Module required for array allocation and deallocation
-#include "interpolation.h"  // All the different interpolation routines required 
+#include "variables.h"
 
 /**
  * @brief Sets the Eulerian fields from the case's source (`-ic_source_*`) at the step's time.
@@ -51,23 +35,5 @@ PetscBool AnalyticalFieldSupportsInterpolationError(const SimCtx *simCtx);
  * @return PetscErrorCode Returns 0 on success.
  */
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx);
-
-/**
- * @brief Writes the configured verification scalar profile onto a particle swarm scalar field.
- *
- * @param[in,out] user             Block-local context providing particle positions.
- * @param[in]     particle_field_id Typed identity of the scalar swarm field to overwrite.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldId particle_field_id);
-
-/**
- * @brief Writes the configured verification scalar profile at physical cell centers into a scalar Vec.
- *
- * @param[in]     user      Block-local context providing the cell-center coordinates.
- * @param[in,out] targetVec Scalar Vec on `user->da` storage to fill with analytical reference values.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVec);
 
 #endif // ANALYTICALSOLUTIONS_H

@@ -678,7 +678,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 ierr = ReadSimulationFields(&user[bi],simCtx->step); CHKERRQ(ierr);
             }
         }else if(strcmp(simCtx->eulerianSource,"analytical")==0){
-            // ANALYTICAL mode:Call the Analytical Solution Prescription Engine to enable a variety of analytical functions
+            // ANALYTICAL mode: the field is the case's source, evaluated at this step's time.
             LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'analytical'. Updating Eulerian field via the Analytical Solution Engine ...\n");
             ierr = AnalyticalSolutionEngine(simCtx); CHKERRQ(ierr);
         }else if(strcmp(simCtx->eulerianSource,"solve")==0){
