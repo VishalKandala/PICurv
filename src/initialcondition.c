@@ -53,8 +53,11 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
     SimCtx *simCtx = user->simCtx;
     const PetscBool staged_flux = (PetscBool)(simCtx->initialConditionStaged && simCtx->initialConditionField == IC_FIELD_UCONT);
     PicurvVelocitySource source;
+    PicurvExpression *pressure = NULL;
     PetscReal physical_time, weight = 1.0, factor = 1.0;
     Vec fraction, length;
+    char pressure_text[4096];
+    PetscBool has_pressure = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -68,12 +71,18 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
         if (weight != 1.0) PetscCall(VecScale(staged_flux ? user->Ucont : user->Ucat, weight));
         if (!staged_flux) PetscCall(UcontFromInteriorUcat(user));
     }
-    if (source.count > 0) {
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-ic_source_pressure", pressure_text, sizeof(pressure_text), &has_pressure));
+    if (source.count > 0 || has_pressure) {
         PetscCall(DMCreateGlobalVector(user->fda, &fraction));
         PetscCall(DMCreateGlobalVector(user->fda, &length));
         PetscCall(ComputeGridLineFractions(user, fraction, length));
         if (source.bulk) PetscCall(PicurvSourceCellBulkFactor(user, &source, fraction, length, physical_time, &factor));
-        PetscCall(PicurvSourceAddFluxes(user, &source, fraction, length, physical_time, factor, PETSC_FALSE));
+        if (source.count > 0) PetscCall(PicurvSourceAddFluxes(user, &source, fraction, length, physical_time, factor, PETSC_FALSE));
+        if (has_pressure) {
+            PetscCall(PicurvExpressionCompile(pressure_text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE, &pressure));
+            PetscCall(PicurvSourceSetCellPressure(user, pressure, fraction, length, physical_time));
+            PetscCall(PicurvExpressionDestroy(&pressure));
+        }
         PetscCall(VecDestroy(&fraction));
         PetscCall(VecDestroy(&length));
     }

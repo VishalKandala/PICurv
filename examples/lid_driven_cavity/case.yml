@@ -1,0 +1,43 @@
+# Lid-driven square cavity at Re = U L / nu = 100; see README.md.
+run_control:
+  start_step: 0
+  total_steps: 3000
+  dt_physical: 0.01
+properties:
+  scaling:
+    length_ref: 1.0
+    velocity_ref: 1.0
+  fluid:
+    density: 1.0
+    viscosity: 0.01
+  initial_conditions:
+    source: {components: cartesian, expression: {u: 0.0}}
+grid:
+  mode: grid_gen
+  generator:
+    config_file: grid.cfg
+    grid_type: box
+models:
+  physics:
+    dimensionality: 3D
+    particles: {count: 0, restart_mode: init}
+boundary_conditions:
+- face: -Xi
+  type: WALL
+  handler: noslip
+- face: +Xi
+  type: WALL
+  handler: noslip
+- face: -Eta
+  type: WALL
+  handler: noslip
+- face: +Eta
+  type: WALL
+  handler: moving
+  source: {components: cartesian, expression: {u: 1.0}}
+- face: -Zeta
+  type: PERIODIC
+  handler: geometric
+- face: +Zeta
+  type: PERIODIC
+  handler: geometric

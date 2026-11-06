@@ -10319,9 +10319,6 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
-    if resolved_ic and resolved_ic["source"].get("pressure") and not ic_is_analytical:
-        errors.append(f"  {case_path}: a source's pressure sets a prescribed field, so it needs "
-                      "operation_mode.eulerian_field_source: analytical.")
     if ic_is_analytical and resolved_ic and resolved_ic["source"]["frame"] == "contravariant":
         errors.append(f"  {case_path}: an analytical field sets a velocity at the cell centres and on the boundaries, "
                       "which contravariant fluxes do not give; write it in cartesian or curvilinear components.")
@@ -19433,6 +19430,12 @@ def _provider_source_fingerprints(value, case_path: str, key: str = "") -> dict:
     @return Mapping of dotted path identity to path/content fingerprint.
     """
     result = {}
+    if isinstance(value, dict) and set(value) == {"pattern", "first", "last", "every"}:
+        # A recording's frames, which the pattern names by step.
+        for step in range(value["first"], value["last"] + 1, value["every"]):
+            result.update(_provider_source_fingerprints(value["pattern"].format(step=step), case_path,
+                                                        f"{key}.{step}.field_file"))
+        return result
     if isinstance(value, dict):
         for child_key, child in value.items():
             dotted = f"{key}.{child_key}" if key else str(child_key)

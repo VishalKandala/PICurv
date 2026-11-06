@@ -115,7 +115,10 @@ boundary fluxes are already set by the boundary conditions, and the correction o
 faces. The potential is discarded, so pressure keeps its initial value, and the solve's
 convergence record is overwritten by the first step's. Without `project`, the first step's
 projection makes the field divergence-free instead, after one momentum step on the field as
-given.
+given. Projecting evens each plane's flux to the same value without changing `bulk_velocity`'s
+volume mean on a periodic axis; between an inlet and an outlet, conservation sets each plane's
+flux to the inlet's, so a `bulk_velocity` other than the inlet's does not survive it. A source's
+`pressure` expression [Pa] sets the initial `P` at the cell centres, and is otherwise zero.
 
 Every component reaches the velocity through the faces, evaluated at each face centre. A Cartesian
 velocity is dotted with the face metric. A `curvilinear` component is the speed through the grid face
@@ -140,7 +143,7 @@ which the solver evaluates:
 |---|---|
 | `sum(k, lo, hi, body)` | `body` summed for the integers `k = lo, ..., hi`, with `k` in scope only in `body`. The bounds are integer numbers (a constant inlines to one); at most 1000000 terms; series nest up to four deep, each with its own index |
 | `besselj(n, x)`, `bessely(n, x)` | Bessel functions of the first and second kind, of integer order `n` (another order gives a value that is not finite, which stops the run) |
-| `ber(x)`, `bei(x)` | Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i/4})`, from their power series, which lose about `|x|/5` of sixteen digits to cancellation |
+| `ber(x)`, `bei(x)` | Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i/4})`, from their power series below `|x| = 30`, accurate to 1e-13 relative there, and their asymptotic expansion above it |
 
 `picurv` validates these before launch and the solver evaluates them. Two exact laminar profiles,
 in the form `tests/test_expression_language.py` and `make unit-particles` check:

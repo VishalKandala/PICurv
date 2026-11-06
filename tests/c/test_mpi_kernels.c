@@ -216,7 +216,7 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
                                "periodic cell synchronization test requires the x axis to be partitioned"));
@@ -308,7 +308,7 @@ static PetscErrorCode TestPeriodicGeometryValidationMultiRank(void)
     PetscReal expected_translation = 0.0;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
                                "periodic geometry validation test requires the x axis to be partitioned"));
@@ -343,7 +343,7 @@ static PetscErrorCode TestPeriodicFaceCenterCoordinatesMultiRank(void)
     PetscInt xs, xe, mx;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     PetscCall(ValidatePeriodicGeometry(user));
     PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
@@ -395,7 +395,7 @@ static PetscErrorCode TestPeriodicFaceFieldSynchronizationMultiRank(void)
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
                                "periodic face synchronization test requires the x axis to be partitioned"));
@@ -443,7 +443,7 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
                                "periodic staggered synchronization test requires the x axis to be partitioned"));
@@ -536,7 +536,7 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
-    PetscCall(PicurvAssertIntEqual(2, size, "profiling summary test expects exactly two MPI ranks"));
+    PetscCall(PicurvAssertBool((PetscBool)(size >= 2), "the profiling summary test needs a second rank"));
     PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
     if (rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCallMPI(MPI_Bcast(tmpdir, PETSC_MAX_PATH_LEN, MPI_CHAR, 0, PETSC_COMM_WORLD));
@@ -632,7 +632,11 @@ static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
-    PetscCall(PicurvAssertIntEqual(2, size, "restart migration unit test expects exactly two MPI ranks"));
+    /* Two ranks only: it places particles on rank 0 for rank 1 to own. */
+    if (size != 2) {
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD, "     [SKIP] needs exactly two ranks\n"));
+        PetscFunctionReturn(0);
+    }
 
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
@@ -687,7 +691,11 @@ static PetscErrorCode TestSettlementClassifiesExitOnceAcrossPasses(void)
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
-    PetscCall(PicurvAssertIntEqual(2, size, "settlement exit test expects exactly two MPI ranks"));
+    /* Two ranks only: it moves a particle from rank 0 to rank 1. */
+    if (size != 2) {
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD, "     [SKIP] needs exactly two ranks\n"));
+        PetscFunctionReturn(0);
+    }
 
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, (rank == 0) ? 2 : 0, "ske"));
@@ -1042,7 +1050,7 @@ static PetscErrorCode TestFacePlanesSurvivePeriodicGhostUpdate(void)
     PetscInt        checked = 0, checked_global = 0;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
     for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); ++f) PetscCall(UpdateLocalGhosts(user, fields[f]));
 

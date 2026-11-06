@@ -1,0 +1,14 @@
+# The final checkpoint is the steady field; earlier ones show its approach.
+logging:
+  verbosity: INFO
+  enabled_functions: []
+profiling:
+  timestep_output:
+    mode: 'off'
+  final_summary:
+    enabled: true
+io:
+  data_output_frequency: 500
+  particle_console_output_frequency: 0
+  particle_log_interval: 1
+  statistics_console_output_frequency: 500

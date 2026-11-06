@@ -26,7 +26,7 @@ Anything an expression can write, in `cartesian` or `curvilinear` components, wi
 - `grid.mode` is `programmatic_c` or `file`;
 - a `curvilinear` source derives `Ucat` from its fluxes; a `cartesian` one sets it exactly at the cell
   centres;
-- a `pressure` expression [Pa] sets `P`, and only an analytical field takes one. Without it `P` is zero.
+- a `pressure` expression [Pa] sets `P` at every evaluation. Without it `P` is zero.
 
 The domain is the case's grid: no field assigns its own.
 

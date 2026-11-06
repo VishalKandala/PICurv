@@ -480,6 +480,41 @@ static PetscErrorCode TestSourceInitialConditionProjection(void)
 }
 
 /**
+ * @brief Tests that an initial condition's pressure expression sets P at the cell centres, in Pa, and
+ *        leaves the velocity as its source sets it.
+ */
+static PetscErrorCode TestSourceInitialConditionPressure(void)
+{
+    SimCtx  *simCtx = NULL;
+    UserCtx *user = NULL;
+    char     tmpdir[PETSC_MAX_PATH_LEN];
+    const Cmpnts ***cent, ***ucat;
+    const PetscReal ***p;
+    const DMDALocalInfo *info;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE,
+              "-ic_source_frame cartesian\n-ic_source_expr_0 0\n-ic_source_expr_1 0\n-ic_source_expr_2 2.5\n"
+              "-ic_source_pressure \"3 + 2*z\"\n", &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    info = &user->info;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->P, &p));
+    for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, info->mz - 1); ++k)
+    for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, info->my - 1); ++j)
+    for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, info->mx - 1); ++i) {
+        const PetscReal z = cent[k][j][i].z * simCtx->scaling.L_ref;
+        PetscCall(PicurvAssertRealNear((3.0 + 2.0 * z) / simCtx->scaling.P_ref, p[k][j][i], 1.0e-12, "pressure is the expression over P_ref"));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->P, &p));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(FinalizeSimulation(simCtx));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks that an initial source reaches its bulk velocity whatever its amplitude, and
  *        that a curvilinear source sets each face's flux to the speed times the face area.
  */
@@ -1197,6 +1232,7 @@ int main(int argc, char **argv)
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
         {"source-initial-condition-projection", TestSourceInitialConditionProjection},
         {"source-initial-condition-bulk-and-faces", TestSourceInitialConditionBulkAndFaces},
+        {"source-initial-condition-pressure", TestSourceInitialConditionPressure},
         {"source-initial-condition-contravariant-fluxes", TestSourceInitialConditionContravariantFluxes},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
         {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},

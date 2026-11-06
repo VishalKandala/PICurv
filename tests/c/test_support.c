@@ -132,7 +132,8 @@ PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *case
     PetscCall(PetscPrintf(PETSC_COMM_WORLD, "==> Running %s (%zu tests)\n", suite_name, case_count));
     for (size_t i = 0; i < case_count; ++i) {
         PetscCall(PetscPrintf(PETSC_COMM_WORLD, "  -> %s\n", cases[i].name));
-        PetscCall(cases[i].fn());
+        /* Abort: a failure on some ranks would otherwise leave the others waiting in a collective. */
+        PetscCallAbort(PETSC_COMM_WORLD, cases[i].fn());
         PetscCall(PetscPrintf(PETSC_COMM_WORLD, "     [PASS] %s\n", cases[i].name));
     }
 

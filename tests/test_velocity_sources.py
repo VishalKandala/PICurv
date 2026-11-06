@@ -468,8 +468,7 @@ def test_an_analytical_field_is_its_source(tmp_path):
         with pytest.raises(SystemExit):
             validate(case, solver, monitor)
     case, solver, monitor = load_configs(initial_conditions={"source": source})
-    with pytest.raises(SystemExit):  # pressure needs an analytical field
-        validate(case, solver, monitor)
+    validate(case, solver, monitor)  # A solved case may start from a known pressure too.
     case, solver, monitor = load_configs()
     solver["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
     with pytest.raises(SystemExit):
@@ -641,3 +640,23 @@ def test_a_moving_wall_reaches_the_runtime_and_excludes_wall_functions():
     case.setdefault("models", {}).setdefault("physics", {})["turbulence"] = {"wall_function": {"enabled": True}}
     with pytest.raises(ValueError, match="assume a wall at rest"):
         CORE.validate_and_prepare_boundary_conditions(case)
+
+
+def test_a_recordings_frames_are_part_of_its_asset_identity(tmp_path):
+    """!
+    @brief Changing any frame of a recording changes what a precomputed profile is keyed on.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    (tmp_path / ".picurv-workspace.yml").write_text("schema_version: 1\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    case_path = str(tmp_path / "config" / "case.yml")
+    for step in (10, 20):
+        (tmp_path / f"U_{step}.dat").write_bytes(b"frame")
+    spec = [{"source": {"field_files": {"pattern": "U_{step}.dat", "first": 10, "last": 20, "every": 10}}}]
+
+    before = CORE._provider_source_fingerprints(spec, case_path)
+    assert len(before) == 2
+    (tmp_path / "U_20.dat").write_bytes(b"changed")
+    after = CORE._provider_source_fingerprints(spec, case_path)
+    assert before != after
+    assert [v["sha256"] for v in before.values()][0] == [v["sha256"] for v in after.values()][0]

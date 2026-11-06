@@ -52,6 +52,9 @@
             ],
             "integration": [
               "file:tests/test_velocity_sources.py"
+            ],
+            "production": [
+              "example:examples/lid_driven_cavity"
             ]
           }
         },

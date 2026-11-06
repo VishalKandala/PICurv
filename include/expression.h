@@ -262,6 +262,19 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
                                             const Cmpnts edges[3], Cmpnts *value);
 
 /**
+ * @brief Set a block's pressure at every interior cell centre from an expression in Pa. Dummy cells
+ *        are left to the caller's boundary pass.
+ * @param[in]     user          Block with current cell centres.
+ * @param[in]     pressure      Expression over the cell variables, physical.
+ * @param[in]     fraction      Grid-line fractions, from ComputeGridLineFractions().
+ * @param[in]     length        Grid-line lengths, from ComputeGridLineFractions().
+ * @param[in]     physical_time Time [s].
+ * @return PETSc error code.
+ */
+PetscErrorCode PicurvSourceSetCellPressure(UserCtx *user, const PicurvExpression *pressure, Vec fraction, Vec length,
+                                           PetscReal physical_time);
+
+/**
  * @brief Factor on a source's expressions that makes the volume mean of the whole field, along
  *        the source's own direction at each cell, equal its bulk velocity. Collective.
  * @param[in]  user          Block; its Ucat holds whatever is staged.

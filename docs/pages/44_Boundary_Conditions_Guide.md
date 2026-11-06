@@ -236,7 +236,7 @@ of its magnitude through the wall stops the run naming the velocity and position
 
 **Evidence.** Unit verified - `make unit-boundaries` (`wall-moving-along-itself` in `tests/c/test_boundaries.c`) covers both sides of
 a face, the closed flux, the tilt removed and the refusal. Integration verified -
-`tests/test_velocity_sources.py` covers its resolution and refusals. Run once, not registered as
+`tests/test_velocity_sources.py` covers its resolution and refusals. Production exercised in `examples/lid_driven_cavity`. Run once, not registered as
 measurements: Couette flow between walls moving at +1 and -1 reached `u = 2y - 1` to 1.7e-10 (Newton-Krylov)
 and 5e-13 (Picard) on 32 wall-normal cells, with no flux through the walls; a lid-driven cavity at Re 100 on 32 x 32
 cells stayed within 0.003 of the Ghia, Ghia and Shin (1982) centreline velocity, whose values were

@@ -34,6 +34,8 @@ python3 tests/tooling/audit_starter_content.py
 - `temporal_mixing_layer/`: the 2D temporal mixing layer of Colucci et al. (1998), the
   particle FDF benchmark: free-slip cross-stream walls, constant-Smagorinsky LES, IEM
   particles, per-cell ensembles with `point_variance`; Picard and Newton Krylov profiles.
+- `lid_driven_cavity/`: a square cavity at `Re = 100` driven by a top wall with `handler: moving`,
+  the usual comparison with Ghia, Ghia and Shin (1982).
 - `turbulent_channel/`: wall-resolved driven periodic plane channel at nominal
   `Re_tau ~ 180` (128 x 128 x 256 cells), with no subgrid model and no wall function:
   a candidate DNS configuration, not a validated benchmark. It is seeded with

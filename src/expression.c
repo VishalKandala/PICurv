@@ -634,13 +634,28 @@ static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstru
 }
 
 /**
- * @brief Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i / 4})`, from
- *        their power series. Terms grow to about `exp(|x| / sqrt(2))` before the series
- *        converges, so about `|x| / 5` of the sixteen digits are lost to cancellation.
+ * @brief Kelvin functions of order zero, `ber(x) + i bei(x) = J0(x e^{3 pi i / 4})`.
+ * @details From their power series below |x| = 30. Its terms grow to about `exp(|x| / sqrt(2))`
+ *          before it converges, losing digits to cancellation: 1e-13 relative at 30, 1e-9 at 60, and
+ *          none left by 150. From 30 up, the asymptotic expansion in `1/|x|`, whose error at 30 is
+ *          7e-15 and falls from there. Both functions are even.
  */
 static PetscReal Kelvin(PetscReal x, PetscBool imaginary)
 {
     PROFILE_HELPER_BEGIN;
+    const PetscReal abs_x = PetscAbsReal(x);
+    if (abs_x >= 30.0) {
+        const PetscReal argument = abs_x / PetscSqrtReal(2.0);
+        PetscReal coefficient = 1.0, reciprocal = 1.0, total = 0.0;
+        for (PetscInt k = 0; k < 14; ++k) {
+            const PetscReal phase = argument + (0.75 * k - 0.125) * PETSC_PI;
+            total += coefficient * reciprocal * (imaginary ? PetscSinReal(phase) : PetscCosReal(phase));
+            coefficient *= -(2.0 * k + 1.0) * (2.0 * k + 1.0) / (8.0 * (k + 1.0));
+            reciprocal /= abs_x;
+        }
+        PROFILE_HELPER_END;
+        return PetscExpReal(argument) / PetscSqrtReal(2.0 * PETSC_PI * abs_x) * total;
+    }
     const PetscReal q = 0.0625 * x * x * x * x;  /* (x/2)^4 */
     PetscReal term = imaginary ? 0.25 * x * x : 1.0, total = term;
     /* ber: (-1)^m (x/2)^(4m) / ((2m)!)^2; bei: (-1)^m (x/2)^(4m+2) / ((2m+1)!)^2. */
@@ -1061,6 +1076,44 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
     PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvSourceSetCellPressure().
+ * @see PicurvSourceSetCellPressure()
+ */
+PetscErrorCode PicurvSourceSetCellPressure(UserCtx *user, const PicurvExpression *pressure, Vec fraction, Vec length,
+                                           PetscReal physical_time)
+{
+    const DMDALocalInfo *info = &user->info;
+    const ScalingCtx *scaling = &user->simCtx->scaling;
+    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    const Cmpnts ***cent, ***frac, ***len;
+    PetscReal ***p, values[PICURV_SOURCE_VAR_COUNT];
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+    values[PICURV_SOURCE_VAR_T] = physical_time;
+    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
+    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
+    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+        PetscReal value;
+        PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
+        PetscCall(PicurvExpressionEvaluate(pressure, values, NULL, &value));
+        p[k][j][i] = value / scaling->P_ref;
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

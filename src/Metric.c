@@ -1318,7 +1318,7 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
                 zcp = 0.25 * (coor[k][j][i].z + coor[k][j][i-1].z + coor[k][j-1][i].z + coor[k][j-1][i-1].z);
                 xcm = 0.25 * (coor[k-1][j][i].x + coor[k-1][j][i-1].x + coor[k-1][j-1][i].x + coor[k-1][j-1][i-1].x);
                 ycm = 0.25 * (coor[k-1][j][i].y + coor[k-1][j][i-1].y + coor[k-1][j-1][i].y + coor[k-1][j-1][i-1].y);
-                zcm = 0.25 * (coor[k-1][j][i].z + coor[k-1][j-1][i-1].z + coor[k-1][j-1][i].z + coor[k-1][j-1][i-1].z);
+                zcm = 0.25 * (coor[k-1][j][i].z + coor[k-1][j][i-1].z + coor[k-1][j-1][i].z + coor[k-1][j-1][i-1].z);
                 gs[k][j][i].z = PetscSqrtReal(PetscSqr(xcp-xcm) + PetscSqr(ycp-ycm) + PetscSqr(zcp-zcm));
             }
         }

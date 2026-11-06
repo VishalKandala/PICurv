@@ -47,7 +47,7 @@ static PetscErrorCode AnalyticalFieldCreate(SimCtx *simCtx)
     PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, PETSC_FALSE, &field->source));
     PetscCall(PetscOptionsGetString(NULL, NULL, "-ic_source_pressure", text, sizeof(text), &found));
     if (found) {
-        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_COUNT, PETSC_FALSE, &field->pressure));
+        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE, &field->pressure));
         PetscCall(PicurvExpressionUsesVariable(field->pressure, PICURV_SOURCE_VAR_T, &uses));
         field->time_dependent = uses;
     }
@@ -150,19 +150,18 @@ static PetscErrorCode SetBoundaryVelocityFromSource(UserCtx *user, const struct 
     PetscFunctionReturn(0);
 }
 
-/** @brief Set a block's Ucat and P at every interior cell centre from the source. */
-static PetscErrorCode SetCellFieldsFromSource(UserCtx *user, const struct AnalyticalField *field, PetscInt block,
-                                              PetscReal physical_time)
+/** @brief Set a block's Ucat at every interior cell centre from the source. */
+static PetscErrorCode SetCellVelocityFromSource(UserCtx *user, const struct AnalyticalField *field, PetscInt block,
+                                                PetscReal physical_time)
 {
     const DMDALocalInfo *info = &user->info;
     const ScalingCtx *scaling = &user->simCtx->scaling;
     const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
     const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
     const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
-    const PetscBool set_velocity = (PetscBool)(field->source.frame != PICURV_SOURCE_FRAME_CURVILINEAR);
     const Cmpnts ***cent, ***frac, ***len;
     Cmpnts ***ucat;
-    PetscReal ***p, values[PICURV_SOURCE_VAR_COUNT];
+    PetscReal values[PICURV_SOURCE_VAR_COUNT];
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
@@ -170,28 +169,17 @@ static PetscErrorCode SetCellFieldsFromSource(UserCtx *user, const struct Analyt
     PetscCall(DMDAVecGetArrayRead(user->fda, field->fraction[block], &frac));
     PetscCall(DMDAVecGetArrayRead(user->fda, field->length[block], &len));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
-    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
     values[PICURV_SOURCE_VAR_T] = physical_time;
     for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
     for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
     for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+        Cmpnts v;
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
-        if (set_velocity) {
-            Cmpnts v;
-            PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
-            ucat[k][j][i].x = field->factor * v.x / scaling->U_ref;
-            ucat[k][j][i].y = field->factor * v.y / scaling->U_ref;
-            ucat[k][j][i].z = field->factor * v.z / scaling->U_ref;
-        }
-        if (field->pressure) {
-            PetscReal value;
-            PetscCall(PicurvExpressionEvaluate(field->pressure, values, NULL, &value));
-            p[k][j][i] = value / scaling->P_ref;
-        } else {
-            p[k][j][i] = 0.0;
-        }
+        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
+        ucat[k][j][i].x = field->factor * v.x / scaling->U_ref;
+        ucat[k][j][i].y = field->factor * v.y / scaling->U_ref;
+        ucat[k][j][i].z = field->factor * v.z / scaling->U_ref;
     }
-    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, field->length[block], &len));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, field->fraction[block], &frac));
@@ -228,7 +216,9 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
         PetscCall(VecSet(user->Ucont, 0.0));
         PetscCall(PicurvSourceAddFluxes(user, &field->source, field->fraction[bi], field->length[bi], physical_time, field->factor, PETSC_TRUE));
         PetscCall(SetBoundaryVelocityFromSource(user, field, bi, physical_time));
-        PetscCall(SetCellFieldsFromSource(user, field, bi, physical_time));
+        if (field->source.frame != PICURV_SOURCE_FRAME_CURVILINEAR) PetscCall(SetCellVelocityFromSource(user, field, bi, physical_time));
+        if (field->pressure) PetscCall(PicurvSourceSetCellPressure(user, field->pressure, field->fraction[bi], field->length[bi], physical_time));
+        else PetscCall(VecSet(user->P, 0.0));
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
         PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
         if (field->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR) PetscCall(Contra2Cart(user));

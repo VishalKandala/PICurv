@@ -70,6 +70,7 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 | Example | Kind | Demonstrates | Status |
 |---|---|---|---|
 | `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Dynamic model characterized on HOM02 — see below |
+| `lid_driven_cavity` | Benchmark | Square cavity at `Re = 100` driven by a moving wall | Experimental; a reduced grid checked once, see its README |
 | `turbulent_channel` | Benchmark | Seeded wall-resolved channel startup at nominal `Re_tau ~ 180` | Experimental seed; developed turbulence not validated — see below |
 | `temporal_mixing_layer` | Benchmark | 2D temporal mixing layer of Colucci et al. (1998): particle FDF of a conserved scalar, free-slip walls, LES; Picard and Newton Krylov | Not yet compared with the reference — see below |
 | `periodic_test/driven_channel` | Benchmark | Driven periodic channel; DNS and LES variants | See caveat below |
