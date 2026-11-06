@@ -75,7 +75,6 @@ KERNELS = {
     "MetricGetCellVertices": "1.3/particle per step",
     "MetricGetFacePlaneArrays": "1.0/particle per step",
     "MetricRestoreFacePlaneArrays": "1.0/particle per step",
-    "Normalized": "0.4/particle per step",
     "PicurvMix64": "7.7/particle per step",
     "PicurvParticleDrawHash": "0.9/particle per step",
     "PicurvUnitFromHash": "3.4/particle per step",

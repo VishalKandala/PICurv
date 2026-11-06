@@ -24,7 +24,7 @@ models:
         y: 0.5
         z: 0.5
       fields:                         # optional; see 1.1
-        Psi: 0.5
+        Psi: {expression: 0.5}
 ```
 
 Mapping to control flags:
@@ -48,31 +48,33 @@ would not survive. Today that is `Psi`, the scalar that IEM micromixing relaxes 
 **@subpage 28_IEM_and_Statistical_Averaging**).
 
 ```yaml
+sources:
+  mixture: {expression: "0.5 + 0.5*tanh((y - y0)/delta)", constants: {y0: 1.0, delta: 0.1}}
+
 models:
   physics:
     particles:
       count: 50000
       init_mode: "Volume"
       fields:
-        Psi: 0.5                                  # a number
-        # Psi: "0.5 + 0.5*sin(2*pi*xn)"           # or an expression
+        Psi: mixture                              # a name under sources:
+        # Psi: {expression: 0.5}                  # or inline: a number
+        # Psi: {expression: "0.5 + 0.5*sin(2*pi*xi)"}   # an expression
         # Psi:                                    # or regions over a background
-        #   params: {r: 0.1}
-        #   background: 0
-        #   regions:
-        #     - {shape: half_space, axis: x, at: 0.5, side: above, value: 1,
-        #        edge: {profile: smoothstep, width: 0.02}}
-        #     - {shape: ball, center: [0.5, 0.5, 0.5], radius: r, value: "uniform()"}
+        #   constants: {R: 0.1}
+        #   expression:
+        #     background: 0
+        #     regions:
+        #       - {shape: half_space, axis: x, at: 0.5, side: above, value: 1,
+        #          edge: {profile: smoothstep, width: 0.02}}
+        #       - {shape: ball, center: [0.5, 0.5, 0.5], radius: R, value: "uniform()"}
 ```
 
-Each value is one of:
-
-| Form | Meaning |
-|---|---|
-| number | every particle gets it |
-| expression string | evaluated per particle |
-| `{params, value}` | an expression that may use the named numbers in `params` |
-| `{params, background, regions}` | start from `background`; each region, in order, paints its `value` over what came before |
+Each field's value is a source, as on an inlet or initial condition (@ref p33_source_ssec): the name of an entry
+of the top-level `sources:`, or a mapping of `expression` and optional `constants`, or a `sum` of
+sources. It is one value per particle, so it takes no `components`. An expression is a number, an
+expression string, or `{background, regions}`, where each region in order paints its `value` over
+what came before. `constants` may build on the case's top-level `constants:` and on `rho` and `nu`.
 
 **Expressions** use the language of Eulerian sources
 (**@subpage 33_Initial_Conditions**): `+ - * / % **`, comparisons (chains such as
@@ -84,9 +86,10 @@ false. Numbers are decimal literals. A particle expression may use:
 | Name | Value |
 |---|---|
 | `x`, `y`, `z` | particle position, physical |
-| `xn`, `yn`, `zn` | position normalized to the domain bounding box, 0 to 1 |
-| `pid` | particle ID |
 | `t` | physical time of the event that creates the particle |
+| `xi`, `eta`, `zeta` | arc-length fractions along the grid lines through the particle's cell, at the particle |
+| `L_xi`, `L_eta`, `L_zeta` | those lines' lengths, physical |
+| `pid` | particle ID |
 | `uniform()`, `normal()` | a per-particle draw in [0, 1), or from N(0, 1) |
 
 A draw is a pure function of `random_seed`, the particle ID, and the field; it does not
@@ -102,7 +105,7 @@ can draw the same number for one particle.
 in the other two coordinates, `radius`), all in physical coordinates. Without `edge`, a
 region's boundary is sharp; `edge: {profile, width}` blends across a band of that width
 centred on the boundary with `linear`, `smoothstep`, or `cosine`, reaching one half on the
-boundary itself. Region numbers may name a `params` entry.
+boundary itself. Region numbers may name a constant.
 
 **When it applies.** A value is applied once each particle's position is final: after
 placement and location, and before interpolation and the first scatter, so the t=0 cell

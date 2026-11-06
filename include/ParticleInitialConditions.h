@@ -45,9 +45,10 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan);
 
 /**
  * @brief Write the plan's values into swarm entries `[first, end)` of this rank.
- * @details Not collective: each rank evaluates its own entries, and the domain bounds for
- *          `xn`, `yn`, `zn` come from the replicated rank bounding boxes. A value that is not
- *          finite is an error naming the particle and its position.
+ * @details Each rank evaluates its own entries. Collective when an expression reads a grid line's
+ *          fraction or length, so every rank calls it even with an empty range; those need each
+ *          particle's settled cell and weights. A value that is not finite is an error naming the
+ *          particle and its position.
  * @param[in,out] user  Block owning the swarm.
  * @param[in]     plan  Plan to apply; NULL does nothing.
  * @param[in]     event Time and identity of the event producing these particles.

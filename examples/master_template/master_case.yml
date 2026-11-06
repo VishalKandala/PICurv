@@ -289,15 +289,18 @@ models:
         y: 0.25            #     This one is the centre of the domain defined under grid.
         z: 1.0
       # fields:            # [optional] -> -particle_fields_*. Initial values of particle-carried
-      #                    # fields (today Psi), applied once positions are final. Each value is
-      #                    # a number, an expression in x y z (physical), xn yn zn (0..1 over the
-      #                    # domain), pid, t, uniform(), normal(), or regions over a background:
-      #   Psi:
-      #     background: 0
-      #     regions:       # later regions paint over earlier ones
-      #       - {shape: half_space, axis: x, at: 0.5, side: above, value: 1}
-      #       # shapes: half_space, slab, box, ball, cylinder; optional
-      #       # edge: {profile: linear | smoothstep | cosine, width: <m>}
+      #                    # fields (today Psi), applied once positions are final. Each is a source,
+      #                    # named under `sources:` or inline: an expression in the variables of every
+      #                    # source (x y z t xi eta zeta L_xi L_eta L_zeta), and on a particle pid,
+      #                    # uniform() and normal(); `constants:`; or a `sum:` of sources.
+      #   Psi: {expression: "0.5 + 0.5*sin(2*pi*x/L)", constants: {L: 2.0}}
+      #   Psi:             # An expression may be regions over a background, later regions on top:
+      #     expression:
+      #       background: 0
+      #       regions:
+      #         - {shape: half_space, axis: x, at: 0.5, side: above, value: 1}
+      #         # shapes: half_space, slab, box, ball, cylinder; optional
+      #         # edge: {profile: linear | smoothstep | cosine, width: <m>}
 
     turbulence:
       # Preferred structured LES form. Legacy shorthand is still accepted:

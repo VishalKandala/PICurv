@@ -18,9 +18,10 @@
 /*                                   Plans                                   */
 /* ------------------------------------------------------------------------- */
 
-/** @brief Names a particle expression may use, in the order their values are supplied. */
-static const char *const kParticleVariables[] = {"x", "y", "z", "xn", "yn", "zn", "pid", "t"};
-#define PARTICLE_VARIABLE_COUNT ((PetscInt)(sizeof(kParticleVariables) / sizeof(kParticleVariables[0])))
+/** @brief Names a particle expression may use: those of every source (#PicurvSourceVariable), then `pid`. */
+static const char *const kParticleVariables[] = {"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta", "pid"};
+#define PARTICLE_VARIABLE_PID ((PetscInt)PICURV_SOURCE_VAR_CELL_COUNT)
+#define PARTICLE_VARIABLE_COUNT (PARTICLE_VARIABLE_PID + 1)
 #define PARTICLE_FIELD_MAX_COMPONENTS 3
 #define PARTICLE_FIELD_EXPRESSION_LENGTH 4096
 #define PARTICLE_FIELD_HISTOGRAM_BINS 10
@@ -97,34 +98,21 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
     PetscFunctionReturn(0);
 }
 
-/** @brief Global domain bounds, in solver units, from the replicated rank bounding boxes. */
-static PetscErrorCode DomainBounds(const SimCtx *simCtx, Cmpnts *lower, Cmpnts *upper)
+/** @brief Whether any configured expression reads a grid line's fraction or length. */
+static PetscErrorCode PlanReadsGridLines(const ParticleFieldPlan *plan, PetscBool *reads)
 {
-    PetscMPIInt size = 1;
-
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    PetscCheck(simCtx->bboxlist, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "Rank bounding boxes are needed before a particle initial value is applied.");
-    size = simCtx->size;
-    *lower = simCtx->bboxlist[0].min_coords;
-    *upper = simCtx->bboxlist[0].max_coords;
-    for (PetscInt r = 1; r < (PetscInt)size * simCtx->block_number; ++r) {
-        lower->x = PetscMin(lower->x, simCtx->bboxlist[r].min_coords.x);
-        lower->y = PetscMin(lower->y, simCtx->bboxlist[r].min_coords.y);
-        lower->z = PetscMin(lower->z, simCtx->bboxlist[r].min_coords.z);
-        upper->x = PetscMax(upper->x, simCtx->bboxlist[r].max_coords.x);
-        upper->y = PetscMax(upper->y, simCtx->bboxlist[r].max_coords.y);
-        upper->z = PetscMax(upper->z, simCtx->bboxlist[r].max_coords.z);
+    PROFILE_HELPER_BEGIN;
+    *reads = PETSC_FALSE;
+    for (PetscInt b = 0; b < plan->count; ++b)
+    for (PetscInt c = 0; c < plan->bindings[b].components; ++c)
+    for (PetscInt var = PICURV_SOURCE_VAR_XI; var <= PICURV_SOURCE_VAR_L_ZETA; ++var) {
+        PetscBool uses = PETSC_FALSE;
+        PetscCall(PicurvExpressionUsesVariable(plan->bindings[b].component[c], var, &uses));
+        if (uses) *reads = PETSC_TRUE;
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
-}
-
-/** @brief Position within the domain along one axis, in [0, 1]; 0 across a flat axis. */
-static PetscReal Normalized(PetscReal value, PetscReal lower, PetscReal upper)
-{
-    return (upper > lower) ? (value - lower) / (upper - lower) : 0.0;
 }
 
 /**
@@ -135,55 +123,112 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
                                       const ParticleFieldEvent *event, PetscInt first, PetscInt end)
 {
     SimCtx           *simCtx = NULL;
-    const PetscReal  *positions = NULL;
+    const PetscReal  *positions = NULL, *weights = NULL;
     const PetscInt64 *pids = NULL;
-    Cmpnts            lower, upper;
+    const PetscInt   *cells = NULL;
+    PetscBool         grid_lines = PETSC_FALSE;
+    Vec               fraction = NULL, length = NULL, local_fraction = NULL, local_length = NULL;
+    const Cmpnts   ***frac = NULL, ***len = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
+    const PetscReal ***aj = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    if (!plan || end <= first) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
-    PetscCheck(user && user->swarm && event, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm and event are required.");
+    if (!plan) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    PetscCheck(user && event, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context and event are required.");
     simCtx = user->simCtx;
-    PetscCall(DomainBounds(simCtx, &lower, &upper));
-
-    PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
-    PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
-    for (PetscInt b = 0; b < plan->count; ++b) {
-        const ParticleFieldBinding    *binding = &plan->bindings[b];
-        const ParticleFieldDescriptor *descriptor = NULL;
-        PetscReal                     *field = NULL, scale = 1.0;
-
-        PetscCall(ParticleFieldGetDescriptor(binding->field, &descriptor));
-        /* A value is physical; the swarm stores solver units. */
-        PetscCall(FieldDimensionReferenceScale(&simCtx->scaling, descriptor->dimension, &scale));
-        PetscCall(DMSwarmGetField(user->swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
-        for (PetscInt p = first; p < end; ++p) {
-            const PetscReal *position = &positions[3 * p];
-            const PetscReal  values[] = {
-                position[0] * simCtx->scaling.L_ref, position[1] * simCtx->scaling.L_ref,
-                position[2] * simCtx->scaling.L_ref,
-                Normalized(position[0], lower.x, upper.x), Normalized(position[1], lower.y, upper.y),
-                Normalized(position[2], lower.z, upper.z),
-                (PetscReal)pids[p], event->physical_time,
-            };
-            const PicurvExpressionDrawKey key = {
-                (PetscInt64)simCtx->particleRandomSeed, pids[p], event->salt, (PetscInt64)binding->field,
-            };
-            for (PetscInt c = 0; c < binding->components; ++c) {
-                PetscReal value = 0.0;
-
-                PetscCall(PicurvExpressionEvaluate(binding->component[c], values, &key, &value));
-                PetscCheck(!PetscIsInfOrNanReal(value), PETSC_COMM_SELF, PETSC_ERR_FP,
-                           "The initial value of '%s' is not finite for particle %lld at (%g, %g, %g).",
-                           descriptor->canonical_name, (long long)pids[p], (double)values[0],
-                           (double)values[1], (double)values[2]);
-                field[binding->components * p + c] = value / scale;
-            }
-        }
-        PetscCall(DMSwarmRestoreField(user->swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+    /* Before the empty-range return: the fractions are collective, and a rank may hold no particle. */
+    PetscCall(PlanReadsGridLines(plan, &grid_lines));
+    if (grid_lines) {
+        PetscCall(DMCreateGlobalVector(user->fda, &fraction));
+        PetscCall(DMCreateGlobalVector(user->fda, &length));
+        PetscCall(ComputeGridLineFractions(user, fraction, length));
+        PetscCall(DMCreateLocalVector(user->fda, &local_fraction));
+        PetscCall(DMCreateLocalVector(user->fda, &local_length));
+        PetscCall(DMGlobalToLocalBegin(user->fda, fraction, INSERT_VALUES, local_fraction));
+        PetscCall(DMGlobalToLocalEnd(user->fda, fraction, INSERT_VALUES, local_fraction));
+        PetscCall(DMGlobalToLocalBegin(user->fda, length, INSERT_VALUES, local_length));
+        PetscCall(DMGlobalToLocalEnd(user->fda, length, INSERT_VALUES, local_length));
     }
-    PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
-    PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+    if (end > first) {
+        PetscCheck(user->swarm, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm is required.");
+        PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+        PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
+        if (grid_lines) {
+            PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
+            PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
+            PetscCall(DMDAVecGetArrayRead(user->fda, local_fraction, &frac));
+            PetscCall(DMDAVecGetArrayRead(user->fda, local_length, &len));
+            PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+            PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+            PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+            PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+        }
+        for (PetscInt b = 0; b < plan->count; ++b) {
+            const ParticleFieldBinding    *binding = &plan->bindings[b];
+            const ParticleFieldDescriptor *descriptor = NULL;
+            PetscReal                     *field = NULL, scale = 1.0;
+
+            PetscCall(ParticleFieldGetDescriptor(binding->field, &descriptor));
+            /* A value is physical; the swarm stores solver units. */
+            PetscCall(FieldDimensionReferenceScale(&simCtx->scaling, descriptor->dimension, &scale));
+            PetscCall(DMSwarmGetField(user->swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+            for (PetscInt p = first; p < end; ++p) {
+                const PetscReal *position = &positions[3 * p];
+                const Cmpnts point = {position[0], position[1], position[2]};
+                const PicurvExpressionDrawKey key = {
+                    (PetscInt64)simCtx->particleRandomSeed, pids[p], event->salt, (PetscInt64)binding->field,
+                };
+                PetscReal values[PARTICLE_VARIABLE_COUNT] = {0.0};
+
+                values[PICURV_SOURCE_VAR_X] = position[0] * simCtx->scaling.L_ref;
+                values[PICURV_SOURCE_VAR_Y] = position[1] * simCtx->scaling.L_ref;
+                values[PICURV_SOURCE_VAR_Z] = position[2] * simCtx->scaling.L_ref;
+                if (grid_lines) {
+                    /* The host cell in cell-centred numbering; a line's fraction is known at the
+                       cell's centre, and moves with the particle by its share of the cell's edge. */
+                    const PetscInt i = cells[3 * p] + 1, j = cells[3 * p + 1] + 1, k = cells[3 * p + 2] + 1;
+                    const PetscReal lengths[3] = {len[k][j][i].x, len[k][j][i].y, len[k][j][i].z};
+                    Cmpnts edges[3];
+
+                    PicurvSourceSetVariables(values, point, frac[k][j][i], len[k][j][i], simCtx->scaling.L_ref);
+                    PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+                    for (PetscInt a = 0; a < 3; ++a) {
+                        const PetscReal ds = PetscSqrtReal(edges[a].x * edges[a].x + edges[a].y * edges[a].y + edges[a].z * edges[a].z);
+                        values[PICURV_SOURCE_VAR_XI + a] += (weights[3 * p + a] - 0.5) * ds / lengths[a];
+                    }
+                }
+                values[PICURV_SOURCE_VAR_T] = event->physical_time;
+                values[PARTICLE_VARIABLE_PID] = (PetscReal)pids[p];
+                for (PetscInt c = 0; c < binding->components; ++c) {
+                    PetscReal value = 0.0;
+
+                    PetscCall(PicurvExpressionEvaluate(binding->component[c], values, &key, &value));
+                    PetscCheck(!PetscIsInfOrNanReal(value), PETSC_COMM_SELF, PETSC_ERR_FP,
+                               "The initial value of '%s' is not finite for particle %lld at (%g, %g, %g).",
+                               descriptor->canonical_name, (long long)pids[p], (double)values[0],
+                               (double)values[1], (double)values[2]);
+                    field[binding->components * p + c] = value / scale;
+                }
+            }
+            PetscCall(DMSwarmRestoreField(user->swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+        }
+        if (grid_lines) {
+            PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, local_length, &len));
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, local_fraction, &frac));
+            PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
+            PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
+        PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+    }
+    PetscCall(VecDestroy(&local_length));
+    PetscCall(VecDestroy(&local_fraction));
+    PetscCall(VecDestroy(&length));
+    PetscCall(VecDestroy(&fraction));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

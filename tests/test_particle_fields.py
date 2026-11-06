@@ -79,9 +79,9 @@ def test_values_become_quoted_runtime_options():
     """
     case, _, _ = load_configs({
         "count": 100,
-        "fields": {"Psi": {"background": 0, "regions": [
+        "fields": {"Psi": {"expression": {"background": 0, "regions": [
             {"shape": "half_space", "axis": "x", "at": 0.5, "side": "above", "value": 1},
-        ]}},
+        ]}}},
     })
     lines = []
     CORE.parse_and_add_model_flags(case, lines)
@@ -105,17 +105,65 @@ def test_no_fields_emit_no_options():
 
 def test_a_valid_value_passes_validation():
     """!
-    @brief A number, an expression, and a region block are all accepted.
+    @brief A number, an expression with constants, a grid-line variable, and a sum are all accepted.
     """
-    for value in (0.5, "0.5 + 0.5*sin(2*pi*x)", {"params": {"k": 2}, "value": "k*xn"}):
+    for value in ({"expression": 0.5}, {"expression": "0.5 + 0.5*sin(2*pi*x)"},
+                  {"expression": "k*xi + L_eta", "constants": {"k": 2}},
+                  {"sum": [{"expression": 0.5}, {"expression": "where(uniform() < 0.5, 0, pid)"}]}):
         validate(*load_configs({"count": 100, "fields": {"Psi": value}}))
 
 
+def test_a_named_source_serves_a_particle_field():
+    """!
+    @brief A field names an entry of `sources:`, whose constants build on the case's and the fluid's.
+    """
+    case, _, _ = load_configs({"count": 100, "fields": {"Psi": "mixture"}})
+    case["constants"] = {"A": 3.0}
+    case["sources"] = {"mixture": {"expression": "A*y*B", "constants": {"B": 2.0}}}
+    fields = CORE.normalize_particle_fields(case["models"]["physics"]["particles"]["fields"], case)
+    assert fields == [{"name": "Psi", "expressions": ["(3.0)*y*(2.0)"]}]
+
+
+@pytest.mark.parametrize("value, replacement", [
+    (0.5, "expression"),
+    ("0.5 + x", "expression"),
+    ({"params": {"k": 2}, "value": "k*x"}, "retired"),
+    ({"background": 0, "regions": []}, "retired"),
+    ({"expression": "xn"}, "xn"),
+    ({"expression": "1", "components": "normal"}, "takes expression"),
+])
+def test_retired_particle_forms_name_their_replacement(value, replacement, capsys):
+    """!
+    @brief The bare values, `params`, and domain-normalized variables are refused.
+    @param[in] value Field value.
+    @param[in] replacement Expected fragment of the refusal.
+    @param[in] capsys Pytest output capture.
+    """
+    with pytest.raises(SystemExit):
+        validate(*load_configs({"count": 100, "fields": {"Psi": value}}))
+    assert replacement in capsys.readouterr().err
+
+
+def test_velocity_sources_take_regions_and_refuse_draws():
+    """!
+    @brief Regions are part of every source's language; draws are keyed on a particle, so only it may use them.
+    """
+    case, _, _ = load_configs({"count": 100})
+    regions = {"background": 1.0, "regions": [{"shape": "slab", "axis": "y", "from": 0.2, "to": 0.4, "value": 2.0}]}
+    source = CORE.resolve_velocity_source({"components": "normal", "expression": regions}, case, "src", True)
+    assert "where(" in source["expressions"][0]
+    source = CORE.resolve_velocity_source({"expression": {"w": regions}}, case, "src", False)
+    assert "where(" in source["expressions"][2]
+    with pytest.raises(ValueError, match="uniform"):
+        CORE.resolve_velocity_source({"components": "normal", "expression": "uniform()"}, case, "src", True)
+
+
 @pytest.mark.parametrize("particles, message", [
-    ({"count": 100, "fields": {"Velocity": 1.0}}, "not a field a case can set"),
-    ({"count": 100, "fields": {"Psi": "foo + 1"}}, "fields.Psi"),
+    ({"count": 100, "fields": {"Velocity": {"expression": 1.0}}}, "not a field a case can set"),
+    ({"count": 100, "fields": {"Psi": {"expression": "foo + 1"}}}, "fields.Psi"),
+    ({"count": 100, "fields": {"Psi": "missing"}}, "no source named"),
     ({"count": 100, "fields": {}}, "non-empty mapping"),
-    ({"count": 0, "fields": {"Psi": 1.0}}, "needs particles"),
+    ({"count": 0, "fields": {"Psi": {"expression": 1.0}}}, "needs particles"),
 ])
 def test_invalid_fields_are_refused(particles, message, capsys):
     """!
@@ -134,7 +182,7 @@ def test_a_prescribed_scalar_source_conflicts_with_an_initial_value(capsys):
     @brief A verification source that prescribes Psi every step would overwrite the value.
     @param[in] capsys Pytest output capture.
     """
-    case, solver, monitor = load_configs({"count": 100, "fields": {"Psi": 1.0}})
+    case, solver, monitor = load_configs({"count": 100, "fields": {"Psi": {"expression": 1.0}}})
     solver.setdefault("verification", {})["sources"] = {"scalar": {"expression": "1.0"}}
     with pytest.raises(SystemExit):
         validate(case, solver, monitor)
@@ -148,8 +196,8 @@ def test_a_point_source_without_draws_warns(capsys):
     """
     point = {"x": 0.5, "y": 0.5, "z": 0.5}
     validate(*load_configs({"count": 100, "init_mode": "PointSource", "point_source": point,
-                            "fields": {"Psi": "x"}}))
+                            "fields": {"Psi": {"expression": "x"}}}))
     assert "has no random draw" in capsys.readouterr().err
     validate(*load_configs({"count": 100, "init_mode": "PointSource", "point_source": point,
-                            "fields": {"Psi": "where(uniform() < 0.5, 0, 1)"}}))
+                            "fields": {"Psi": {"expression": "where(uniform() < 0.5, 0, 1)"}}}))
     assert "has no random draw" not in capsys.readouterr().err

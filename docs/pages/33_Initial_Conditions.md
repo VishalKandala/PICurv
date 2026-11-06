@@ -30,6 +30,8 @@ An initial condition is one `source` and optional `constraints`, the same defini
 | `{type: file, field, path}` | read from a velocity file, staged |
 | `{sum: [...]}` | expressions added to at most one staged field (@ref p33_source_ssec) |
 
+The same language gives particle-carried fields their initial values: one expression per particle, which also reads `pid` and may draw `uniform()` and `normal()` (@ref p45_particle_values_sec).
+
 A velocity file:
 
 ```yaml

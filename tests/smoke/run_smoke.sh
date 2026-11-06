@@ -1694,7 +1694,7 @@ def case(cfg):
     particles = cfg["models"]["physics"]["particles"]
     particles["init_mode"] = "PointSource"
     particles["point_source"] = {"x": 0.5, "y": 0.5, "z": 0.5}
-    particles["fields"] = {"Psi": "x + 0.001*uniform()"}
+    particles["fields"] = {"Psi": {"expression": "x + 0.001*uniform()"}}
     cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.3}}}
 def post(cfg):
     cfg.setdefault("global_operations", {})["dimensionalize"] = True

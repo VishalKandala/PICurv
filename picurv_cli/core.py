@@ -10410,7 +10410,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
 
         if 'fields' in particles_cfg:
             try:
-                particle_fields = normalize_particle_fields(particles_cfg['fields'])
+                particle_fields = normalize_particle_fields(particles_cfg['fields'], case_cfg)
             except ValueError as e:
                 errors.append(f"  {case_path}: {e}")
                 particle_fields = []
@@ -14326,20 +14326,26 @@ _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
 _SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
 
 
-def _source_text(value, constants: dict, names, where: str, ic_gen) -> str:
+def _source_text(value, constants: dict, names, where: str, ic_gen, random: bool = False) -> str:
     """!
     @brief One configured value as validated expression text, with constants inlined.
-    @param[in] value Number or expression string.
+    @param[in] value Number, expression string, or a mapping of `background` and `regions`.
     @param[in] constants Named numbers of the source.
     @param[in] names Variables the expression may use.
     @param[in] where Configuration path of the value.
     @param[in] ic_gen Loaded `generators/ic.gen`, which owns the expression language.
+    @param[in] random Whether the target can draw random numbers.
     @return Expression text.
     """
+    if isinstance(value, dict):
+        unknown = sorted(set(value) - {"background", "regions"})
+        if unknown or "regions" not in value:
+            raise ValueError(f"{where} as a mapping takes regions and optionally background; got {sorted(value)}.")
+        return ic_gen.lower_value(dict(value, params=constants), names, random=random, where=where)
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise ValueError(f"{where} must be a number or an expression string.")
+        raise ValueError(f"{where} must be a number, an expression string, or regions over a background.")
     text = repr(float(value)) if not isinstance(value, str) else ic_gen._substitute_params(value, constants)
-    ic_gen._validate_at(text, names, False, where)
+    ic_gen._validate_at(text, names, random, where)
     return text
 
 
@@ -14421,7 +14427,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     constants = _source_constants(spec, case_cfg, where, ic_gen)
     expression = spec["expression"]
     if frame == "normal":
-        if isinstance(expression, dict):
+        if isinstance(expression, dict) and "regions" not in expression:
             raise ValueError(f"{where}.expression takes one value in the normal frame.")
         texts = [_source_text(expression, constants, names, f"{where}.expression", ic_gen)]
     else:
@@ -14582,21 +14588,55 @@ def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list
 PARTICLE_SETTABLE_FIELDS = {"Psi": 1}
 
 
-def normalize_particle_fields(fields_cfg) -> list:
+def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     """!
-    @brief Validate `models.physics.particles.fields` and lower each value to expressions.
-    @details A value is a number, an expression, or a mapping with `params` and either
-             `value` or `background` with `regions`; a field with several components takes a
-             list of values, one per component. Expressions use physical coordinates
-             `x y z`, domain-normalized `xn yn zn`, `pid`, and physical time `t`, and may
-             draw with `uniform()`/`normal()`.
-    @param[in] fields_cfg The `fields` mapping.
+    @brief Resolve a particle field's source, given inline or by its name under the case's `sources:`.
+    @details A source is one `expression`, with optional named `constants`, or a `sum` of sources.
+             An expression uses the language and variables of every source, and on a particle also
+             `pid` and the draws `uniform()` and `normal()`.
+    @param[in] spec Inline mapping, or the name of an entry of `sources:`.
+    @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
+    @param[in] where Configuration path of the reference.
+    @return Expression text.
+    @throws ValueError on an invalid or retired form.
+    """
+    ic_gen = load_ic_generator_module()
+    named = case_cfg.get("sources") or {}
+    if isinstance(spec, str):
+        if spec not in (named if isinstance(named, dict) else {}):
+            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}). "
+                             "An expression is written {expression: ...}.")
+        where, spec = f"sources.{spec}", named[spec]
+    if not isinstance(spec, dict):
+        raise ValueError(f"{where} must be a source mapping or the name of one under sources; "
+                         "a number or expression is written {expression: ...}.")
+    if "sum" in spec:
+        terms = spec["sum"]
+        if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+            raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+        return " + ".join(f"({resolve_particle_source(term, case_cfg, f'{where}.sum[{n}]')})" for n, term in enumerate(terms))
+    retired = sorted(set(spec) & {"params", "value", "background", "regions"})
+    if retired:
+        raise ValueError(f"{where} keys {retired} are retired: write {{expression: <number, expression, or "
+                         "{background, regions}>, constants: {...}}.")
+    unknown = sorted(set(spec) - {"expression", "constants"})
+    if unknown or "expression" not in spec:
+        raise ValueError(f"{where}: a particle source takes expression and optionally constants; got {sorted(spec)}.")
+    constants = _source_constants(spec, case_cfg, where, ic_gen)
+    return _source_text(spec["expression"], constants, ic_gen.PARTICLE_EXPRESSION_NAMES,
+                        f"{where}.expression", ic_gen, random=True)
+
+
+def normalize_particle_fields(fields_cfg, case_cfg: dict) -> list:
+    """!
+    @brief Validate `models.physics.particles.fields` and lower each field's source to expressions.
+    @param[in] fields_cfg The `fields` mapping: a source per field, or a list of one per component.
+    @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
     @return List of `{"name", "expressions"}` in configuration order.
-    @throws ValueError on an unknown field, a wrong component count, or an invalid value.
+    @throws ValueError on an unknown field, a wrong component count, or an invalid source.
     """
     if not isinstance(fields_cfg, dict) or not fields_cfg:
-        raise ValueError("models.physics.particles.fields must be a non-empty mapping of field names to values.")
-    ic_gen = load_ic_generator_module()
+        raise ValueError("models.physics.particles.fields must be a non-empty mapping of field names to sources.")
     normalized = []
     for name, spec in fields_cfg.items():
         if name not in PARTICLE_SETTABLE_FIELDS:
@@ -14606,12 +14646,9 @@ def normalize_particle_fields(fields_cfg) -> list:
         components = PARTICLE_SETTABLE_FIELDS[name]
         specs = spec if components > 1 else [spec]
         if not isinstance(specs, list) or len(specs) != components:
-            raise ValueError(f"models.physics.particles.fields.{name} takes {components} component values.")
-        expressions = [
-            ic_gen.lower_value(item, ic_gen.PARTICLE_EXPRESSION_NAMES, random=True,
-                               where=f"models.physics.particles.fields.{name}")
-            for item in specs
-        ]
+            raise ValueError(f"models.physics.particles.fields.{name} takes {components} component sources.")
+        expressions = [resolve_particle_source(item, case_cfg, f"models.physics.particles.fields.{name}")
+                       for item in specs]
         normalized.append({"name": name, "expressions": expressions})
     return normalized
 
@@ -16361,7 +16398,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
               f"-> solver units ({psrc[0]}, {psrc[1]}, {psrc[2]})")
 
     if particles_cfg.get('fields'):
-        particle_fields = normalize_particle_fields(particles_cfg['fields'])
+        particle_fields = normalize_particle_fields(particles_cfg['fields'], case_cfg)
         control_lines.append(f"-particle_fields_count {len(particle_fields)}")
         for index, entry in enumerate(particle_fields):
             control_lines.append(f"-particle_fields_{index}_name {entry['name']}")

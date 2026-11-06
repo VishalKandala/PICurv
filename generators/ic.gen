@@ -59,7 +59,7 @@ RANDOM_FUNCTIONS = ("uniform", "normal")
 EULERIAN_EXPRESSION_NAMES = frozenset({"x", "y", "z", "xi", "eta", "zeta", "i", "j", "k"})
 #: Variables a particle initial-value expression may use: physical coordinates, domain-
 #: normalized coordinates, particle identity, and physical time.
-PARTICLE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "xn", "yn", "zn", "pid", "t"})
+PARTICLE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta", "pid"})
 ALLOWED_NAMES = set(ALLOWED_FUNCTIONS) | EULERIAN_EXPRESSION_NAMES | {"pi"}
 _DECIMAL_LITERAL = re.compile(r"^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 ALLOWED_AST_NODES = (
