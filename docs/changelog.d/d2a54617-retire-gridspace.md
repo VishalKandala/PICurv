@@ -1,0 +1,1 @@
+- Internal: `GridSpace` is retired. Nothing read it; `ComputeCellCenters` and `ApplyPeriodicCorrectionsToCellCenters` are named for what remains.
