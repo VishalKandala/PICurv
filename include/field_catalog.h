@@ -40,7 +40,6 @@ typedef enum {
     FIELD_ID_NVERT,
     FIELD_ID_AJ,
     FIELD_ID_CENT,
-    FIELD_ID_GRID_SPACE,
     FIELD_ID_CENTX,
     FIELD_ID_CENTY,
     FIELD_ID_CENTZ,

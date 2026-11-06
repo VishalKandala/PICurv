@@ -2186,8 +2186,6 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = DMCreateGlobalVector(user->fda, &user->Cent); CHKERRQ(ierr); ierr = VecSet(user->Cent, 0.0); CHKERRQ(ierr);
             ierr = DMCreateLocalVector(user->fda, &user->lCent); CHKERRQ(ierr); ierr = VecSet(user->lCent, 0.0); CHKERRQ(ierr);
             
-            ierr = VecDuplicate(user->Cent, &user->GridSpace); CHKERRQ(ierr); ierr = VecSet(user->GridSpace, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->lCent, &user->lGridSpace); CHKERRQ(ierr); ierr = VecSet(user->lGridSpace, 0.0); CHKERRQ(ierr);
 
             ierr = VecDuplicate(user->Cent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Cent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
@@ -4012,8 +4010,6 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->Cent) { ierr = VecDestroy(&user->Cent); CHKERRQ(ierr); }
     if (user->lCent) { ierr = VecDestroy(&user->lCent); CHKERRQ(ierr); }
     ierr = MetricDestroyFacePlanes(user); CHKERRQ(ierr);
-    if (user->GridSpace) { ierr = VecDestroy(&user->GridSpace); CHKERRQ(ierr); }
-    if (user->lGridSpace) { ierr = VecDestroy(&user->lGridSpace); CHKERRQ(ierr); }
     if (user->Centx) { ierr = VecDestroy(&user->Centx); CHKERRQ(ierr); }
     if (user->Centy) { ierr = VecDestroy(&user->Centy); CHKERRQ(ierr); }
     if (user->Centz) { ierr = VecDestroy(&user->Centz); CHKERRQ(ierr); }

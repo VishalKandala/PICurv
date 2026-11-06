@@ -159,7 +159,6 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `DualPlaneNormalJ` | Eulerian | `DIMENSIONLESS` | 1 |
 | `DualPlaneNormalK` | Eulerian | `DIMENSIONLESS` | 1 |
 | `Eta` | Eulerian | `AREA` | L^2 |
-| `GridSpace` | Eulerian | `LENGTH` | L |
 | `IAj` | Eulerian | `INVERSE_VOLUME` | 1/L^3 |
 | `ICsi` | Eulerian | `AREA` | L^2 |
 | `IEta` | Eulerian | `AREA` | L^2 |

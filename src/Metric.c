@@ -786,10 +786,10 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToCellCentersAndSpacing()`.
+ * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToCellCenters()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
+PetscErrorCode ApplyPeriodicCorrectionsToCellCenters(UserCtx *user)
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info = user->info;
@@ -1246,17 +1246,16 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `ComputeCellCentersAndSpacing()`.
+ * @brief Internal helper implementation: `ComputeCellCenters()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
+PetscErrorCode ComputeCellCenters(UserCtx *user)
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info;
     Vec            lCoords;
     const Cmpnts ***coor;
-    Cmpnts       ***cent, ***gs;
-    PetscReal    xcp, ycp, zcp, xcm, ycm, zcm;
+    Cmpnts       ***cent;
     PetscInt     xs,ys,zs,xe,ye,ze,mx,my,mz;
 
     PetscFunctionBeginUser;
@@ -1270,7 +1269,6 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
 
     ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->GridSpace, &gs); CHKERRQ(ierr);
 
     xs = info.xs; xe = info.xs + info.xm;
     ys = info.ys; ye = info.ys + info.ym;
@@ -1293,48 +1291,18 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
                 cent[k][j][i].x = 0.125 * (coor[k][j][i].x + coor[k][j-1][i].x + coor[k-1][j][i].x + coor[k-1][j-1][i].x + coor[k][j][i-1].x + coor[k][j-1][i-1].x + coor[k-1][j][i-1].x + coor[k-1][j-1][i-1].x);
                 cent[k][j][i].y = 0.125 * (coor[k][j][i].y + coor[k][j-1][i].y + coor[k-1][j][i].y + coor[k-1][j-1][i].y + coor[k][j][i-1].y + coor[k][j-1][i-1].y + coor[k-1][j][i-1].y + coor[k-1][j-1][i-1].y);
                 cent[k][j][i].z = 0.125 * (coor[k][j][i].z + coor[k][j-1][i].z + coor[k-1][j][i].z + coor[k-1][j-1][i].z + coor[k][j][i-1].z + coor[k][j-1][i-1].z + coor[k-1][j][i-1].z + coor[k-1][j-1][i-1].z);
-
-                // Calculate Grid Spacing in i-direction (distance between i-face centers)
-                xcp = 0.25 * (coor[k][j][i].x + coor[k][j-1][i].x + coor[k-1][j-1][i].x + coor[k-1][j][i].x);
-                ycp = 0.25 * (coor[k][j][i].y + coor[k][j-1][i].y + coor[k-1][j-1][i].y + coor[k-1][j][i].y);
-                zcp = 0.25 * (coor[k][j][i].z + coor[k][j-1][i].z + coor[k-1][j-1][i].z + coor[k-1][j][i].z);
-                xcm = 0.25 * (coor[k][j][i-1].x + coor[k][j-1][i-1].x + coor[k-1][j-1][i-1].x + coor[k-1][j][i-1].x);
-                ycm = 0.25 * (coor[k][j][i-1].y + coor[k][j-1][i-1].y + coor[k-1][j-1][i-1].y + coor[k-1][j][i-1].y);
-                zcm = 0.25 * (coor[k][j][i-1].z + coor[k][j-1][i-1].z + coor[k-1][j-1][i-1].z + coor[k-1][j][i-1].z);
-                gs[k][j][i].x = PetscSqrtReal(PetscSqr(xcp-xcm) + PetscSqr(ycp-ycm) + PetscSqr(zcp-zcm));
-       
-                // Calculate Grid Spacing in j-direction (distance between j-face centers)
-                xcp = 0.25 * (coor[k][j][i].x + coor[k][j][i-1].x + coor[k-1][j][i].x + coor[k-1][j][i-1].x);
-                ycp = 0.25 * (coor[k][j][i].y + coor[k][j][i-1].y + coor[k-1][j][i].y + coor[k-1][j][i-1].y);
-                zcp = 0.25 * (coor[k][j][i].z + coor[k][j][i-1].z + coor[k-1][j][i].z + coor[k-1][j][i-1].z);
-                xcm = 0.25 * (coor[k][j-1][i].x + coor[k][j-1][i-1].x + coor[k-1][j-1][i].x + coor[k-1][j-1][i-1].x);
-                ycm = 0.25 * (coor[k][j-1][i].y + coor[k][j-1][i-1].y + coor[k-1][j-1][i].y + coor[k-1][j-1][i-1].y);
-                zcm = 0.25 * (coor[k][j-1][i].z + coor[k][j-1][i-1].z + coor[k-1][j-1][i].z + coor[k-1][j-1][i-1].z);
-                gs[k][j][i].y = PetscSqrtReal(PetscSqr(xcp-xcm) + PetscSqr(ycp-ycm) + PetscSqr(zcp-zcm));
-
-                // Calculate Grid Spacing in k-direction (distance between k-face centers)
-                xcp = 0.25 * (coor[k][j][i].x + coor[k][j][i-1].x + coor[k][j-1][i].x + coor[k][j-1][i-1].x);
-                ycp = 0.25 * (coor[k][j][i].y + coor[k][j][i-1].y + coor[k][j-1][i].y + coor[k][j-1][i-1].y);
-                zcp = 0.25 * (coor[k][j][i].z + coor[k][j][i-1].z + coor[k][j-1][i].z + coor[k][j-1][i-1].z);
-                xcm = 0.25 * (coor[k-1][j][i].x + coor[k-1][j][i-1].x + coor[k-1][j-1][i].x + coor[k-1][j-1][i-1].x);
-                ycm = 0.25 * (coor[k-1][j][i].y + coor[k-1][j][i-1].y + coor[k-1][j-1][i].y + coor[k-1][j-1][i-1].y);
-                zcm = 0.25 * (coor[k-1][j][i].z + coor[k-1][j][i-1].z + coor[k-1][j-1][i].z + coor[k-1][j-1][i-1].z);
-                gs[k][j][i].z = PetscSqrtReal(PetscSqr(xcp-xcm) + PetscSqr(ycp-ycm) + PetscSqr(zcp-zcm));
             }
         }
     }
-    
+
     ierr = DMDAVecRestoreArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->GridSpace, &gs); CHKERRQ(ierr);
 
     // Assemble and update ghost regions for the new data
     ierr = VecAssemblyBegin(user->Cent); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->Cent); CHKERRQ(ierr);
-    ierr = VecAssemblyBegin(user->GridSpace); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->GridSpace); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_GRID_SPACE); CHKERRQ(ierr);
 
-    ierr = ApplyPeriodicCorrectionsToCellCentersAndSpacing(user); CHKERRQ(ierr);
+    ierr = ApplyPeriodicCorrectionsToCellCenters(user); CHKERRQ(ierr);
 
     // Final assembly and ghost update after corrections
     ierr = VecAssemblyBegin(user->Cent); CHKERRQ(ierr); 
@@ -1469,7 +1437,6 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
-    //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Calculating i-face centers (Centx) with i[%d,%d], j[%d,%d], k[%d,%d] ...\n", user->simCtx->rank,gxs,gxe,gys,gye,gzs,gze);
 
@@ -1522,7 +1489,6 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     ierr = DMDAVecRestoreArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
 
-    // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
         const FieldId face_centers[] = {FIELD_ID_CENTX};
@@ -1678,7 +1644,6 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
-    //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     for (PetscInt k = PetscMax(zs, 1); k < PetscMin(ze, mz - 1); k++) {
         for (PetscInt j = ys; j < PetscMin(ye, my - 1); j++) {
@@ -1715,7 +1680,6 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     
     ierr = DMDAVecRestoreArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
-    // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
         const FieldId face_centers[] = {FIELD_ID_CENTY};
@@ -1871,7 +1835,6 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
-    //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     for (PetscInt k = zs; k < PetscMin(ze, mz - 1); k++) {
         for (PetscInt j = PetscMax(ys, 1); j < PetscMin(ye, my - 1); j++) {
@@ -1908,7 +1871,6 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     
     ierr = DMDAVecRestoreArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
-    // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
         const FieldId face_centers[] = {FIELD_ID_CENTZ};
@@ -2290,7 +2252,7 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             ierr = ComputeFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeCellCenteredJacobianInverse(user); CHKERRQ(ierr);
 	        ierr = CheckAndFixGridOrientation(user); CHKERRQ(ierr);
-	        ierr = ComputeCellCentersAndSpacing(user); CHKERRQ(ierr);
+	        ierr = ComputeCellCenters(user); CHKERRQ(ierr);
             ierr = ComputeIFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeJFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr); 

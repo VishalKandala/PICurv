@@ -339,10 +339,10 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
  * 2. Uses the `InterpolateFieldFromCornerToCenter` macro to interpolate these coordinates to
  *    the cell centers, storing the result in a new temporary vector.
  * 3. Compares this new vector with the `user->Cent` vector, which is assumed to have been
- *    computed by `ComputeCellCentersAndSpacing` and serves as the ground truth.
+ *    computed by `ComputeCellCenters` and serves as the ground truth.
  * 4. A 2-norm of the difference is computed. If it is below a small tolerance, the test passes.
  *
- * @note This function should be called immediately after `ComputeCellCentersAndSpacing` has
+ * @note This function should be called immediately after `ComputeCellCenters` has
  *       been successfully executed.
  *
  * @param user The UserCtx for a specific grid level.

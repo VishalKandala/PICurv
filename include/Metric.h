@@ -213,7 +213,7 @@ PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmp
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user);
+PetscErrorCode ApplyPeriodicCorrectionsToCellCenters(UserCtx *user);
 
 /**
  * @brief Builds translated periodic images for i-face centers (Centx).
@@ -317,19 +317,12 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user);
 PetscErrorCode CheckAndFixGridOrientation(UserCtx *user);
 
 /**
- * @brief Computes the physical location of cell centers and the spacing between them.
+ * @brief Computes the physical location of each cell's center from the nodal coordinates.
  *
- * This function calculates two key geometric properties from the nodal coordinates:
- * 1.  `Cent`: A vector field storing the (x,y,z) coordinates of the center of each grid cell.
- * 2.  `GridSpace`: A vector field storing the physical distance between adjacent
- *     cell centers in the i, j, and k computational directions.
- *
- * It is a direct adaptation of the corresponding logic from the legacy `FormMetrics`.
- *
- * @param user The UserCtx for a specific grid level. The function populates `user->Cent` and `user->GridSpace`.
+ * @param user The UserCtx for a specific grid level. The function populates `user->Cent`.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
  */
-PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user);
+PetscErrorCode ComputeCellCenters(UserCtx *user);
 
 /**
  * @brief Arc-length position of every owned cell centre along its three grid lines.

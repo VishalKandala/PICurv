@@ -172,7 +172,7 @@ The catalog groups fields by layout as follows:
 
 - node-centered: `Coordinates`, `CellScalarAtCorner`, and `CellVectorAtCorner`;
 - shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `Diffusivity`,
-  `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `GridSpace`, `Phi`, `Psi`,
+  `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `Phi`, `Psi`,
   `Nvert_o`, `ParticleCount`, `PostScalar`,
   `PostVector`, `Qcrit`, `SearchCellSize`, `DualPlaneNormalI`, `DualPlaneNormalJ`,
   `DualPlaneNormalK`, `DualPlaneCentroidI`, `DualPlaneCentroidJ`, and `DualPlaneCentroidK`;

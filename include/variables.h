@@ -1193,7 +1193,7 @@ typedef struct UserCtx {
      refreshed with UpdateLocalGhosts(). DMSetCoordinates() on da would replace both vectors and
      leave these dangling, so nothing calls it after grid setup. */
   Vec Coor, lCoor;
-  Vec Cent, lCent, Csi, Eta, Zet, Aj, lCsi, lEta, lZet, lAj, GridSpace,lGridSpace;
+  Vec Cent, lCent, Csi, Eta, Zet, Aj, lCsi, lEta, lZet, lAj;
   // Face planes for particle search (grid cells) and cell-centre interpolation (dual cells): one
   // plane per face family, shared by the two cells on either side (MetricComputeFacePlanes()).
   Vec PlaneNormalI, PlaneNormalJ, PlaneNormalK, lPlaneNormalI, lPlaneNormalJ, lPlaneNormalK;
