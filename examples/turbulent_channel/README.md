@@ -6,7 +6,7 @@ setup. It is a candidate DNS configuration, not a validated turbulent benchmark.
 
 The Cartesian axes are spanwise `i`, wall-normal `j`, and streamwise `k`.
 `grid.gen` reads `grid.cfg`: 128 x 128 x 256 cells on a 2*pi x 2 x 4*pi domain,
-with symmetric wall clustering and three-level multigrid-compatible node counts.
+with symmetric wall clustering and four-level multigrid-compatible node counts.
 At nominal Re_tau=180, both periodic spacings are about 8.84 wall units. The first
 full wall cell is 1 wall unit wide, placing its center at y+=0.5. These nominal
 spacings must be recomputed from the achieved wall stress; grid/time convergence

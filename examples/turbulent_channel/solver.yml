@@ -39,7 +39,7 @@ poisson_solver:
   gmres: {restart: 30}
   preconditioner: {type: multigrid}
   multigrid:
-    levels: 3
+    levels: 4
     pre_sweeps: 2
     post_sweeps: 2
     cycle: v
@@ -51,5 +51,6 @@ poisson_solver:
       level_0: {method: preonly, preconditioner: redundant}
       level_1: {method: richardson, preconditioner: bjacobi}
       level_2: {method: richardson, preconditioner: bjacobi}
+      level_3: {method: richardson, preconditioner: bjacobi}
 
 petsc_passthrough_options: {}
