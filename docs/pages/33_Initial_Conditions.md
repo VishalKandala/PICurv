@@ -173,11 +173,12 @@ cosh-cosine series of the exact solution over its own area mean, both to 100 odd
 `cosh(a)/cosh(b)` written so that it cannot overflow. On a square section it matches the
 double sine series of the same solution to 1e-5 of `U`; written in the
 arc-length fractions, it is the physical profile on a stretched grid. `womersley` is the flow in
-a pipe of radius `R` along `z`, centred on the axis: a Poiseuille mean of bulk `U` plus the
+a pipe of radius `R` along `z`, with its axis through `x = y = 0`: a Poiseuille mean of bulk `U` plus the
 exact oscillatory part driven by `-(1/rho) dp/dz = K cos(omega t)` [m/s^2], with Womersley
 number `alpha = R sqrt(omega/nu)`. It matches the complex solution
 `Re{(K/(i omega))(1 - J0(i^{3/2} alpha s)/J0(i^{3/2} alpha)) e^{i omega t}}` to 1e-12, and at
-small `alpha` it tends to the quasi-steady Poiseuille profile. Either serves an inlet as
+small `alpha` it tends to the quasi-steady Poiseuille profile. A sweep does not place a pipe there by default; on an inlet, `r` replaces
+`sqrt(x**2 + y**2)` and the profile holds wherever the pipe lies, with its centre on the face's. Either serves an inlet as
 written and an initial condition with `components: curvilinear` and the expression under
 `u_zeta`, on a grid whose `zeta` lines run along the flow.
 
@@ -456,7 +457,7 @@ vector sized for another grid fails before the solver launches.
 
 **Evidence.** Unit verified - `make test-python` covers the script contract and the CLI route.
 `initial-conditions-2026-09-21` measured the expression config this generator once evaluated, whose
-`Ucat` and `Ucont` fields the source frames reproduce: exactly on a flat channel, and to 3e-15 for
+`Ucat` and `Ucont` fields the source frames reproduce: exactly on a flat channel for a test field with no variation along each face's normal, and to 3e-15 for
 `Ucont` on a curved one. A `Ucat` expression differs there by 5e-7 in flux, because a source evaluates
 at the face.
 

@@ -181,7 +181,7 @@ is a test-local routine.
 - `test_velocity_sources.py`
   - velocity sources (`sources:`, a `prescribed_velocity` inlet, a `source` initial
     condition): named and inline sources resolve to one form with constants inlined,
-    become quoted `-inlet_source_<id>_*` / `-ic_source_*` options with only `source_id` in
+    become quoted `-face_source_<id>_*` / `-ic_source_*` options with only `source_id` in
     the bcs row, and validation refuses unknown names, wrong frames, bad expressions and
     constraints a target does not take; the C side is `make unit-mpi`
     (`grid-line-fractions-follow-arc-length`)

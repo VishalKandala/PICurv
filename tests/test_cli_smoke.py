@@ -1798,7 +1798,7 @@ def test_picslice_validation_rejects_bad_shape_and_values(tmp_path):
 
     bad_frame = tmp_path / "bad_frame.picslice"
     bad_frame.write_text("PICSLICE\n2\n2 2\n1\n2\n3\n4\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="exactly one frame"):
+    with pytest.raises(ValueError, match="positive time between them"):
         picurv.validate_and_nondimensionalize_picslice(str(bad_frame), str(dest), 1.0, expected_dims=(2, 2))
 
     negative = tmp_path / "negative.picslice"
@@ -1897,6 +1897,52 @@ def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
     lines = output.read_text(encoding="utf-8").splitlines()
     assert lines[:3] == ["PICSLICE", "1", "2 2"]
     assert [float(value) for value in lines[3:]] == pytest.approx([8.0, 8.0, 8.0, 8.0])
+
+
+def test_profile_gen_field_slice_cli_records_velocities_over_time(tmp_path):
+    """!
+    @brief Test profile.gen writes one frame per field file with Cartesian velocities, reversed flow included.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
+    fields = [str(write_petsc_vec_binary(tmp_path / f"frame{w}.dat", [1.0, -2.0, float(w)] * 4 ** 3)) for w in (3, -5)]
+    output = tmp_path / "recording.picslice"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "field-slice",
+            "--output",
+            str(output),
+            "--field-file",
+            *fields,
+            "--components",
+            "cartesian",
+            "--frame-interval",
+            "0.5",
+            "--source-grid",
+            str(grid),
+            "--target-grid",
+            str(grid),
+            "--slice-face=+Zeta",
+            "--target-face=-Zeta",
+            "--velocity-scale",
+            "2.0",
+            *petsc_index_args(),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads(result.stdout.strip().splitlines()[-1])
+    assert summary["frames"] == 2 and summary["components"] == "cartesian"
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["PICSLICE", "2", "2 2 3 0.5"]
+    assert [float(v) for v in lines[3].split()] == pytest.approx([2.0, -4.0, 6.0])
+    assert [float(v) for v in lines[7].split()] == pytest.approx([2.0, -4.0, -10.0])
 
 
 def test_profile_gen_field_slice_cli_supports_axis_index_selector(tmp_path):

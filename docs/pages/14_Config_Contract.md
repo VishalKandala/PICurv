@@ -62,8 +62,8 @@ For each run, `picurv` generates:
   `type: file` or `type: field_slice`, or a `sum` of expressions and at most one of those.
   Old-field slices are produced by Python, written under `<run.inputs>/`,
   summarized in `profile.info`, then staged into the C-side `source_file` contract. An
-  expression source and its `bulk_velocity` reach C as quoted `-inlet_source_<id>_*`
-  control options.
+  expression source and its `bulk_velocity` or `flow_rate` reach C as quoted `-face_source_<id>_*`
+  control options. The top-level `constants:` are numbers every source may use, inlined by Python.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions` takes one `source`: expressions, a generator, a file, or a `sum`
   of expressions and at most one of those (@ref p33_source), and optional `constraints`.

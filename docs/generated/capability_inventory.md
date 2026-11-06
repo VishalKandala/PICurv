@@ -13,6 +13,7 @@ Selector: `case.yml -> boundary_conditions[].handler`
 | `free_slip` | `WALL` | none | none |
 | `geometric` | `PERIODIC` | none | none |
 | `initial_flux` | `PERIODIC` | none | `apply_trim`, `enforce_seam_flux` |
+| `moving` | `WALL` | none | none |
 | `noslip` | `WALL` | none | none |
 | `prescribed_velocity` | `INLET` | none | none |
 

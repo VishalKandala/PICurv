@@ -274,8 +274,8 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 1.5\n"
         "-bcs_files %s\n"
         /* Inlet sources a bcs file may name: a uniform speed and a parabola. */
-        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
-        "-inlet_source_1_frame normal\n-inlet_source_1_expr_0 \"16*1.5*xi*(1-xi)*eta*(1-eta)\"\n"
+        "-face_source_0_frame normal\n-face_source_0_expr_0 1.5\n"
+        "-face_source_1_frame normal\n-face_source_1_expr_0 \"16*1.5*xi*(1-xi)*eta*(1-eta)\"\n"
         "-profiling_timestep_mode off\n"
         "-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"
@@ -870,7 +870,7 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "-dt 0.001\n"
         "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 0.1\n"
         "-bcs_files %s\n"
-        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 0.1\n"
+        "-face_source_0_frame normal\n-face_source_0_expr_0 0.1\n"
         "-profiling_timestep_mode off\n-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"
         /* PICurv's programmatic grid counts include the leading physical node;

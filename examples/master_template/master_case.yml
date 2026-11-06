@@ -481,13 +481,19 @@ boundary_conditions:
     #   components: normal         expression: "<speed into the domain>"
     #   components: cartesian      expression: {u: ..., v: ..., w: ...}
     #   components: curvilinear    expression: {u_xi: ..., u_eta: ..., u_zeta: ...}
-    # Omitted components are 0; `constants:` names numbers the expressions use. A source used by
-    # several targets can be named under a top-level `sources:` mapping and given by name here.
+    # On a face it also reads r, the distance from the face's centre [m]. Omitted components are 0;
+    # `constants:` names numbers the expressions use, on top of the case's top-level `constants:` and
+    # rho and nu from properties.fluid. A source used by several targets can be named under a
+    # top-level `sources:` mapping and given by name here.
+    #
+    # constraints: {bulk_velocity: <mean normal speed>}, or {flow_rate: <m^3/s>}, each a number or
+    # an expression in t.
     #
     # Alternative: a parabola across the two bounded tangential directions, peak 1.5 m/s:
     # source: {components: normal, expression: "16*1.5*xi*(1-xi)*zeta*(1-zeta)"}
     #
-    # Or a source of data, a normal-speed profile staged as a PICSLICE; the constraints apply too.
+    # Or a source of data staged as a PICSLICE; the constraints apply too. `components` is normal,
+    # a nonnegative speed per slot (default), or cartesian, a velocity; `repeat: true` loops a recording.
     # From a precomputed PICSLICE file:
     # source:
     #   type: file
@@ -508,6 +514,9 @@ boundary_conditions:
     #   slice:
     #     face: "+Eta"
     #     orientation: opposite
+    # For a recording, in place of field_file:
+    #   field_files: {pattern: "old/step_{step:012d}/Ucat.dat", first: 1000, last: 2000, every: 10}
+    #   frame_interval: 0.05              # Seconds between those frames
 
   - face: "+Eta"
     type: OUTLET

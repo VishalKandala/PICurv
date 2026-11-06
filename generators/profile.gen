@@ -452,15 +452,16 @@ def _average_unit_normal(normals):
     return avg / length
 
 
-def generate_field_slice_profile(output_path: str, field_file: str, source_grid: str,
+def generate_field_slice_profile(output_path: str, field_file, source_grid: str,
                                  target_grid: str, source_block: int, target_block: int,
                                  source_slice: dict, target_face: str, orientation: str,
                                  normal_tolerance: float, velocity_scale: float,
-                                 expected_dims: tuple = None) -> dict:
+                                 expected_dims: tuple = None, components: str = "normal",
+                                 frame_interval: float = None) -> dict:
     """!
     @brief Extract a dimensional PICSLICE profile from a Cartesian Ucat field slice.
     @param[in] output_path Output PICSLICE path.
-    @param[in] field_file PETSc binary Ucat field file.
+    @param[in] field_file PETSc binary Ucat field file, or a list of them, one per frame.
     @param[in] source_grid Old canonical PICGRID path.
     @param[in] target_grid Target canonical PICGRID path.
     @param[in] source_block Source grid block index.
@@ -471,6 +472,8 @@ def generate_field_slice_profile(output_path: str, field_file: str, source_grid:
     @param[in] normal_tolerance Dot-product tolerance.
     @param[in] velocity_scale Multiplier from stored field units to dimensional m/s.
     @param[in] expected_dims Optional target PICSLICE dimensions.
+    @param[in] components What each slot stores: `normal`, a nonnegative speed, or `cartesian`, a velocity.
+    @param[in] frame_interval Time between the frames of several field files [s].
     @return Summary dictionary.
     """
     numpy = require_numpy()
@@ -537,44 +540,63 @@ def generate_field_slice_profile(output_path: str, field_file: str, source_grid:
             f"required >= {normal_tolerance:.6f}."
         )
 
-    raw_values = read_petsc_vec_binary(field_file)
     im, jm, km = source_dims
     expected_value_count = (im + 1) * (jm + 1) * (km + 1) * 3
-    if raw_values.size != expected_value_count:
-        raise ValueError(
-            f"field_file vector length mismatch: expected {expected_value_count} "
-            f"for source grid node dimensions {source_dims} (cell-centered DMDA "
-            f"{(im + 1, jm + 1, km + 1)} with 3 Ucat components), found {raw_values.size}."
-        )
-    ucat = raw_values.reshape((km + 1, jm + 1, im + 1, 3)) * float(velocity_scale)
-
     n1, n2 = source_spec["dims"]
-    speeds = numpy.zeros((n1, n2), dtype=float)
-    signed_components = numpy.zeros((n1, n2), dtype=float)
-    for a in range(n1):
-        for b in range(n2):
-            cell = _cell_index_for_sample(source_spec["axis"], sample_indices[a][b], source_dims)
-            signed = float(numpy.dot(ucat[cell], source_normals[a, b, :]))
-            signed_components[a, b] = signed
-            speeds[a, b] = signed if orientation == "opposite" else -signed
-
-    min_oriented = float(numpy.min(speeds))
-    tolerance_speed = max(1.0e-12, 1.0e-12 * float(numpy.max(numpy.abs(speeds))) if speeds.size else 1.0e-12)
-    if min_oriented < -tolerance_speed:
-        raise ValueError(
-            f"field_slice orientation produced negative normal speeds; min={min_oriented:.16e}. "
-            "Check slice.orientation, slice.normal, and the source field direction."
-        )
-    speeds = numpy.maximum(speeds, 0.0)
-
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    field_files = [field_file] if isinstance(field_file, str) else list(field_file)
+    if len(field_files) > 1 and not (frame_interval and frame_interval > 0.0):
+        raise ValueError("several field files need a positive frame interval.")
+    components_per_slot = 3 if components == "cartesian" else 1
+    speeds_seen, signed_seen = [], []
     with open(output_path, "w") as fout:
         fout.write("PICSLICE\n")
-        fout.write("1\n")
-        fout.write(f"{n1} {n2}\n")
-        for row in range(n1):
-            for col in range(n2):
-                fout.write(f"{float(speeds[row, col]):.16e}\n")
+        fout.write(f"{len(field_files)}\n")
+        header = f"{n1} {n2}"
+        if components_per_slot != 1 or len(field_files) > 1:
+            header += f" {components_per_slot}"
+        if len(field_files) > 1:
+            header += f" {float(frame_interval)!r}"
+        fout.write(header + "\n")
+        for path in field_files:
+            raw_values = read_petsc_vec_binary(path)
+            if raw_values.size != expected_value_count:
+                raise ValueError(
+                    f"field_file vector length mismatch: expected {expected_value_count} "
+                    f"for source grid node dimensions {source_dims} (cell-centered DMDA "
+                    f"{(im + 1, jm + 1, km + 1)} with 3 Ucat components), found {raw_values.size}."
+                )
+            ucat = raw_values.reshape((km + 1, jm + 1, im + 1, 3)) * float(velocity_scale)
+            speeds = numpy.zeros((n1, n2), dtype=float)
+            signed_components = numpy.zeros((n1, n2), dtype=float)
+            vectors = numpy.zeros((n1, n2, 3), dtype=float)
+            for a in range(n1):
+                for b in range(n2):
+                    cell = _cell_index_for_sample(source_spec["axis"], sample_indices[a][b], source_dims)
+                    signed = float(numpy.dot(ucat[cell], source_normals[a, b, :]))
+                    signed_components[a, b] = signed
+                    speeds[a, b] = signed if orientation == "opposite" else -signed
+                    vectors[a, b, :] = ucat[cell]
+            signed_seen.append(signed_components)
+            if components == "normal":
+                min_oriented = float(numpy.min(speeds))
+                tolerance_speed = max(1.0e-12, 1.0e-12 * float(numpy.max(numpy.abs(speeds))) if speeds.size else 1.0e-12)
+                if min_oriented < -tolerance_speed:
+                    raise ValueError(
+                        f"field_slice orientation produced negative normal speeds; min={min_oriented:.16e}. "
+                        "Check slice.orientation, slice.normal, and the source field direction, or keep "
+                        "the reversed flow with components: cartesian."
+                    )
+                speeds = numpy.maximum(speeds, 0.0)
+            speeds_seen.append(speeds)
+            for row in range(n1):
+                for col in range(n2):
+                    if components == "cartesian":
+                        fout.write(" ".join(f"{float(v):.16e}" for v in vectors[row, col, :]) + "\n")
+                    else:
+                        fout.write(f"{float(speeds[row, col]):.16e}\n")
+    speeds = numpy.stack(speeds_seen)
+    signed_components = numpy.stack(signed_seen)
 
     max_speed = float(numpy.max(speeds))
     mean_speed = float(numpy.mean(speeds))
@@ -583,7 +605,9 @@ def generate_field_slice_profile(output_path: str, field_file: str, source_grid:
         "generator": "field_slice",
         "path": os.path.abspath(output_path),
         "dims": [n1, n2],
-        "source_field": os.path.abspath(field_file),
+        "source_field": os.path.abspath(field_files[0]),
+        "frames": len(field_files),
+        "components": components,
         "source_grid": os.path.abspath(source_grid),
         "target_grid": os.path.abspath(target_grid),
         "source_block": source_block,
@@ -617,7 +641,12 @@ def build_parser():
         help="Extract a canonical PICSLICE profile from an existing Ucat field slice.",
     )
     field_slice.add_argument("--output", required=True, help="Output `.picslice` path.")
-    field_slice.add_argument("--field-file", required=True, help="PETSc binary Ucat field file.")
+    field_slice.add_argument("--field-file", required=True, nargs="+",
+                             help="PETSc binary Ucat field file, or several for a recording.")
+    field_slice.add_argument("--components", choices=("normal", "cartesian"), default="normal",
+                             help="Store each slot's normal speed, or its Cartesian velocity.")
+    field_slice.add_argument("--frame-interval", type=float, default=None,
+                             help="Time between the field files of a recording [s].")
     field_slice.add_argument("--petsc-index-bytes", type=int, choices=(4, 8), default=4,
                         help="Bytes of a PetscInt in the PETSc that wrote the field files (4 or 8).")
     field_slice.add_argument("--source-grid", required=True, help="Old canonical PICGRID path.")
@@ -674,6 +703,8 @@ def main(argv=None) -> int:
                 args.normal_tolerance,
                 args.velocity_scale,
                 tuple(args.expected_dims) if args.expected_dims else None,
+                args.components,
+                args.frame_interval,
             )
         else:
             parser.error(f"unsupported command {args.command}")

@@ -4,7 +4,7 @@
        inlet, and the `source` initial condition.
 
 The CLI resolves a source (inline or named), inlines its constants, applies the target's
-constraints, and passes it to the runtime as quoted `-inlet_source_<id>_*` or `-ic_source_*`
+constraints, and passes it to the runtime as quoted `-face_source_<id>_*` or `-ic_source_*`
 options; `src/expression.c` compiles and evaluates it. A data source on an inlet is staged as
 a PICSLICE instead, which the bcs file names. The language itself is covered by
 `test_expression_language.py`.
@@ -106,11 +106,11 @@ def test_sources_become_quoted_runtime_options():
         CORE.resolve_velocity_source({"components": "normal", "expression": "6*eta*(1-eta)"}, {},
                                      "src", allow_normal=True),
         {"scale": 2, "bulk_velocity": 1.0}, "constraints", allowed={"scale", "bulk_velocity"})
-    lines = CORE.velocity_source_control_lines("-inlet_source_3", source, "src")
+    lines = CORE.velocity_source_control_lines("-face_source_3", source, "src")
     assert lines == [
-        "-inlet_source_3_frame normal",
-        '-inlet_source_3_expr_0 "(6*eta*(1-eta))*(2.0)"',
-        '-inlet_source_3_bulk_velocity "1.0"',
+        "-face_source_3_frame normal",
+        '-face_source_3_expr_0 "(6*eta*(1-eta))*(2.0)"',
+        '-face_source_3_bulk_velocity "1.0"',
     ]
 
 
@@ -137,7 +137,7 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, {"handler": "constant_velocity", "params": {"vx": 0, "vy": 0, "vz": 1}}, None,
      "is retired: use handler 'prescribed_velocity' with source: {components: normal"),
     (None, {"type": "WALL", "handler": "noslip", "source": DUCT}, None,
-     "only read by the 'prescribed_velocity' handler"),
+     "only read by the 'prescribed_velocity' and 'moving' handlers"),
     (None, None, {"source": {"type": "field_slice", "field_file": "u.dat"}}, "only an inlet reads it"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "file", "path": "inlet.picslice"},
             "constraints": {"scale": -1.0}}, None, "must be positive"),
@@ -192,8 +192,8 @@ def test_a_data_source_is_staged_and_scaled(tmp_path):
     profile.write_text("PICSLICE\n1\n%d %d\n%s\n" % (jm, im, "\n".join(map(str, speeds))), encoding="utf-8")
     inlet = CORE.validate_and_prepare_boundary_conditions(case)[0][4]
     assert CORE.profile_data_source(inlet)["type"] == "file"
-    assert CORE.velocity_source_control_lines("-inlet_source_0", inlet["source"], "src") == [
-        '-inlet_source_0_bulk_velocity "1 + 0.5*t"']
+    assert CORE.velocity_source_control_lines("-face_source_0", inlet["source"], "src") == [
+        '-face_source_0_bulk_velocity "1 + 0.5*t"']
 
     run_dir = tmp_path / "run"
     (run_dir / "config").mkdir(parents=True)
@@ -377,7 +377,7 @@ def test_an_inlet_sum_adds_expressions_to_data(tmp_path):
 
 @pytest.mark.parametrize("terms, message", [
     ([{"type": "file", "path": "a.picslice"}, {"type": "file", "path": "b.picslice"}], "at most one data term"),
-    ([{"type": "file", "path": "a.picslice"}, DUCT], "must be in the normal frame"),
+    ([{"type": "file", "path": "a.picslice"}, DUCT], "must be in its normal frame"),
     ([DUCT, {"components": "normal", "expression": "1"}], "mix the"),
 ])
 def test_invalid_inlet_sums_are_refused(terms, message, capsys):
@@ -497,3 +497,147 @@ def test_contravariant_components_are_face_fluxes():
     solver["operation_mode"] = {"eulerian_field_source": "analytical"}
     with pytest.raises(SystemExit):
         validate(case, solver, monitor)
+
+
+def test_a_face_reads_r_and_a_cell_does_not():
+    """! @brief `r` is the distance from a face's centre, so only a face can read it. """
+    case, _, _ = load_configs()
+    face = CORE.resolve_velocity_source({"components": "normal", "expression": "1 - r*r"}, case, "src", True)
+    assert face["expressions"] == ["1 - r*r"]
+    with pytest.raises(ValueError, match="r"):
+        CORE.resolve_velocity_source({"expression": {"u": "1 - r"}}, case, "src", False)
+
+
+def test_constants_come_from_the_fluid_the_case_and_the_source():
+    """! @brief Each level overrides the one before it. """
+    case, _, _ = load_configs()
+    case["properties"]["fluid"] = {"density": 2.0, "viscosity": 0.5}
+    case["constants"] = {"U": 3.0, "H": 7.0}
+    source = CORE.resolve_velocity_source(
+        {"components": "normal", "expression": "U*H*nu*rho", "constants": {"H": 5.0}}, case, "src", True)
+    assert source["expressions"] == ["(3.0)*(5.0)*(0.25)*(2.0)"]
+    case["constants"] = {"U": "three"}
+    with pytest.raises(ValueError, match="constants.U must be a number"):
+        CORE.resolve_velocity_source({"components": "normal", "expression": "U"}, case, "src", True)
+
+
+def test_a_flow_rate_is_a_target_of_the_face_alone():
+    """! @brief A flow rate reaches the runtime, excludes a bulk velocity, and is no initial condition's. """
+    case, _, _ = load_configs()
+    source = CORE.resolve_velocity_source({"components": "normal", "expression": "1"}, case, "src", True)
+    constrained = CORE.apply_source_constraints(source, {"flow_rate": "2 + t"}, "c", {"scale", "bulk_velocity", "flow_rate"})
+    assert CORE.velocity_source_control_lines("-face_source_0", constrained, "src")[-1] == '-face_source_0_flow_rate "2 + t"'
+    with pytest.raises(ValueError, match="either bulk_velocity or flow_rate"):
+        CORE.apply_source_constraints(source, {"flow_rate": 1, "bulk_velocity": 1}, "c", {"bulk_velocity", "flow_rate"})
+    with pytest.raises(ValueError, match="not constraints of this target"):
+        CORE.apply_source_constraints(source, {"flow_rate": 1}, "c", {"scale", "bulk_velocity"})
+
+
+def test_data_may_hold_velocities_and_expressions_add_in_its_frame(tmp_path):
+    """!
+    @brief A cartesian file names its frame to the runtime, and a sum must be written in that frame.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    case, _, _ = load_configs()
+    data = {"type": "file", "path": str(tmp_path / "v.picslice"), "components": "cartesian", "repeat": True}
+    source = CORE.resolve_velocity_source(data, case, "src", True)
+    assert source["frame"] == "cartesian" and source["data"]["repeat"] is True
+    assert CORE.velocity_source_control_lines("-face_source_0", dict(source, bulk_velocity=None), "src") == [
+        "-face_source_0_frame cartesian"]
+    mixed = {"sum": [data, {"components": "normal", "expression": "1"}]}
+    with pytest.raises(ValueError, match="in its cartesian frame"):
+        CORE.resolve_velocity_source(mixed, case, "src", True)
+    added = CORE.resolve_velocity_source({"sum": [data, {"expression": {"w": "1"}}]}, case, "src", True)
+    assert added["frame"] == "cartesian" and added["expressions"] == ["(0.0)", "(0.0)", "(1)"]
+    with pytest.raises(ValueError, match="components"):
+        CORE.resolve_velocity_source({"type": "file", "path": "p", "components": "swirl"}, case, "src", True)
+
+
+@pytest.mark.parametrize(
+    "header, values, components, message",
+    [
+        ("3\n1 1 3 0.1", "1 2 3", "cartesian", "has 3 values, expected 9"),
+        ("3\n1 1 3", "1 2 3 4 5 6 7 8 9", "cartesian", "positive time between them"),
+        ("1\n1 1", "1", "cartesian", "holds 1 component"),
+        ("1\n1 1 3", "-1 2 3", "normal", "holds 3 component"),
+    ],
+)
+def test_malformed_recordings_are_refused(header, values, components, message, tmp_path):
+    """!
+    @brief The staging check names a recording's wrong size, missing interval, or wrong components.
+    @param[in] header Text after the PICSLICE token.
+    @param[in] values Value text.
+    @param[in] components What the case says the file holds.
+    @param[in] message Expected refusal.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    path = tmp_path / "bad.picslice"
+    path.write_text(f"PICSLICE\n{header}\n{values}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        CORE.validate_and_nondimensionalize_picslice(str(path), str(tmp_path / "out"), 2.0, (1, 1), components)
+
+
+def test_a_recording_is_staged_in_solver_units_with_its_interval(tmp_path):
+    """!
+    @brief Velocities scale, signs survive, and the interval stays in seconds.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    path, out = tmp_path / "in.picslice", tmp_path / "out.picslice"
+    path.write_text("PICSLICE\n2\n1 1 3 0.25\n-2 4 6\n8 10 12\n", encoding="utf-8")
+    summary = CORE.validate_and_nondimensionalize_picslice(str(path), str(out), 2.0, (1, 1), "cartesian")
+    assert summary["frame_count"] == 2 and summary["value_count"] == 6
+    assert out.read_text(encoding="utf-8").split()[:7] == ["PICSLICE", "2", "1", "1", "3", "0.25", "-1.00000000e+00"]
+
+
+def test_a_field_slice_recording_needs_its_steps_and_interval():
+    """! @brief One field file, or a recording's pattern with the time between its frames. """
+    base = {"type": "field_slice", "grid_file": "g.picgrid", "velocity_scale": 1.0, "slice": {"face": "+Zeta"}}
+    with pytest.raises(ValueError, match="one field_file, or field_files"):
+        CORE._normalize_profile_source(base, "src")
+    recording = {"pattern": "c/step_{step:012d}/Ucat.dat", "first": 10, "last": 30, "every": 10}
+    normalized = CORE._normalize_profile_source(dict(base, field_files=recording, frame_interval=0.5, components="cartesian"), "src")
+    assert normalized["field_files"] == recording and normalized["frame_interval"] == 0.5
+    with pytest.raises(ValueError, match="frame_interval"):
+        CORE._normalize_profile_source(dict(base, field_file="u.dat", frame_interval=0.5), "src")
+    with pytest.raises(ValueError, match="step"):
+        CORE._normalize_profile_source(dict(base, field_files=dict(recording, pattern="u.dat"), frame_interval=0.5), "src")
+
+
+def test_retired_generated_profile_is_not_offered():
+    """! @brief The profile source's own refusal names only the types that exist. """
+    with pytest.raises(ValueError, match="type: file or field_slice"):
+        CORE._normalize_profile_source("nope", "src")
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ({}, "needs a 'source'"),
+        ({"source": {"components": "normal", "expression": "1"}}, "takes expressions in the cartesian or curvilinear"),
+        ({"source": {"type": "file", "path": "p"}}, "takes expressions in the cartesian or curvilinear"),
+        ({"source": {"expression": {"u": "1"}}, "constraints": {"bulk_velocity": 1}}, "not constraints of this target"),
+    ],
+)
+def test_a_moving_wall_takes_expressions_along_the_wall(entry, message):
+    """!
+    @brief What a moving wall refuses.
+    @param[in] entry The wall's keys.
+    @param[in] message Expected refusal.
+    """
+    case, _, _ = load_configs()
+    wall = next(bc for bc in case["boundary_conditions"] if bc["type"] == "WALL")
+    wall.update(handler="moving", **entry)
+    with pytest.raises(ValueError, match=message):
+        CORE.validate_and_prepare_boundary_conditions(case)
+
+
+def test_a_moving_wall_reaches_the_runtime_and_excludes_wall_functions():
+    """! @brief Its source gets a face source id, and the wall functions, which assume rest, refuse it. """
+    case, _, _ = load_configs()
+    wall = next(bc for bc in case["boundary_conditions"] if bc["type"] == "WALL")
+    wall.update(handler="moving", source={"expression": {"u": "2.0"}})
+    prepared = [bc for bc in CORE.validate_and_prepare_boundary_conditions(case)[0] if bc["handler"] == "moving"]
+    assert prepared[0]["source"]["frame"] == "cartesian" and "source_id" in prepared[0]["params"]
+    case.setdefault("models", {}).setdefault("physics", {})["turbulence"] = {"wall_function": {"enabled": True}}
+    with pytest.raises(ValueError, match="assume a wall at rest"):
+        CORE.validate_and_prepare_boundary_conditions(case)

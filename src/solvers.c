@@ -165,6 +165,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         ierr = LogWallModelDiagnostics(&user[bi]); CHKERRQ(ierr);
         /* The force a driven-periodic controller applied this step. A no-op without one. */
         ierr = LogDrivenFlowDiagnostics(&user[bi]); CHKERRQ(ierr);
+        ierr = LogPrescribedFlowDiagnostics(&user[bi]); CHKERRQ(ierr);
         /*
         // --- Immersed Boundary Interpolation (Post-Correction) ---
         // This step would update the velocity values AT the IB nodes to match the

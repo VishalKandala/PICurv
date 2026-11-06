@@ -751,6 +751,7 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     PROFILE_FUNCTION_BEGIN;
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
     else if (strcasecmp(str, "free_slip")           == 0) *handler_out = BC_HANDLER_WALL_FREE_SLIP;
+    else if (strcasecmp(str, "moving")              == 0) *handler_out = BC_HANDLER_WALL_MOVING;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
     else if (strcasecmp(str, "prescribed_velocity") == 0) *handler_out = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
     else if (strcasecmp(str,"geometric")            == 0) *handler_out = BC_HANDLER_PERIODIC_GEOMETRIC;
@@ -2731,7 +2732,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source_file=%s\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, source_file); CHKERRQ(ierr);
                         } else {
-                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source -inlet_source_%d\n",
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source -face_source_%d\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, (int)source_id); CHKERRQ(ierr);
                         }
                         }

@@ -10,6 +10,7 @@
           "free_slip": "BC_HANDLER_WALL_FREE_SLIP",
           "geometric": "BC_HANDLER_PERIODIC_GEOMETRIC",
           "initial_flux": "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
+          "moving": "BC_HANDLER_WALL_MOVING",
           "noslip": "BC_HANDLER_WALL_NOSLIP",
           "prescribed_velocity": "BC_HANDLER_INLET_PRESCRIBED_VELOCITY"
         },
@@ -24,6 +25,7 @@
           "free_slip",
           "geometric",
           "initial_flux",
+          "moving",
           "noslip",
           "prescribed_velocity"
         ]
@@ -42,6 +44,7 @@
           "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
           "BC_HANDLER_PERIODIC_GEOMETRIC",
           "BC_HANDLER_WALL_FREE_SLIP",
+          "BC_HANDLER_WALL_MOVING",
           "BC_HANDLER_WALL_NOSLIP"
         ]
       }
@@ -93,6 +96,14 @@
         "status": "supported",
         "types": [
           "PERIODIC"
+        ]
+      },
+      "moving": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "experimental",
+        "types": [
+          "WALL"
         ]
       },
       "noslip": {

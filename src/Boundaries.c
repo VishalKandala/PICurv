@@ -389,6 +389,11 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             ierr = Create_WallFreeSlip(bc); CHKERRQ(ierr);
             break;
 
+        case BC_HANDLER_WALL_MOVING:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_WallMoving().\n");
+            ierr = Create_WallMoving(bc); CHKERRQ(ierr);
+            break;
+
         case BC_HANDLER_PERIODIC_GEOMETRIC:
             LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicGeometric().\n");
             ierr = Create_PeriodicGeometric(bc);

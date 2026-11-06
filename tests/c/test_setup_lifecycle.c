@@ -88,7 +88,7 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-dt 0.001\n"
         "-ic_source_frame cartesian\n-ic_source_expr_0 0.0\n-ic_source_expr_1 0.0\n-ic_source_expr_2 1.5\n"
         "-bcs_files %s\n"
-        "-inlet_source_0_frame normal\n-inlet_source_0_expr_0 1.5\n"
+        "-face_source_0_frame normal\n-face_source_0_expr_0 1.5\n"
         "-profiling_timestep_mode off\n"
         "-profiling_final_summary true\n"
         "-postprocessing_config_file %s\n"

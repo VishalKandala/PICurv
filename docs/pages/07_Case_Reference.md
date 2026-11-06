@@ -1222,10 +1222,13 @@ Supported type/handler combinations:
   - field-sliced: `source.type: field_slice`, `source.field_file`, `source.grid_file`, `source.slice`
   - field-sliced sources default to `generators/profile.gen`; optional `source.script`
     selects a compatible override
+  - The top-level `constants:` maps names to numbers every source may use; `rho` and `nu` come
+    from `properties.fluid`.
   - `source` may instead name an entry of the top-level `sources:` mapping, which an
     initial condition can share
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
+- `WALL` + `moving`, with a velocity `source` along the wall (@ref p44_cap_moving)
 - `WALL` + `free_slip` (also a plane of symmetry; the former `symmetry` type is retired)
 - `PERIODIC` + `geometric`
 - `PERIODIC` + `constant_flux` (`target_flux`, optional `enforce_seam_flux`; `apply_trim` is a deprecated alias)
@@ -1272,8 +1275,10 @@ Field-sliced profile example:
       orientation: opposite
 ```
 
-`field_slice` uses Python preprocessing to write a normal dimensional PICSLICE;
-the C runtime still sees only the staged `source_file`.
+`field_slice` uses Python preprocessing to write a dimensional PICSLICE; the C runtime still
+sees only the staged `source_file`. With `components: cartesian` it keeps each slot's velocity
+rather than its normal speed, and `field_files` with `frame_interval` records a plane over time
+(@ref p44_picslice_ssec).
 
 @section p07_passthrough_sec 8. solver_parameters (Advanced)
 

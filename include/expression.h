@@ -133,6 +133,8 @@ typedef enum {
     PICURV_SOURCE_VAR_L_XI,    /**< Physical length of that xi grid line [m]. */
     PICURV_SOURCE_VAR_L_ETA,   /**< Physical length of that eta grid line [m]. */
     PICURV_SOURCE_VAR_L_ZETA,  /**< Physical length of that zeta grid line [m]. */
+    PICURV_SOURCE_VAR_CELL_COUNT, /**< Variables a source reads on every target. */
+    PICURV_SOURCE_VAR_R = PICURV_SOURCE_VAR_CELL_COUNT, /**< On a face, distance from the face's centre [m]. */
     PICURV_SOURCE_VAR_COUNT
 } PicurvSourceVariable;
 
@@ -156,6 +158,7 @@ typedef struct {
     PetscBool         time_dependent; /**< Some component reads `t`. */
     PicurvExpression *bulk;           /**< Target mean speed [m/s] in `t`, or NULL. */
     PetscBool         bulk_time_dependent;
+    PetscBool         bulk_is_flow_rate; /**< `bulk` is a volumetric flow rate [m^3/s] through a face instead. */
 } PicurvVelocitySource;
 
 /**
@@ -164,7 +167,7 @@ typedef struct {
  *          expression per value, `-<prefix>_expr_<c>`, written in physical units over the names
  *          of #PicurvSourceVariable, and the optional `-<prefix>_bulk_velocity`, an expression
  *          in `t`. Random draws are not available.
- * @param[in]  prefix   Option prefix without its dash, e.g. `ic_source` or `inlet_source_0`.
+ * @param[in]  prefix   Option prefix without its dash, e.g. `ic_source` or `face_source_0`.
  * @param[in]  on_face  Whether the target is a face, where the normal frame means something.
  * @param[in]  has_data Whether the target also has staged data, which makes the expressions
  *                      optional; without a frame, data on a face is a normal speed.
@@ -182,7 +185,8 @@ PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face,
  * @param[in]  source        Source with a bulk velocity.
  * @param[in]  physical_time Time the bulk velocity is read at [s].
  * @param[in]  local         This rank's weighted sums, physical: the expressions' speed, the
- *                           staged data's speed along it, and the weight.
+ *                           staged data's speed along it, and the weight, an area [m^2] for a
+ *                           flow rate.
  * @param[in]  where         The target, for the error messages.
  * @param[out] factor        Factor on the expressions.
  * @return Zero on success; `PETSC_ERR_ARG_WRONGSTATE` for no weight or a zero mean.

@@ -7012,6 +7012,8 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
             keys = ("path",)
         elif source_type == "field_slice":
             keys = ("script", "field_file", "grid_file", "source_case")
+            if isinstance(source.get("field_files"), dict) and isinstance(source["field_files"].get("pattern"), str):
+                source["field_files"]["pattern"] = resolve_path(case_anchor_path, source["field_files"]["pattern"])
         else:
             keys = ()
         for key in keys:
@@ -7305,13 +7307,18 @@ def read_picgrid_header_dimensions(source_grid: str, expected_nblk: int = None) 
     return dims
 
 def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, U_ref: float,
-                                            expected_dims: tuple = None) -> dict:
+                                            expected_dims: tuple = None, expected_components: str = "normal") -> dict:
     """!
     @brief Validate a canonical PICSLICE payload and write a solver-scale copy.
+    @details After the header token and frame count, a line gives the slice dimensions, then
+             optionally the components per slot (1, a normal speed, the default; or 3, a Cartesian
+             velocity) and, with several frames, the time between them [s]. The values follow, one
+             frame after another.
     @param[in] source_slice Input PICSLICE path.
     @param[in] dest_slice Output staged PICSLICE path.
     @param[in] U_ref Reference velocity for non-dimensionalization.
     @param[in] expected_dims Optional expected (n1, n2) slice dimensions.
+    @param[in] expected_components What the case says the file holds, `normal` or `cartesian`.
     @return Summary dictionary with frame_count, dims, value_count, min_speed, max_speed.
     @throws ValueError on malformed slice.
     """
@@ -7336,70 +7343,77 @@ def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, 
             raise ValueError(f"PICSLICE file '{source_slice}' missing frame count after PICSLICE header.")
         except ValueError:
             raise ValueError(f"Invalid frame count '{frame_line}' in PICSLICE file '{source_slice}'.")
-        if frame_count != 1:
-            raise ValueError(
-                f"PICSLICE file '{source_slice}' has frame count {frame_count}; PICurv reads exactly one frame."
-            )
+        if frame_count < 1:
+            raise ValueError(f"PICSLICE file '{source_slice}' has frame count {frame_count}; it needs at least one.")
 
         try:
             lineno, dim_line = next(line_iter)
         except StopIteration:
             raise ValueError(f"PICSLICE file '{source_slice}' missing slice dimensions.")
         parts = dim_line.split()
-        if len(parts) != 2:
+        if not 2 <= len(parts) <= 4:
             raise ValueError(
-                f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Expected 2 integers, got: '{dim_line}'."
+                f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Expected 2 integers, then optionally the "
+                f"components and the time between frames, got: '{dim_line}'."
             )
         try:
-            n1, n2 = (int(parts[0]), int(parts[1]))
+            n1, n2 = int(parts[0]), int(parts[1])
+            components = int(parts[2]) if len(parts) > 2 else 1
+            interval = float(parts[3]) if len(parts) > 3 else None
         except ValueError:
-            raise ValueError(
-                f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Non-integer values: '{dim_line}'."
-            )
+            raise ValueError(f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Non-numeric values: '{dim_line}'.")
         if n1 <= 0 or n2 <= 0:
             raise ValueError(f"Invalid PICSLICE dimensions at {source_slice}:{lineno}: ({n1}, {n2}). Must be > 0.")
         if expected_dims is not None and (n1, n2) != tuple(expected_dims):
             raise ValueError(
                 f"PICSLICE dimension mismatch for '{source_slice}': expected {tuple(expected_dims)}, found {(n1, n2)}."
             )
+        if components != {"normal": 1, "cartesian": 3}[expected_components]:
+            raise ValueError(f"PICSLICE file '{source_slice}' holds {components} component(s) per slot, "
+                             f"but the case gives it as components: {expected_components}.")
+        if frame_count > 1 and not (interval is not None and math.isfinite(interval) and interval > 0.0):
+            raise ValueError(f"PICSLICE file '{source_slice}' has {frame_count} frames, so its dimensions line "
+                             "needs the positive time between them.")
 
-        values = []
-        for lineno, value_line in line_iter:
-            parts = value_line.split()
-            if len(parts) != 1:
-                raise ValueError(
-                    f"Invalid PICSLICE value row at {source_slice}:{lineno}. Expected 1 float, got: '{value_line}'."
-                )
-            try:
-                value = float(parts[0])
-            except ValueError:
-                raise ValueError(f"Invalid PICSLICE value at {source_slice}:{lineno}: '{value_line}'.")
-            if not math.isfinite(value):
-                raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be finite.")
-            if value < 0.0:
-                raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be nonnegative.")
-            values.append(value)
+        os.makedirs(os.path.dirname(dest_slice), exist_ok=True)
+        count, smallest, largest = 0, math.inf, -math.inf
+        with open(dest_slice, "w") as fout:
+            fout.write("PICSLICE\n")
+            fout.write(f"{frame_count}\n")
+            header = f"{n1} {n2}"
+            if components != 1 or frame_count > 1:
+                header += f" {components}"
+            if frame_count > 1:
+                header += f" {interval!r}"
+            fout.write(header + "\n")
+            for lineno, value_line in line_iter:
+                for token in value_line.split():
+                    try:
+                        value = float(token)
+                    except ValueError:
+                        raise ValueError(f"Invalid PICSLICE value at {source_slice}:{lineno}: '{value_line}'.")
+                    if not math.isfinite(value):
+                        raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be finite.")
+                    if components == 1 and value < 0.0:
+                        raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be nonnegative.")
+                    fout.write(f"{value / U_ref:.8e}\n")
+                    count += 1
+                    smallest, largest = min(smallest, value), max(largest, value)
 
-    expected_count = n1 * n2
-    if len(values) != expected_count:
+    expected_count = frame_count * n1 * n2 * components
+    if count != expected_count:
+        os.remove(dest_slice)
         raise ValueError(
-            f"PICSLICE file '{source_slice}' has {len(values)} values, expected {expected_count} from dimensions {(n1, n2)}."
+            f"PICSLICE file '{source_slice}' has {count} values, expected {expected_count} from "
+            f"{frame_count} frame(s), dimensions {(n1, n2)} and {components} component(s)."
         )
-
-    os.makedirs(os.path.dirname(dest_slice), exist_ok=True)
-    with open(dest_slice, "w") as fout:
-        fout.write("PICSLICE\n")
-        fout.write("1\n")
-        fout.write(f"{n1} {n2}\n")
-        for value in values:
-            fout.write(f"{value / U_ref:.8e}\n")
 
     return {
         "frame_count": frame_count,
         "dims": (n1, n2),
-        "value_count": len(values),
-        "min_speed": min(values) if values else 0.0,
-        "max_speed": max(values) if values else 0.0,
+        "value_count": count,
+        "min_speed": smallest,
+        "max_speed": largest,
     }
 
 def _face_artifact_token(face: str) -> str:
@@ -7463,6 +7477,10 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         "velocity_scale",
         "source_block",
         "slice",
+        "components",
+        "repeat",
+        "field_files",
+        "frame_interval",
     }
     if "output_file" in source:
         raise ValueError(retired_destination_message(field_name, "output_file"))
@@ -7471,8 +7489,13 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: {sorted(allowed)}.")
     field_file = source.get("field_file")
     grid_file = source.get("grid_file")
-    if not isinstance(field_file, str) or not field_file.strip():
+    field_files = source.get("field_files")
+    if (field_file is None) == (field_files is None):
+        raise ValueError(f"{field_name} gives one field_file, or field_files for a recording.")
+    if field_files is None and (not isinstance(field_file, str) or not field_file.strip()):
         raise ValueError(f"{field_name}.field_file must be a non-empty path.")
+    if field_files is None and source.get("frame_interval") is not None:
+        raise ValueError(f"{field_name}.frame_interval is the time between field_files.")
     if not isinstance(grid_file, str) or not grid_file.strip():
         raise ValueError(f"{field_name}.grid_file must be a non-empty path.")
     if source.get("source_case") is None and source.get("velocity_scale") is None:
@@ -7480,10 +7503,28 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
 
     normalized = {
         "type": "field_slice",
-        "field_file": field_file.strip(),
         "grid_file": grid_file.strip(),
         "slice": _normalize_field_slice_selector(source.get("slice"), f"{field_name}.slice"),
+        **_normalize_profile_data_shape(source, field_name),
     }
+    if field_files is None:
+        normalized["field_file"] = field_file.strip()
+    else:
+        where = f"{field_name}.field_files"
+        if not isinstance(field_files, dict) or set(field_files) != {"pattern", "first", "last", "every"}:
+            raise ValueError(f"{where} needs pattern, first, last and every.")
+        pattern = field_files["pattern"]
+        if not isinstance(pattern, str) or "{step" not in pattern:
+            raise ValueError(f"{where}.pattern must be a path with a {{step}} field, e.g. step_{{step:012d}}/Ucat.dat.")
+        for key in ("first", "last", "every"):
+            if isinstance(field_files[key], bool) or not isinstance(field_files[key], int):
+                raise ValueError(f"{where}.{key} must be an integer.")
+        if field_files["every"] < 1 or field_files["last"] < field_files["first"]:
+            raise ValueError(f"{where} must run from first up to last in steps of every >= 1.")
+        normalized["field_files"] = {key: field_files[key] for key in ("pattern", "first", "last", "every")}
+        normalized["frame_interval"] = _to_finite_float(source.get("frame_interval"), f"{field_name}.frame_interval")
+        if normalized["frame_interval"] <= 0.0:
+            raise ValueError(f"{field_name}.frame_interval must be positive.")
     if source.get("script") is not None:
         script = source.get("script")
         if not isinstance(script, str) or not script.strip():
@@ -7590,7 +7631,11 @@ def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source
     @return Summary dictionary from profile.gen.
     """
     case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
-    field_file = _resolve_case_relative_path(source["field_file"], case_dir)
+    recording = source.get("field_files")
+    field_files = ([_resolve_case_relative_path(source["field_file"], case_dir)] if recording is None else
+                   [_resolve_case_relative_path(recording["pattern"].format(step=step), case_dir)
+                    for step in range(recording["first"], recording["last"] + 1, recording["every"])])
+    field_file = field_files[0]
     source_grid = _resolve_case_relative_path(source["grid_file"], case_dir)
     velocity_scale = _resolve_field_slice_velocity_scale(source, case_dir)
     profilegen_script = _resolve_generator_script(source.get("script"), case_path, "profile.gen")
@@ -7605,7 +7650,9 @@ def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source
         "--output",
         output_path,
         "--field-file",
-        field_file,
+        *field_files,
+        "--components",
+        source.get("components", "normal"),
         "--source-grid",
         source_grid,
         "--target-grid",
@@ -7626,6 +7673,8 @@ def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source
         str(n2),
         *petsc_index_arguments(payload_petsc_index_bytes(field_file)),
     ]
+    if recording is not None:
+        cmd.extend(["--frame-interval", repr(float(source["frame_interval"]))])
     if "face" in slice_cfg:
         cmd.append(f"--slice-face={slice_cfg['face']}")
     else:
@@ -7978,6 +8027,13 @@ BC_HANDLER_SPECS = {
         "required_params": set(),
         "optional_params": set(),
     },
+    # A wall moving along itself; takes a velocity source on the entry itself, not params.
+    "moving": {
+        "types": {"WALL"},
+        "particle_policy": "reflect",
+        "required_params": set(),
+        "optional_params": set(),
+    },
     "conservation": {
         "types": {"OUTLET"},
         "particle_policy": "remove",
@@ -8014,6 +8070,9 @@ BC_HANDLER_SPECS = {
 
 _NUMERIC_BC_PARAMS = {"target_flux"}
 
+#: Handlers whose entry takes a velocity source and constraints.
+VELOCITY_SOURCE_HANDLERS = ("prescribed_velocity", "moving")
+
 #: Inlet handlers that prescribed_velocity replaced, with the source that reproduces each.
 _RETIRED_INLET_HANDLERS = {
     "constant_velocity": "source: {components: normal, expression: <speed>}",
@@ -8029,6 +8088,25 @@ _BOOL_BC_PARAMS = {"enforce_seam_flux", "apply_trim"}
 # name, and the C side also falls back to the old spelling for archived files.
 _DEPRECATED_BC_PARAM_ALIASES = {"apply_trim": "enforce_seam_flux"}
 
+#: What a profile data source holds per slot: a normal speed, or a Cartesian velocity.
+PROFILE_DATA_COMPONENTS = ("normal", "cartesian")
+
+def _normalize_profile_data_shape(source: dict, field_name: str) -> dict:
+    """!
+    @brief Validate what a profile data source holds at each slot, and whether its frames loop.
+    @param[in] source Source mapping from case.yml.
+    @param[in] field_name Human-readable YAML path for diagnostics.
+    @return `components` (normal, one speed per slot; or cartesian, a velocity), and `repeat` when set.
+    """
+    components = str(source.get("components", "normal")).strip().lower()
+    if components not in PROFILE_DATA_COMPONENTS:
+        raise ValueError(f"{field_name}.components is '{source.get('components')}'; expected one of {list(PROFILE_DATA_COMPONENTS)}.")
+    shape = {"components": components}
+    if source.get("repeat") is not None:
+        shape["repeat"] = _to_bool(source["repeat"], f"{field_name}.repeat")
+    return shape
+
+
 def _normalize_profile_source(source, field_name: str) -> dict:
     """!
     @brief Validate a profile data source of a prescribed_velocity inlet.
@@ -8038,16 +8116,17 @@ def _normalize_profile_source(source, field_name: str) -> dict:
     @throws ValueError on invalid source contract.
     """
     if not isinstance(source, dict):
-        raise ValueError(f"{field_name} must be a mapping with type: file, generated, or field_slice.")
+        raise ValueError(f"{field_name} must be a mapping with type: file or field_slice.")
     source_type = str(source.get("type", "")).strip().lower()
     if source_type == "file":
         path = source.get("path")
         if not isinstance(path, str) or not path.strip():
             raise ValueError(f"{field_name}.path must be a non-empty file path.")
-        unknown = sorted(set(source.keys()) - {"type", "path"})
+        allowed = {"type", "path", "components", "repeat"}
+        unknown = sorted(set(source.keys()) - allowed)
         if unknown:
-            raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: ['path', 'type'].")
-        return {"type": "file", "path": path.strip()}
+            raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: {sorted(allowed)}.")
+        return {"type": "file", "path": path.strip(), **_normalize_profile_data_shape(source, field_name)}
 
     if source_type == "generated":
         raise ValueError(f"{field_name}: type 'generated' is retired. Write the profile as an expression with "
@@ -8604,7 +8683,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
 
     all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
     prepared_blocks = []
-    inlet_sources = 0
+    face_sources = 0
 
     expected_faces = {"-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"}
     axis_pairs = [("-Xi", "+Xi"), ("-Eta", "+Eta"), ("-Zeta", "+Zeta")]
@@ -8737,23 +8816,32 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 "params": converted_params,
             }
             where = f"boundary_conditions[{bi}][{idx}]"
-            if handler == "prescribed_velocity":
+            if handler in VELOCITY_SOURCE_HANDLERS:
+                moving = handler == "moving"
                 if "source" not in bc:
-                    raise ValueError(f"{where}: handler 'prescribed_velocity' needs a 'source'.")
+                    raise ValueError(f"{where}: handler '{handler}' needs a 'source'.")
                 source = resolve_velocity_source(bc["source"], case_cfg, f"{where}.source", allow_normal=True)
                 if source.get("pressure"):
-                    raise ValueError(f"{where}.source: an inlet sets a velocity; pressure belongs to an analytical field.")
+                    raise ValueError(f"{where}.source: a face sets a velocity; pressure belongs to an analytical field.")
+                if moving and (source["data"] is not None or source["frame"] == "normal"):
+                    raise ValueError(f"{where}.source: a moving wall takes expressions in the cartesian or curvilinear "
+                                     "frame; its velocity lies along the wall, not through it.")
+                if moving and ((((case_cfg.get("models") or {}).get("physics") or {}).get("turbulence") or {})
+                               .get("wall_function") or {}).get("enabled"):
+                    raise ValueError(f"{where}: the wall functions assume a wall at rest, so a moving wall "
+                                     "cannot be used with wall_function.enabled.")
                 prepared_entry["source"] = apply_source_constraints(
-                    source, bc.get("constraints"), f"{where}.constraints", allowed={"scale", "bulk_velocity"})
+                    source, bc.get("constraints"), f"{where}.constraints",
+                    allowed={"scale"} if moving else {"scale", "bulk_velocity", "flow_rate"})
                 if source["data"] is not None:
                     # Staged into a PICSLICE whose path the bcs file carries; see profile_data_source().
                     converted_params["source"] = source["data"]
-                converted_params["source_id"] = inlet_sources
-                inlet_sources += 1
+                converted_params["source_id"] = face_sources
+                face_sources += 1
             else:
                 for key in ("source", "constraints"):
                     if key in bc:
-                        raise ValueError(f"{where}.{key} is only read by the 'prescribed_velocity' handler.")
+                        raise ValueError(f"{where}.{key} is only read by the 'prescribed_velocity' and 'moving' handlers.")
             prepared_block.append(prepared_entry)
 
         missing_faces = sorted(expected_faces - set(seen_faces.keys()))
@@ -8891,9 +8979,10 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
 _CASE_SCHEMA = {
     (): {
         "title", "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
-        "sources",
+        "sources", "constants",
     },
     ("sources",): None,
+    ("constants",): None,
     ("run_control",): {"start_step", "total_steps", "dt_physical"},
     ("properties",): {"scaling", "fluid", "initial_conditions"},
     ("properties", "scaling"): {"length_ref", "velocity_ref"},
@@ -9302,6 +9391,7 @@ INPUT_QUANTITIES = {
     ("case", "models", "physics", "particles", "point_source", "z"): (LENGTH, "cli"),
     # Expressions at physical coordinates; each value is in its field's physical units.
     ("case", "models", "physics", "particles", "fields"): (None, "evaluator"),
+    ("case", "constants"): (None, "evaluator"),
     # Velocity sources: physical expressions the runtime evaluates and divides by U.
     ("case", "sources"): (VELOCITY, "evaluator"),
     ("case", "properties", "initial_conditions", "source"): (VELOCITY, "evaluator"),
@@ -13093,6 +13183,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
             params = dict(bc.get('params') or {})
             if profile_data_source(bc):
                 source = params.pop("source")
+                if source.get("repeat"):
+                    params["source_repeat"] = True
                 velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
                 staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
@@ -13103,7 +13195,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     if len(header) < 3 or header[0] != "PICSLICE":
                         raise ValueError(f"Locked inlet profile is not a PICSLICE file: {staged_path}")
                     try:
-                        actual_dims = tuple(int(token) for token in header[2].split())
+                        actual_dims = tuple(int(token) for token in header[2].split()[:2])
                     except ValueError as exc:
                         raise ValueError(f"Locked inlet profile has invalid dimensions: {staged_path}") from exc
                     if actual_dims != tuple(expected_dims):
@@ -13146,7 +13238,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                 elif source is not None:
                     raise ValueError(f"Unsupported inlet profile source type '{source.get('type')}'.")
                 if source is not None:
-                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, velocity_scale, expected_dims)
+                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, velocity_scale, expected_dims,
+                                                                      source.get("components", "normal"))
                     print(
                         f"[SUCCESS] Staged inlet profile for block {i}, face {face}: "
                         f"{os.path.relpath(staged_path)} dims={summary['dims']}"
@@ -14226,12 +14319,14 @@ def load_ic_generator_module():
 #: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
 #: lengths [m].
 SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
+#: On a face a source also reads `r`, the distance from the face's centre [m].
+FACE_SOURCE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"r"}
 #: Component frames a velocity source may be written in, and the value names each takes; the
 #: normal frame takes one value, the speed into the domain through a face.
 SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"),
                  "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
-_SOURCE_CONSTRAINTS = ("scale", "bulk_velocity")
+_SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
 
 
 def _source_text(value, constants: dict, names, where: str, ic_gen) -> str:
@@ -14251,14 +14346,45 @@ def _source_text(value, constants: dict, names, where: str, ic_gen) -> str:
     return text
 
 
+def _source_constants(spec: dict, case_cfg: dict, where: str, ic_gen) -> dict:
+    """!
+    @brief The named numbers a source may use: `rho` and `nu` from the case's fluid, then the
+           case's `constants`, then the source's own, each overriding the one before.
+    @param[in] spec Source mapping.
+    @param[in] case_cfg Case configuration.
+    @param[in] where Configuration path of the source.
+    @param[in] ic_gen Loaded `generators/ic.gen`, which owns the expression language.
+    @return Mapping of names to numbers.
+    """
+    reserved = set(FACE_SOURCE_EXPRESSION_NAMES) | set(ic_gen.FUNCTION_ARITY) | {"pi"}
+    merged = {}
+    fluid = ((case_cfg.get("properties") or {}).get("fluid")) or {}
+    density, viscosity = fluid.get("density"), fluid.get("viscosity")
+    if isinstance(density, (int, float)) and not isinstance(density, bool) and density > 0:
+        merged["rho"] = density
+        if isinstance(viscosity, (int, float)) and not isinstance(viscosity, bool):
+            merged["nu"] = viscosity / density
+    for label, table in (("constants", case_cfg.get("constants")), (f"{where}.constants", spec.get("constants"))):
+        table = table or {}
+        if not isinstance(table, dict):
+            raise ValueError(f"{label} must map names to numbers.")
+        for name, value in table.items():
+            if not isinstance(name, str) or not name.isidentifier() or name in reserved:
+                raise ValueError(f"{label}: '{name}' cannot name a constant.")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{label}.{name} must be a number.")
+            merged[name] = value
+    return merged
+
+
 def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool) -> dict:
     """!
     @brief Resolve a velocity source, given inline or by its name under the case's `sources:`.
     @details A source is an `expression` in one frame (`components`: cartesian, curvilinear,
-             or, on a face, normal), with optional named `constants` inlined into its text.
-             Every value is physical; the runtime nondimensionalizes them. On a face, a
-             source may instead be data: a `type` of file or field_slice names a
-             normal-speed profile that is staged as a PICSLICE.
+             or, on a face, normal), with optional named `constants` inlined into its text, or a
+             `sum` of sources. Every value is physical; the runtime nondimensionalizes them. On a
+             face, a source may instead be data: a `type` of file or field_slice names a profile
+             of normal speeds or Cartesian velocities, one frame or a recording, staged as a PICSLICE.
     @param[in] spec Inline mapping, or the name of an entry of `sources:`.
     @param[in] case_cfg Case configuration holding `sources:`.
     @param[in] where Configuration path of the reference.
@@ -14282,8 +14408,8 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         if not allow_normal:
             raise ValueError(f"{where}: a '{spec['type']}' data source is a face's normal-speed profile, "
                              "so only an inlet reads it.")
-        return {"frame": "normal", "expressions": [], "constants": {},
-                "data": _normalize_profile_source(spec, where)}
+        data = _normalize_profile_source(spec, where)
+        return {"frame": data["components"], "expressions": [], "constants": {}, "data": data}
     unknown = sorted(set(spec) - _SOURCE_KEYS)
     if unknown:
         raise ValueError(f"{where}: unknown keys {unknown}; a source takes {sorted(_SOURCE_KEYS)}.")
@@ -14294,20 +14420,13 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     if frame not in SOURCE_FRAMES or frame == (cells_only if allow_normal else face_only):
         allowed = [name for name in SOURCE_FRAMES if name != (cells_only if allow_normal else face_only)]
         raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
-    constants = spec.get("constants") or {}
-    if not isinstance(constants, dict):
-        raise ValueError(f"{where}.constants must map names to numbers.")
-    reserved = set(SOURCE_EXPRESSION_NAMES) | set(ic_gen.FUNCTION_ARITY) | {"pi"}
-    for name, value in constants.items():
-        if not isinstance(name, str) or not name.isidentifier() or name in reserved:
-            raise ValueError(f"{where}.constants: '{name}' cannot name a constant.")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"{where}.constants.{name} must be a number.")
+    names = FACE_SOURCE_EXPRESSION_NAMES if allow_normal else SOURCE_EXPRESSION_NAMES
+    constants = _source_constants(spec, case_cfg, where, ic_gen)
     expression = spec["expression"]
     if frame == "normal":
         if isinstance(expression, dict):
             raise ValueError(f"{where}.expression takes one value in the normal frame.")
-        texts = [_source_text(expression, constants, SOURCE_EXPRESSION_NAMES, f"{where}.expression", ic_gen)]
+        texts = [_source_text(expression, constants, names, f"{where}.expression", ic_gen)]
     else:
         components = SOURCE_FRAMES[frame]
         if not isinstance(expression, dict):
@@ -14315,11 +14434,11 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         extra = sorted(set(expression) - set(components))
         if extra:
             raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
-        texts = [_source_text(expression.get(name, 0), constants, SOURCE_EXPRESSION_NAMES,
+        texts = [_source_text(expression.get(name, 0), constants, names,
                               f"{where}.expression.{name}", ic_gen) for name in components]
     pressure = None
     if "pressure" in spec:
-        pressure = _source_text(spec["pressure"], constants, SOURCE_EXPRESSION_NAMES, f"{where}.pressure", ic_gen)
+        pressure = _source_text(spec["pressure"], constants, names, f"{where}.pressure", ic_gen)
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
@@ -14344,10 +14463,11 @@ def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bo
     frames = {source["frame"] for source in expressions}
     if len(frames) > 1:
         raise ValueError(f"{where}.sum: its source terms mix the {sorted(frames)} frames; write them in one.")
-    if data and frames - {"normal"}:
-        raise ValueError(f"{where}.sum: expressions added to a data term must be in the normal frame.")
+    data_frame = data[0]["components"] if data else None
+    if data and frames - {data_frame}:
+        raise ValueError(f"{where}.sum: expressions added to a data term must be in its {data_frame} frame.")
     count = len(expressions[0]["expressions"]) if expressions else 0
-    return {"frame": expressions[0]["frame"] if expressions else "normal",
+    return {"frame": data_frame or expressions[0]["frame"],
             "expressions": [" + ".join(f"({source['expressions'][c]})" for source in expressions)
                             for c in range(count)],
             "constants": {name: value for source in resolved for name, value in source["constants"].items()},
@@ -14360,15 +14480,16 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     @brief Apply a target's `constraints` to a resolved source.
     @details `scale` multiplies every value; a data source's profile is multiplied as it is
              staged, and so must stay a nonnegative speed. `bulk_velocity`, on a face, is the target mean
-             normal speed [m/s], a number or an expression in `t` that may use the source's
-             constants; the runtime rescales the face to it each step it changes.
+             normal speed [m/s], and `flow_rate` the target volumetric rate through it [m^3/s]: a
+             number or an expression in `t` that may use the source's constants. The runtime
+             rescales the face to it each step it changes.
     @param[in] source Resolved source from resolve_velocity_source().
     @param[in] constraints Constraint mapping, or None.
     @param[in] where Configuration path of the constraints.
     @param[in] allowed Constraints this target accepts.
-    @return Source with the constraints applied, and `bulk_velocity` text when set.
+    @return Source with the constraints applied, and `bulk_velocity` or `flow_rate` text when set.
     """
-    resolved = dict(source, bulk_velocity=None)
+    resolved = dict(source, bulk_velocity=None, flow_rate=None)
     if constraints is None:
         return resolved
     if not isinstance(constraints, dict):
@@ -14385,9 +14506,12 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
                 raise ValueError(f"{where}.scale must be positive for a profile of speeds.")
             resolved["data_scale"] = float(scale)
         resolved["expressions"] = [f"({text})*({float(scale)!r})" for text in resolved["expressions"]]
-    if "bulk_velocity" in constraints:
-        resolved["bulk_velocity"] = _source_text(constraints["bulk_velocity"], source["constants"], {"t"},
-                                                 f"{where}.bulk_velocity", load_ic_generator_module())
+    if "bulk_velocity" in constraints and "flow_rate" in constraints:
+        raise ValueError(f"{where} gives either bulk_velocity or flow_rate.")
+    for target in ("bulk_velocity", "flow_rate"):
+        if target in constraints:
+            resolved[target] = _source_text(constraints[target], source["constants"], {"t"},
+                                            f"{where}.{target}", load_ic_generator_module())
     return resolved
 
 
@@ -14432,17 +14556,19 @@ def expression_control_value(text: str, where: str) -> str:
 def velocity_source_control_lines(prefix: str, source: dict, where: str) -> list:
     """!
     @brief Control-file options carrying a resolved velocity source to the runtime.
-    @param[in] prefix Option prefix, e.g. `-inlet_source_0`.
+    @param[in] prefix Option prefix, e.g. `-face_source_0`.
     @param[in] source Resolved source.
     @param[in] where Configuration path, for the newline guard.
     @return Control lines.
     """
     # A data source reaches the runtime as the bcs file's source_file; only its target travels here.
-    lines = [] if source.get("data") is not None else [f"{prefix}_frame {source['frame']}"]
+    lines = [] if source.get("data") is not None and source["frame"] == "normal" else [f"{prefix}_frame {source['frame']}"]
     for component, text in enumerate(source["expressions"]):
         lines.append(f"{prefix}_expr_{component} \"{expression_control_value(text, where)}\"")
     if source.get("bulk_velocity"):
         lines.append(f"{prefix}_bulk_velocity \"{expression_control_value(source['bulk_velocity'], where)}\"")
+    if source.get("flow_rate"):
+        lines.append(f"{prefix}_flow_rate \"{expression_control_value(source['flow_rate'], where)}\"")
     if "field_weight" in source:
         lines.append(f"{prefix}_field_weight {source['field_weight']!r}")
     if source.get("project"):
@@ -16949,7 +17075,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for entry in block:
             if "source" in entry:
                 control_lines.extend(velocity_source_control_lines(
-                    f"-inlet_source_{entry['params']['source_id']}", entry["source"],
+                    f"-face_source_{entry['params']['source_id']}", entry["source"],
                     f"boundary_conditions[{block_index}] {entry['face']}.source"))
 
     configs["decomposition_resolved"] = append_grid_da_processor_layout(

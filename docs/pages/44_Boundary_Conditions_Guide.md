@@ -39,7 +39,7 @@ refused with that substitution, and the C type parser refuses `SYMMETRY` the sam
 **Identity.** `type: wall` -> `WALL` -> priority `BC_PRIORITY_WALL`.
 
 **What it does.** Marks a face as an impenetrable surface. Legal handlers:
-@ref p44_cap_noslip "noslip" and @ref p44_cap_free_slip "free_slip". Everything that
+@ref p44_cap_noslip "noslip", @ref p44_cap_moving "moving" and @ref p44_cap_free_slip "free_slip". Everything that
 depends only on impenetrability (zero normal flux, the pressure solve's zero normal
 flux, particle reflection, the scalars' zero-gradient dummy cells, Newton Krylov's
 fixed wall-normal unknowns) applies to every wall. What depends on shear (the wall
@@ -197,8 +197,53 @@ cell layer; `LOG_FIELD_MIN_MAX` on `Ucat` is the quickest check.
 and direct handler behavior in `tests/c/test_boundaries.c`. Production exercised in
 every shipped wall-bounded example. Analytically verified - `duct-poiseuille-picard-2026-09-18`: the walls of a laminar square duct reproduce the Poiseuille profile at second order.
 
-**Limitations.** `MOVING_WALL` exists in the C enum but is not exposed through the
-validator, so a moving wall cannot currently be configured from YAML.
+**Limitations.** The wall is at rest; a wall moving along itself is @ref p44_cap_moving "moving".
+
+@subsection p44_cap_moving_sub moving
+
+@anchor p44_cap_moving
+
+**Identity.** `handler: moving` on a `WALL` face, with `source` on the entry -> bcs parameter
+`source_id` and control options `-face_source_<id>_frame`, `-face_source_<id>_expr_<c>` ->
+`BC_HANDLER_WALL_MOVING` -> @ref Create_WallMoving.
+
+**What it does.** Sets the wall's velocity from a velocity source, in the language and at the
+points of @ref p44_cap_prescribed_velocity "prescribed_velocity", and keeps the face closed. The
+source lies along the wall; a slight tilt, as a straight facet of a curved wall has, is removed.
+
+```yaml
+- face: "+Eta"
+  type: WALL
+  handler: moving
+  source: {expression: {u: "U*sin(omega*t)"}, constants: {U: 1.0, omega: 6.28}}
+```
+
+**When to choose it.** A wall driving the flow: Couette flow, a lid-driven cavity, a rotating
+cylinder. For a wall at rest choose @ref p44_cap_noslip "noslip", and for one exerting no shear
+@ref p44_cap_free_slip "free_slip". Flow through the boundary is an inlet.
+
+**Parameters it owns.** `source` - required: an expression source in the `cartesian` or
+`curvilinear` frame, named or inline. `constraints` - optional: `scale`.
+
+**Interactions.** The wall's velocity enters through the boundary value its dummy cell is filled
+from, as for any wall, and exerts viscous shear on the flow. Newton-Krylov momentum accepts it: the
+velocity is fixed within a step. Particles reflect off it as off a wall at rest, taking no momentum
+from its motion. Refused with a wall function, which assumes
+a wall at rest, and with the `normal` frame or a data source.
+
+**Diagnostics.** The face's startup line names its handler and source. A velocity with more than 5%
+of its magnitude through the wall stops the run naming the velocity and position.
+
+**Evidence.** Unit verified - `make unit-boundaries` (`wall-moving-along-itself` in `tests/c/test_boundaries.c`) covers both sides of
+a face, the closed flux, the tilt removed and the refusal. Integration verified -
+`tests/test_velocity_sources.py` covers its resolution and refusals. Run once, not registered as
+measurements: Couette flow between walls moving at +1 and -1 reached `u = 2y - 1` to 1.7e-10 (Newton-Krylov)
+and 5e-13 (Picard) on 32 wall-normal cells, with no flux through the walls; a lid-driven cavity at Re 100 on 32 x 32
+cells stayed within 0.003 of the Ghia, Ghia and Shin (1982) centreline velocity, whose values were
+typed from memory of the table rather than checked against the paper.
+
+**Limitations.** No transpiration: the wall stays closed, so blowing or suction is out of reach. The
+grid does not move, so the wall's motion is along its own surface.
 
 @subsection p44_cap_free_slip_sub free_slip
 
@@ -259,21 +304,23 @@ is orthogonal to the wall there.
 
 **Identity.** `handler: prescribed_velocity` on an `INLET` face, with `source` and
 optional `constraints` on the entry -> bcs parameter `source_id` and control options
-`-inlet_source_<id>_frame`, `-inlet_source_<id>_expr_<c>`, `-inlet_source_<id>_bulk_velocity`
+`-face_source_<id>_frame`, `-face_source_<id>_expr_<c>`, `-face_source_<id>_bulk_velocity`,
+`-face_source_<id>_flow_rate`
 -> `BC_HANDLER_INLET_PRESCRIBED_VELOCITY` -> @ref Create_InletPrescribedVelocity.
 
 **What it does.** Imposes the velocity of a source. An expression source is written in
 the shared expression language, in physical units, over `x y z` [m], `t` [s], the
 arc-length fractions `xi eta zeta` (0 at a line's negative face, 1 at its positive face,
-proportional to distance along the grid line) and the line lengths `L_xi L_eta L_zeta`
-[m]. Its values are read in one of three frames: `cartesian` (`u v w`), `curvilinear`
+proportional to distance along the grid line), the line lengths `L_xi L_eta L_zeta`
+[m], and `r`, the slot's distance from the centre of the face [m], which a profile on a face
+reads wherever the grid places it. Its values are read in one of three frames: `cartesian` (`u v w`), `curvilinear`
 (`u_xi u_eta u_zeta`, each the speed through the grid face normal to its axis; omitted components are zero) or
 `normal` (one speed into the domain). Each face slot is evaluated at its face centre, with
 the fractions and directions of the interior cell behind it. A source without `t` is
 evaluated once; with `t`, once per step at the step's end time, not on every boundary
-pass. A data source is a normal-speed profile staged as a PICSLICE file
-(@ref p44_picslice_ssec): read from a file, generated, or sliced from an earlier
-solution.
+pass. A data source is staged as a PICSLICE file (@ref p44_picslice_ssec), read from a file
+or sliced from an earlier solution: normal speeds or Cartesian velocities, one frame or a
+recording that varies in time.
 
 ```yaml
 sources:
@@ -294,19 +341,23 @@ boundary_conditions:
 A uniform plug is `source: {components: normal, expression: 1.5}`; a parabola across two
 wall-bounded tangential directions is
 `source: {components: normal, expression: "16*1.5*xi*(1-xi)*eta*(1-eta)"}`, peaking at
-1.5 m/s. The exact rectangular-duct and Womersley profiles, written with the series
+1.5 m/s; in a pipe of radius `R`, `source: {components: normal, expression: "2*U*(1 - r**2/R**2)",
+constants: {U: 1.0, R: 0.5}}` is Poiseuille flow of bulk `U` wherever the pipe lies. The exact rectangular-duct and Womersley profiles, written with the series
 `sum(k, lo, hi, body)` and the Kelvin functions `ber`/`bei`, are in @ref p33_closed_form_ssec.
 
 **When to choose it.** Every inlet. Choose an expression for any profile with a closed
 form and for every time-dependent profile; written in arc-length fractions it is the
 physical profile on a stretched or curved grid. Choose a data source for a measured profile
-(`file`) or a developed plane from a precursor run (`field_slice`). The exact rectangular-duct
-solution is an expression (@ref p33_closed_form_ssec).
+(`file`) or a developed plane from a precursor run (`field_slice`), and a recording of such
+planes for turbulent inflow. The exact rectangular-duct solution is an expression
+(@ref p33_closed_form_ssec).
 
 **Parameters it owns.** `source` - required: the name of an entry of the case's top-level
 `sources:`, or a mapping. An expression source takes `expression` (required),
 `components` (default `cartesian`) and `constants` (named numbers inlined into the
-expressions and the constraints). A data source takes `type` and that type's keys:
+expressions and the constraints). Before its own `constants`, a source may use the case's
+top-level `constants:` and, from `properties.fluid`, `rho` and `nu` (viscosity over density);
+each overrides the one before. A data source takes `type` and that type's keys:
 
 | `type` | Required keys | Optional keys | Use when |
 |---|---|---|---|
@@ -315,13 +366,17 @@ expressions and the constraints). A data source takes `type` and that type's key
 
 Unknown keys are rejected with the allowed set named. `output_file` is refused for
 `field_slice`: `picurv` writes sliced profiles under `<run.inputs>/inlet_profiles/`.
+`components` says what each slot holds: `normal` (default), a nonnegative speed, or `cartesian`,
+a velocity that may be tangential or reversed. `repeat: true` returns to the first frame after
+the last; otherwise a time past the last frame stops the run.
 
 `constraints` - optional, applied in order: `scale` multiplies every value (for a data
 source the profile is multiplied as it is staged, so `scale` must be positive);
 `bulk_velocity` [m/s], a number or an expression in `t`, rescales the face each step it
-changes so the area-weighted mean normal speed equals it. A `sum` of sources is added, as in the
-interior (@ref p33_source): expressions in one frame, and at most one data term, which the
-expressions in the normal frame add to and `bulk_velocity` leaves as measured.
+changes so the area-weighted mean normal speed equals it; `flow_rate` [m^3/s], its alternative,
+does so for the volumetric rate through the face, whose area need not be known. A `sum` of
+sources is added, as in the interior (@ref p33_source): expressions in one frame, and at most
+one data term, which expressions in the data's own frame add to and the rescaling leaves as measured.
 
 **Interactions.** The same named expression source can set the initial condition
 (@ref p33_source "source initial condition"), so the interior and the inlet agree at
@@ -333,22 +388,26 @@ validated against the grid before the run starts (@ref p44_picslice_ssec), and
 units of its own. Newton-Krylov momentum accepts the inlet: the velocity is fixed within
 a step, so every residual evaluation sees the same boundary value.
 
-**Diagnostics.** The startup banner names the face's `-inlet_source_<id>` options, or
+**Diagnostics.** The startup banner names the face's `-face_source_<id>` options, or
 its staged `source_file`. A data source logs its file, dimensions and speed range when
-first applied. With debug logging the handler logs the target, the source mean and the
-factor each time it rescales. The applied flux is the inlet's entry in
-`Continuity_Metrics.csv` (`flux_in`). A value that is not finite stops the run naming the
+first applied. `inlet_flow.csv` under `<run.analysis.metrics>` records each inlet's area,
+flow rate, mean normal speed and rescaling factor every step. With debug logging the handler
+logs the target, the source mean and the factor each time it rescales. The applied flux is the
+inlet's entry in `Continuity_Metrics.csv` (`flux_in`). A value that is not finite stops the run naming the
 position and time; a source whose mean normal speed is zero cannot be rescaled and is
 refused.
 
 **Evidence.** Unit verified - `make unit-boundaries` covers a uniform and a parabolic
-source on every face, a PICSLICE file, a source in `t` evaluated once per step, and
-`bulk_velocity` rescaling; `make unit-mpi` (`grid-line-fractions-follow-arc-length`)
+source on every face, a PICSLICE file, a recording of Cartesian velocities, a source in `t`
+evaluated once per step, `bulk_velocity` and `flow_rate` rescaling, and `r`; `make unit-mpi` (`grid-line-fractions-follow-arc-length`)
 checks the fractions and lengths against arc length on a stretched grid across ranks.
 Integration verified - `tests/test_velocity_sources.py` covers resolution, the emitted
 options, data-source staging and scaling, and the refusals; `tests/test_config_regressions.py`
 and `tests/test_cli_smoke.py` exercise the data-source types and the face-dimension validation.
-Production exercised in `examples/flat_channel`.
+Production exercised in `examples/flat_channel`. Run once, not registered as measurements: `r` with
+`flow_rate` on a circular pipe, a swirling Cartesian inlet whose face velocities match the source to
+4e-12, a curvilinear inlet, and a recording whose mean speed matched the interpolated analytic value to
+1.2e-9 and whose fields agreed across 1 and 3 ranks to 2.8e-13.
 
 **Limitations.** Random draws are not available in a source. On a multi-block case the
 fractions run from 0 to 1 within each block. A data source is steady; only its
@@ -662,25 +721,25 @@ coordinates and time and divides the velocity by `velocity_ref`.
 @subsection p44_picslice_ssec 6.1 Prescribed Inlet Profile Files
 
 A data source of `prescribed_velocity` uses a face-scoped canonical `PICSLICE` file. It
-can be supplied directly with `type: file`, or sliced from an old `ufield*.dat` with
+can be supplied directly with `type: file`, or sliced from an old `Ucat` field with
 `type: field_slice`. The Python conductor resolves the face/grid context and delegates dimensional profile writes to
 `generators/profile.gen`. Field-sliced sources may set optional `script` to a compatible
 case-relative or absolute override:
 
 ```text
 PICSLICE
-1
-<n1> <n2>
-<positive_scalar_speed_0>
-<positive_scalar_speed_1>
+<frames>
+<n1> <n2> [<components> [<seconds_between_frames>]]
+<value>
 ...
 ```
 
-The second line is the frame count. Static prescribed profiles require `1`.
-Values are positive scalar speed magnitudes normal to the inlet surface, not
-Cartesian velocity components and not contravariant fluxes. The C handler uses
-the inlet face sign and metric conversion of a normal-frame source to populate `Ucont`
-and `Ubcs`.
+Values follow one frame after another. `components` is 1 by default: a nonnegative speed normal
+to the surface, which the handler lifts onto the signed face normal. With 3 each slot holds a
+Cartesian velocity `u v w`, in any sign. More than one frame needs the time between them; the
+first frame applies at `t = 0`, and the velocity at a time between frames is linear in time.
+The `components` key of the source must agree with the file. Every rank reads the file forward
+as time reaches each frame, and holds only its own slots of the two frames around the current time.
 
 Expected dimensions follow the existing inlet face loop order:
 
@@ -718,6 +777,25 @@ reads the generated `PICGRID` header to size the profile. For `grid.mode: file`,
 it reads the source `PICGRID` header. Sliced dimensional profiles and
 `profile.info` are written under `<run.inputs>/inlet_profiles/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
+
+A recording slices a plane of a precursor run at each of its checkpoints. `field_files` names them
+by a pattern of their step numbers, and `frame_interval` is the time between the frames it gives:
+
+```yaml
+source:
+  type: field_slice
+  components: cartesian
+  repeat: true
+  field_files:
+    pattern: ../precursor/output/checkpoints/step_{step:012d}/eulerian/block_0000/Ucat.dat
+    first: 10000
+    last: 20000
+    every: 10
+  frame_interval: 0.05
+  grid_file: ../precursor/inputs/grid/grid.run
+  source_case: ../precursor/config/case.yml
+  slice: {face: "+Zeta", orientation: opposite}
+```
 
 Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 
@@ -814,6 +892,7 @@ Current factory-wired handlers include:
 
 - wall no-slip,
 - wall free-slip,
+- wall moving,
 - inlet prescribed velocity (expression or PICSLICE source),
 - outlet conservation,
 - periodic geometric,
@@ -824,7 +903,7 @@ Current factory-wired handlers include:
 
 Important contributor note:
 
-- C enums include additional BC categories and handlers (moving walls, far field, characteristic),
+- C enums include additional BC categories and handlers (far field, characteristic),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
 - a `field_slice` data source is Python-side preprocessing only: it creates the
   same staged `source_file` contract used by file-backed profiles.

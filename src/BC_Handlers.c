@@ -274,6 +274,7 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
 static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PostStep_InletFlux(BoundaryCondition *self, BCContext *ctx,
                                          PetscReal *in, PetscReal *out);
+static PetscErrorCode Apply_WallMoving(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self);
 
 /**
@@ -283,8 +284,19 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self);
  */
 typedef struct {
     PicurvVelocitySource source;             /* Normal frame with no expressions for a file alone. */
-    char                *source_file;        /* Staged PICSLICE of solver-unit normal speeds, or NULL. */
-    PetscReal           *profile;            /* The file's speed per slot when expressions add to it, or NULL. */
+    char                *source_file;        /* Staged PICSLICE of solver-unit velocities, or NULL. */
+    Cmpnts              *profile;            /* The file's velocity per slot when expressions add to it, or NULL. */
+    FILE                *file;               /* The open PICSLICE, while later frames remain to be read. */
+    fpos_t               first_frame;        /* Where the file's values begin. */
+    PetscInt             frames;             /* Frames in the file; more than one varies in time. */
+    PetscInt             components;         /* 1, a normal speed, or 3, a Cartesian velocity. */
+    PetscInt             next_frame;         /* The frame the file's position is at. */
+    PetscInt             file_n[2];          /* The file's slice dimensions. */
+    PetscReal            interval;           /* Time between frames [s]. */
+    PetscBool            repeat;             /* Past the last frame, return to the first. */
+    PetscReal           *file_values;        /* One frame as the file stores it. */
+    Cmpnts              *bracket[2];         /* This rank's slots of the frames around the step's time. */
+    PetscInt             bracket_frame[2];   /* Which frames those are, or -1. */
     PicurvSourceFaceSlots slots;             /* What the source reads at each owned slot; t is refreshed. */
     Cmpnts              *velocity;           /* Solver-unit velocity per slot, the speed in x for the normal frame. */
     PetscReal            factor;             /* Bulk-velocity rescaling of `velocity`. */
@@ -322,6 +334,22 @@ PetscErrorCode Create_InletPrescribedVelocity(BoundaryCondition *bc)
     bc->PostStep   = PostStep_InletFlux;
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletPrescribedVelocity;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref Create_WallMoving().
+ * @see Create_WallMoving()
+ */
+PetscErrorCode Create_WallMoving(BoundaryCondition *bc)
+{
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(Create_InletPrescribedVelocity(bc));
+    bc->priority = BC_PRIORITY_WALL;
+    bc->Apply    = Apply_WallMoving;
+    bc->PostStep = NULL;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -463,28 +491,26 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
 }
 
 /**
- * @brief Reads and validates a static scalar inlet profile from a canonical PICSLICE file.
+ * @brief Opens a canonical PICSLICE file and reads its header.
  *
- * @details The file must contain magic token `PICSLICE`, frame count 1, the expected
- *          two-dimensional face shape, and exactly one finite nonnegative scalar speed
- *          value per interior face slot, stored row-major.
+ * @details The file holds magic token `PICSLICE`, a frame count, then a line with the slice
+ *          dimensions, optionally the components per slot (1, a normal speed, the default, or 3,
+ *          a Cartesian velocity) and, with several frames, the time between them. Frames follow.
  *
- * @param source_file Path to the PICSLICE profile file.
+ * @param data        Handler data; `file`, `first_frame`, `frames`, `components`, `interval` and
+ *                    `file_n` are set.
  * @param expected_n1 Expected first slice dimension.
  * @param expected_n2 Expected second slice dimension.
- * @param[out] profile Newly allocated `expected_n1 * expected_n2` speeds; the caller frees it.
- * @param[out] min_speed Smallest speed in the file.
- * @param[out] max_speed Largest speed in the file.
  * @return PetscErrorCode 0 on success, or a PETSc file/validation error on malformed input.
  */
-static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expected_n1,
-                                          PetscInt expected_n2, PetscReal **profile,
-                                          PetscReal *min_speed, PetscReal *max_speed)
+static PetscErrorCode OpenPicSlice(InletPrescribedVelocityData *data, PetscInt expected_n1, PetscInt expected_n2)
 {
-    PetscErrorCode ierr;
+    const char *source_file = data->source_file;
     FILE *fd = NULL;
-    char magic[32] = {0};
+    char magic[32] = {0}, line[256] = {0};
     PetscInt frame_count = 0, n1 = 0, n2 = 0;
+    PetscInt components = 1;
+    double interval = 0.0;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
@@ -497,18 +523,13 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s must begin with PICSLICE header.", source_file);
     }
-    if (fscanf(fd, "%" PetscInt_FMT, &frame_count) != 1) {
+    if (fscanf(fd, "%" PetscInt_FMT " ", &frame_count) != 1) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s missing frame count.", source_file);
     }
-    if (frame_count != 1) {
-        fclose(fd);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                "PICSLICE inlet profile file %s has %" PetscInt_FMT " frames; static handler requires 1.",
-                source_file, frame_count);
-    }
-    if (fscanf(fd, "%" PetscInt_FMT " %" PetscInt_FMT, &n1, &n2) != 2) {
+    if (!fgets(line, sizeof(line), fd) ||
+        sscanf(line, "%" PetscInt_FMT " %" PetscInt_FMT " %" PetscInt_FMT " %le", &n1, &n2, &components, &interval) < 2) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s missing slice dimensions.", source_file);
@@ -519,38 +540,62 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
                 "PICSLICE inlet profile dimensions mismatch for %s: expected (%" PetscInt_FMT ", %" PetscInt_FMT "), found (%" PetscInt_FMT ", %" PetscInt_FMT ").",
                 source_file, expected_n1, expected_n2, n1, n2);
     }
-
-    ierr = PetscMalloc1(n1 * n2, profile); CHKERRQ(ierr);
-    *min_speed = PETSC_MAX_REAL;
-    *max_speed = -PETSC_MAX_REAL;
-
-    for (PetscInt idx = 0; idx < n1 * n2; idx++) {
-        PetscReal value = 0.0;
-        if (fscanf(fd, "%le", &value) != 1) {
-            fclose(fd);
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
-                    "PICSLICE inlet profile file %s ended early: expected %" PetscInt_FMT " values.",
-                    source_file, n1 * n2);
-        }
-        if (PetscIsInfOrNanReal(value) || value < 0.0) {
-            fclose(fd);
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                    "PICSLICE inlet profile file %s contains invalid speed %.6e at flat index %" PetscInt_FMT ".",
-                    source_file, (double)value, idx);
-        }
-        (*profile)[idx] = value;
-        *min_speed = PetscMin(*min_speed, value);
-        *max_speed = PetscMax(*max_speed, value);
-    }
-
-    char extra[64];
-    if (fscanf(fd, "%63s", extra) == 1) {
+    if (frame_count < 1 || (components != 1 && components != 3) || (frame_count > 1 && !(interval > 0.0))) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                "PICSLICE inlet profile file %s has extra token after %" PetscInt_FMT " values: %s",
-                source_file, n1 * n2, extra);
+                "PICSLICE inlet profile file %s has %" PetscInt_FMT " frames of %" PetscInt_FMT " components, %g apart; "
+                "it needs at least one frame, 1 or 3 components, and a positive interval between several frames.",
+                source_file, frame_count, components, interval);
     }
-    fclose(fd);
+    if (fgetpos(fd, &data->first_frame) != 0) {
+        fclose(fd);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Cannot record a position in %s.", source_file);
+    }
+    data->file = fd;
+    data->frames = frame_count;
+    data->components = components;
+    data->interval = interval;
+    data->file_n[0] = n1;
+    data->file_n[1] = n2;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Reads the frame at the file's position into `file_values`, validating every value: finite,
+ *        and a normal speed nonnegative. After the last frame the file must end.
+ * @param data Handler data with an open file.
+ * @return PetscErrorCode 0 on success, or a PETSc file/validation error on malformed input.
+ */
+static PetscErrorCode ReadPicSliceFrame(InletPrescribedVelocityData *data)
+{
+    const PetscInt count = data->file_n[0] * data->file_n[1] * data->components;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    for (PetscInt idx = 0; idx < count; idx++) {
+        PetscReal value = 0.0;
+        if (fscanf(data->file, "%le", &value) != 1) {
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
+                    "PICSLICE inlet profile file %s ended early in frame %" PetscInt_FMT ": expected %" PetscInt_FMT " values.",
+                    data->source_file, data->next_frame, count);
+        }
+        if (PetscIsInfOrNanReal(value) || (data->components == 1 && value < 0.0)) {
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
+                    "PICSLICE inlet profile file %s contains invalid speed %.6e at flat index %" PetscInt_FMT ".",
+                    data->source_file, (double)value, idx);
+        }
+        data->file_values[idx] = value;
+    }
+    data->next_frame++;
+    if (data->next_frame == data->frames) {
+        char extra[64];
+        if (fscanf(data->file, "%63s", extra) == 1) {
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
+                    "PICSLICE inlet profile file %s has extra token after %" PetscInt_FMT " frames of %" PetscInt_FMT " values: %s",
+                    data->source_file, data->frames, count, extra);
+        }
+    }
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -570,16 +615,16 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
     Cmpnts velocity = {0.0, 0.0, 0.0};
     if (!data->built) return velocity;
     const Cmpnts v = data->velocity[PrescribedSlot(data, i, j, k)];
+    const Cmpnts staged = data->profile ? data->profile[PrescribedSlot(data, i, j, k)] : velocity;
     if (data->source.frame != PICURV_SOURCE_FRAME_NORMAL) {
-        velocity.x = data->factor * v.x;
-        velocity.y = data->factor * v.y;
-        velocity.z = data->factor * v.z;
+        velocity.x = data->factor * v.x + staged.x;
+        velocity.y = data->factor * v.y + staged.y;
+        velocity.z = data->factor * v.z + staged.z;
         return velocity;
     }
     const PetscReal area = sqrt(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
     if (area <= 0.0) return velocity;
-    const PetscReal speed = data->factor * v.x +
-                            (data->profile ? data->profile[PrescribedSlot(data, i, j, k)] : 0.0);
+    const PetscReal speed = data->factor * v.x + staged.x;
     velocity.x = sign * speed * metric.x / area;
     velocity.y = sign * speed * metric.y / area;
     velocity.z = sign * speed * metric.z / area;
@@ -704,6 +749,33 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
 }
 
 /**
+ * @brief A moving wall's boundary velocity: the source's, with any part along the face removed, since
+ *        a wall closes its face. PreStep refuses a source with more than a rounding of the
+ *        surface's facets through it.
+ */
+static inline Cmpnts EvaluateMovingWallVelocity(const BoundaryCondition *self, BCFace face_id, PetscInt i, PetscInt j, PetscInt k,
+                                                Cmpnts metric, PetscReal sign, Cmpnts interior)
+{
+    Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k, metric, sign, interior);
+    const PetscReal area2 = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+    const PetscReal through = (velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z) / area2;
+    velocity.x -= through * metric.x;
+    velocity.y -= through * metric.y;
+    velocity.z -= through * metric.z;
+    return velocity;
+}
+
+/** @brief Applies a moving wall's velocity through the path every prescribed face shares. */
+static PetscErrorCode Apply_WallMoving(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(ApplyFaceBoundaryVelocity(self, ctx, EvaluateMovingWallVelocity));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Applies the prescribed inlet velocity through the common face-layout path.
  *
  * @details Ownership clipping, immersed-cell exclusion, metric projection, `Ubcs` placement,
@@ -741,18 +813,20 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     if (found && source_file && source_file[0] != '\0') {
         PetscCall(PetscStrallocpy(source_file, &data->source_file));
     }
-    PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "inlet_source_%d", (int)id));
+    PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "face_source_%d", (int)id));
     PetscCall(PicurvVelocitySourceCreate(prefix, PETSC_TRUE, (PetscBool)(data->source_file != NULL), &data->source));
-    PetscCheck(!data->source_file || data->source.frame == PICURV_SOURCE_FRAME_NORMAL, PETSC_COMM_WORLD,
-               PETSC_ERR_USER_INPUT, "Face %s: expressions added to a profile file must be in the normal frame.",
+    PetscCheck(!data->source_file || data->source.frame == PICURV_SOURCE_FRAME_NORMAL ||
+               data->source.frame == PICURV_SOURCE_FRAME_CARTESIAN, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+               "Face %s: a profile file and the expressions added to it are in the normal or cartesian frame.",
                BCFaceToString(ctx->face_id));
+    PetscCall(GetBCParamBool(user->boundary_faces[ctx->face_id].params, "source_repeat", &data->repeat, &found));
     data->factor = 1.0;
     data->evaluated_step = -1;
     if (data->source_file) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed normal speed from %s%s.\n",
-                  BCFaceToString(ctx->face_id), data->source_file, data->source.bulk ? ", bulk velocity" : "");
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from %s%s.\n",
+                  BCFaceToString(ctx->face_id), data->source_file, data->source.bulk ? ", rescaled to a target" : "");
     } else {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from -inlet_source_%d (%s frame%s%s).\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from -face_source_%d (%s frame%s%s).\n",
                   BCFaceToString(ctx->face_id), (int)id,
                   data->source.frame == PICURV_SOURCE_FRAME_NORMAL ? "normal" :
                   data->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR ? "curvilinear" : "cartesian",
@@ -763,21 +837,21 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
 }
 
 /**
- * @brief Factor that makes the face's area-weighted mean normal speed equal the target.
- *        Collective; slots blanked by an immersed body are excluded, as in Apply.
+ * @brief This rank's area-weighted sums over the face, physical: the source's normal speed, the
+ *        staged data's when expressions add to it, and the area. Slots blanked by an immersed
+ *        body are excluded, as in Apply.
  */
-static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id,
-                                           PetscReal physical_time, PetscReal *factor)
+static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id, PetscReal local[3])
 {
     const PicurvSourceFaceSlots *slots = &data->slots;
     const PetscInt normal = slots->normal, a = slots->a, b = slots->b;
     const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
     const PetscReal sign = negative ? 1.0 : -1.0, U_ref = user->simCtx->scaling.U_ref;
-    PetscReal local[3] = {0.0, 0.0, 0.0};
-    char      where[32];
+    const PetscReal L_ref = user->simCtx->scaling.L_ref;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
+    local[0] = local[1] = local[2] = 0.0;
     if (slots->n[0] * slots->n[1] > 0) {
         const PetscInt slot = slots->layer;
         const PetscInt cell = negative ? slot + 1 : slot;
@@ -795,50 +869,186 @@ static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, Us
             const Cmpnts m = metric_arr[s_idx[2]][s_idx[1]][s_idx[0]];
             const Cmpnts v = data->velocity[p + slots->n[0] * q];
             const PetscReal area = PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z);
-            local[0] += U_ref * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
-                                 ? v.x * area : sign * (v.x * m.x + v.y * m.y + v.z * m.z));
-            if (data->profile) local[1] += U_ref * data->profile[p + slots->n[0] * q] * area;
-            local[2] += area;
+            const PetscReal physical = U_ref * L_ref * L_ref;
+            local[0] += physical * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
+                                    ? v.x * area : sign * (v.x * m.x + v.y * m.y + v.z * m.z));
+            if (data->profile) {
+                const Cmpnts staged = data->profile[p + slots->n[0] * q];
+                local[1] += physical * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
+                                        ? staged.x * area : sign * (staged.x * m.x + staged.y * m.y + staged.z * m.z));
+            }
+            local[2] += L_ref * L_ref * area;
         }
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, metric_vec, &metric_arr));
     }
-    PetscCall(PetscSNPrintf(where, sizeof(where), "Face %s", BCFaceToString(face_id)));
-    PetscCall(PicurvVelocitySourceBulkFactor(&data->source, physical_time, local, where, factor));
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Fill each owned slot's normal speed from the face's PICSLICE file, as the velocity
- *        itself or, under expressions, as what they add to. Every rank reads the file, so a
- *        malformed one fails on all of them.
+ * @brief Factor that makes the face's mean normal speed or flow rate equal the target. Collective.
  */
-static PetscErrorCode LoadPrescribedProfile(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
+static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id,
+                                           PetscReal physical_time, PetscReal *factor)
 {
-    PetscReal *profile = NULL, min_speed = 0.0, max_speed = 0.0;
-    PetscInt   n1 = 0, n2 = 0;
-    const PicurvSourceFaceSlots *slots = &data->slots;
+    PetscReal local[3];
+    char      where[32];
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    PetscCall(GetProfileFileExpectedDims(user, face_id, &n1, &n2));
-    PetscCall(ReadPicSliceProfile(data->source_file, n1, n2, &profile, &min_speed, &max_speed));
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PrescribedFaceSums(data, user, face_id, local));
+    PetscCall(PetscSNPrintf(where, sizeof(where), "Face %s", BCFaceToString(face_id)));
+    PetscCall(PicurvVelocitySourceBulkFactor(&data->source, physical_time, local, where, factor));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Read one frame of the face's PICSLICE into this rank's slots, moving the file there.
+ *        Every rank reads the file, so a malformed one fails on all of them.
+ * @param data   Handler data with an open file.
+ * @param frame  Frame to read.
+ * @param target Velocity per owned slot; a normal speed goes in `x`.
+ */
+static PetscErrorCode LoadPrescribedFrame(InletPrescribedVelocityData *data, PetscInt frame, Cmpnts *target)
+{
+    const PicurvSourceFaceSlots *slots = &data->slots;
+    const PetscInt n2 = data->file_n[1], components = data->components;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (frame < data->next_frame) {
+        PetscCheck(fsetpos(data->file, &data->first_frame) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
+                   "Cannot return to the first frame of %s.", data->source_file);
+        data->next_frame = 0;
+    }
+    while (data->next_frame <= frame) PetscCall(ReadPicSliceFrame(data));
     /* A PICSLICE row runs along the face's first tangential axis; rows step along the second. */
     for (PetscInt q = 0; q < slots->n[1]; ++q)
     for (PetscInt p = 0; p < slots->n[0]; ++p) {
-        const PetscReal speed = profile[(slots->lo[1] + q - 1) * n2 + (slots->lo[0] + p - 1)];
-        if (data->profile) {
-            data->profile[p + slots->n[0] * q] = speed;
-        } else {
-            const Cmpnts v = {speed, 0.0, 0.0};
-            data->velocity[p + slots->n[0] * q] = v;
-        }
+        const PetscReal *value = &data->file_values[components * ((slots->lo[1] + q - 1) * n2 + (slots->lo[0] + p - 1))];
+        Cmpnts *v = &target[p + slots->n[0] * q];
+        v->x = value[0];
+        v->y = (components == 3) ? value[1] : 0.0;
+        v->z = (components == 3) ? value[2] : 0.0;
     }
-    PetscCall(PetscFree(profile));
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: PICSLICE %s, %" PetscInt_FMT " x %" PetscInt_FMT ", speed [%.6e, %.6e].\n",
-              BCFaceToString(face_id), data->source_file, n1, n2, (double)min_speed, (double)max_speed);
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Open the face's PICSLICE and read a lone frame, as the velocity itself or, under
+ *        expressions, as what they add to; several frames are read as time reaches them.
+ */
+static PetscErrorCode OpenPrescribedProfile(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
+{
+    const PetscInt n_slots = data->slots.n[0] * data->slots.n[1];
+    const PetscBool normal = (PetscBool)(data->source.frame == PICURV_SOURCE_FRAME_NORMAL);
+    PetscInt n1 = 0, n2 = 0;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(GetProfileFileExpectedDims(user, face_id, &n1, &n2));
+    PetscCall(OpenPicSlice(data, n1, n2));
+    PetscCheck(data->components == (normal ? 1 : 3), PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+               "Face %s: %s holds %" PetscInt_FMT " component(s) per slot, but the source is in the %s frame.",
+               BCFaceToString(face_id), data->source_file, data->components, normal ? "normal" : "cartesian");
+    if (data->source.count > 0) PetscCall(PetscCalloc1(n_slots, &data->profile));
+    PetscCall(PetscMalloc1(n1 * n2 * data->components, &data->file_values));
+    if (data->frames == 1) {
+        PetscCall(LoadPrescribedFrame(data, 0, data->profile ? data->profile : data->velocity));
+        PetscCheck(fclose(data->file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Cannot close %s.", data->source_file);
+        data->file = NULL;
+    } else {
+        PetscCall(PetscMalloc2(n_slots, &data->bracket[0], n_slots, &data->bracket[1]));
+        data->bracket_frame[0] = data->bracket_frame[1] = -1;
+    }
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: PICSLICE %s, %" PetscInt_FMT " x %" PetscInt_FMT ", %" PetscInt_FMT " component(s), %" PetscInt_FMT " frame(s).\n",
+              BCFaceToString(face_id), data->source_file, n1, n2, data->components, data->frames);
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Set the staged data at a time: linear between the two frames around it, the first at t = 0.
+ */
+static PetscErrorCode InterpolatePrescribedFrames(InletPrescribedVelocityData *data, BCFace face_id, PetscReal physical_time)
+{
+    const PetscInt n_slots = data->slots.n[0] * data->slots.n[1];
+    const PetscReal position = physical_time / data->interval;
+    PetscInt  frame[2] = {(PetscInt)PetscFloorReal(position), 0};
+    PetscReal weight = position - PetscFloorReal(position);
+    Cmpnts   *out = data->profile ? data->profile : data->velocity;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (data->repeat) {
+        frame[0] = frame[0] % data->frames;
+        frame[1] = (frame[0] + 1) % data->frames;
+    } else {
+        /* A time step landing on the last frame may round just past it. */
+        if (frame[0] == data->frames - 1 && weight < 1.0e-9) { frame[0] = data->frames - 2; weight = 1.0; }
+        PetscCheck(frame[0] < data->frames - 1 && frame[0] >= 0, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Face %s: time %g is past the %" PetscInt_FMT " frames of %s, %g s apart. Set repeat: true to loop them.",
+                   BCFaceToString(face_id), (double)physical_time, data->frames, data->source_file, (double)data->interval);
+        frame[1] = frame[0] + 1;
+    }
+    for (PetscInt f = 0; f < 2; ++f) {
+        if (data->bracket_frame[f] == frame[f]) continue;
+        if (data->bracket_frame[1 - f] == frame[f]) {
+            /* The later frame of the last interval is the earlier one of this. */
+            Cmpnts  *kept = data->bracket[1 - f];
+            data->bracket[1 - f] = data->bracket[f];
+            data->bracket[f] = kept;
+            data->bracket_frame[1 - f] = data->bracket_frame[f];
+            data->bracket_frame[f] = frame[f];
+            continue;
+        }
+        PetscCall(LoadPrescribedFrame(data, frame[f], data->bracket[f]));
+        data->bracket_frame[f] = frame[f];
+    }
+    for (PetscInt s = 0; s < n_slots; ++s) {
+        out[s].x = (1.0 - weight) * data->bracket[0][s].x + weight * data->bracket[1][s].x;
+        out[s].y = (1.0 - weight) * data->bracket[0][s].y + weight * data->bracket[1][s].y;
+        out[s].z = (1.0 - weight) * data->bracket[0][s].z + weight * data->bracket[1][s].z;
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref LogPrescribedFlowDiagnostics().
+ * @see LogPrescribedFlowDiagnostics()
+ */
+PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
+{
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    for (PetscInt face = 0; face < 6; ++face) {
+        const BoundaryCondition *handler = user->boundary_faces[face].handler;
+        PetscReal local[3], global[3], physical_time, flow_rate;
+        FILE *file = NULL;
+
+        if (!handler || user->boundary_faces[face].handler_type != BC_HANDLER_INLET_PRESCRIBED_VELOCITY) continue;
+        const InletPrescribedVelocityData *data = (const InletPrescribedVelocityData*)handler->data;
+        if (!data->built) continue;
+        PetscCall(PrescribedFaceSums(data, user, (BCFace)face, local));
+        PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        if (simCtx->rank != 0 || user->_this != 0) continue;
+        PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+        flow_rate = data->factor * global[0] + global[1];
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "inlet_flow.csv",
+                                           "step,physical_time,face,area,flow_rate,mean_normal_speed,bulk_factor",
+                                           PETSC_TRUE, &file));
+        fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.10e,%.10e\n", (int)simCtx->step, (double)physical_time,
+                BCFaceToString((BCFace)face), (double)global[2], (double)flow_rate,
+                (double)(global[2] > 0.0 ? flow_rate / global[2] : 0.0), (double)data->factor);
+        PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Unable to close the inlet-flow diagnostics file.");
+    }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -862,9 +1072,8 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
     /* Boundary passes repeat within a step (every stage and residual); the velocity is
        defined at the step's time, so it is refreshed once. */
     if (data->built && data->evaluated_step == simCtx->step) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
-    const PetscBool evaluate = (PetscBool)(!data->built || data->source.time_dependent);
-    const PetscBool rescale = (PetscBool)(data->source.bulk && (evaluate || data->source.bulk_time_dependent));
-    if (!data->built) {
+    const PetscBool first = (PetscBool)!data->built;
+    if (first) {
         Vec fraction, length;
         PetscCall(DMCreateGlobalVector(user->fda, &fraction));
         PetscCall(DMCreateGlobalVector(user->fda, &length));
@@ -873,12 +1082,13 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
         PetscCall(VecDestroy(&fraction));
         PetscCall(VecDestroy(&length));
         PetscCall(PetscMalloc1(data->slots.n[0] * data->slots.n[1], &data->velocity));
+        if (data->source_file) PetscCall(OpenPrescribedProfile(data, user, ctx->face_id));
     }
+    const PetscBool frames_vary = (PetscBool)(data->frames > 1);
+    const PetscBool evaluate = (PetscBool)(first || data->source.time_dependent);
+    const PetscBool rescale = (PetscBool)(data->source.bulk && (evaluate || frames_vary || data->source.bulk_time_dependent));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
-    if (!data->built && data->source_file) {
-        if (data->source.count > 0) PetscCall(PetscCalloc1(data->slots.n[0] * data->slots.n[1], &data->profile));
-        PetscCall(LoadPrescribedProfile(data, user, ctx->face_id));
-    }
+    if (frames_vary) PetscCall(InterpolatePrescribedFrames(data, ctx->face_id, physical_time));
     if (evaluate && data->source.count > 0) {
         const PetscReal U_ref = simCtx->scaling.U_ref;
         for (PetscInt s = 0; s < data->slots.n[0] * data->slots.n[1]; ++s) {
@@ -888,6 +1098,16 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
             data->velocity[s].x = v.x / U_ref;
             data->velocity[s].y = v.y / U_ref;
             data->velocity[s].z = v.z / U_ref;
+            if (user->boundary_faces[ctx->face_id].handler_type == BC_HANDLER_WALL_MOVING) {
+                const Cmpnts m = data->slots.edges[s][data->slots.normal];
+                const PetscReal speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
+                const PetscReal through = v.x * m.x + v.y * m.y + v.z * m.z;
+                PetscCheck(through * through <= 2.5e-3 * speed2 * (m.x * m.x + m.y * m.y + m.z * m.z), PETSC_COMM_SELF, PETSC_ERR_USER_INPUT,
+                           "Face %s: a moving wall's velocity must lie along the wall; (%g, %g, %g) passes through it at (%g, %g, %g).",
+                           BCFaceToString(ctx->face_id), (double)v.x, (double)v.y, (double)v.z,
+                           (double)data->slots.values[s][PICURV_SOURCE_VAR_X], (double)data->slots.values[s][PICURV_SOURCE_VAR_Y],
+                           (double)data->slots.values[s][PICURV_SOURCE_VAR_Z]);
+            }
         }
     }
     data->built = PETSC_TRUE;
@@ -906,7 +1126,10 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
         InletPrescribedVelocityData *data = (InletPrescribedVelocityData*)self->data;
         PetscCall(PicurvVelocitySourceDestroy(&data->source));
         PetscCall(PetscFree(data->source_file));
+        if (data->file) PetscCheck(fclose(data->file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Cannot close a PICSLICE file.");
         PetscCall(PetscFree(data->profile));
+        PetscCall(PetscFree(data->file_values));
+        PetscCall(PetscFree2(data->bracket[0], data->bracket[1]));
         if (data->built) PetscCall(PicurvSourceFaceSlotsDestroy(&data->slots));
         PetscCall(PetscFree(data->velocity));
         PetscCall(PetscFree(self->data));

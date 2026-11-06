@@ -163,6 +163,7 @@
   ],
   "known_petsc_option_families": [
     "-%_bulk_velocity",
+    "-%_flow_rate",
     "-%_expr_%",
     "-%_frame",
     "-field_statistics_%_%_covariance_%",

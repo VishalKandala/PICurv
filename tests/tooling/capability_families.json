@@ -41,6 +41,20 @@
             ]
           }
         },
+        "moving": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "boundary.conditions",
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c"
+            ],
+            "integration": [
+              "file:tests/test_velocity_sources.py"
+            ]
+          }
+        },
         "free_slip": {
           "status": "supported",
           "canonical": true,

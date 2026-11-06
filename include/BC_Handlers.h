@@ -64,7 +64,7 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc);
  *        curvilinear or face-normal frame, or a PICSLICE file of normal speeds, optionally
  *        rescaled to a bulk velocity.
  *
- * The face's `source_id` parameter names the options `-inlet_source_<id>_*` that hold the
+ * The face's `source_id` parameter names the options `-face_source_<id>_*` that hold the
  * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` target. A
  * `source_file` parameter replaces the expressions with a staged PICSLICE file of solver-unit
  * normal speeds, one per interior face slot.
@@ -119,5 +119,20 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc);
+
+/**
+ * @brief Creates a wall moving along itself at a velocity source, the prescribed inlet's without its flux.
+ * @param bc Boundary condition to fill.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_WallMoving(BoundaryCondition *bc);
+
+/**
+ * @brief Appends each prescribed-velocity inlet's flow rate and mean normal speed this step to
+ *        `inlet_flow.csv`. Collective.
+ * @param user Block.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user);
 
 #endif // BC_HANDLERS_H

@@ -13,6 +13,7 @@
 #include "expression.h"
 #include "Metric.h"
 #include "Boundaries.h"
+#include "grid.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -803,7 +804,7 @@ PetscErrorCode PicurvExpressionUsesVariable(const PicurvExpression *expression, 
 /* ------------------------------------------------------------------------- */
 
 const char *const kPicurvSourceVariableNames[PICURV_SOURCE_VAR_COUNT] = {
-    "x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"};
+    "x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta", "r"};
 
 #define PICURV_SOURCE_EXPRESSION_LENGTH 4096
 
@@ -838,13 +839,19 @@ PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face,
         PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
         if (!found && has_data && c == 0) { source->count = 0; break; }
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "Velocity source option %s is required.", option);
-        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_COUNT, PETSC_FALSE,
+        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames,
+                                          on_face ? PICURV_SOURCE_VAR_COUNT : PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE,
                                           &source->component[c]));
         PetscCall(PicurvExpressionUsesVariable(source->component[c], PICURV_SOURCE_VAR_T, &uses_t));
         source->time_dependent = (PetscBool)(source->time_dependent || uses_t);
     }
     PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_bulk_velocity", prefix));
     PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
+    if (!found && on_face) {
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_flow_rate", prefix));
+        PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &source->bulk_is_flow_rate));
+        found = source->bulk_is_flow_rate;
+    }
     if (found) {
         PetscCall(PicurvExpressionCompile(text, kTime, 1, PETSC_FALSE, &source->bulk));
         PetscCall(PicurvExpressionUsesVariable(source->bulk, 0, &source->bulk_time_dependent));
@@ -870,6 +877,7 @@ PetscErrorCode PicurvVelocitySourceBulkFactor(const PicurvVelocitySource *source
     PetscCheck(global[0] != 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                "%s: the source's mean speed is zero, so it cannot be scaled to a bulk velocity.", where);
     PetscCall(PicurvExpressionEvaluate(source->bulk, &physical_time, NULL, &target));
+    if (source->bulk_is_flow_rate) target /= global[2];
     *factor = (target * global[2] - global[1]) / global[0];
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "%s: bulk velocity %g, source mean %g, data mean %g, factor %g.\n", where,
               (double)target, (double)(global[0] / global[2]), (double)(global[1] / global[2]), (double)*factor);
@@ -1071,9 +1079,12 @@ PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fr
     const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
     PetscBool can_service = PETSC_FALSE;
     PetscInt  n_slots;
+    Cmpnts    face_centre;
+    PetscReal face_area;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+    PetscCall(CalculateFaceCenterAndArea(user, face_id, &face_centre, &face_area));
     slots->normal = (PetscInt)face_id / 2;
     slots->a = (slots->normal == 0) ? 1 : 0;
     slots->b = (slots->normal == 2) ? 1 : 2;
@@ -1110,6 +1121,11 @@ PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fr
             slots->values[s][PICURV_SOURCE_VAR_T] = 0.0;
             /* On the face itself the fraction along the normal line is exactly 0 or 1. */
             slots->values[s][PICURV_SOURCE_VAR_XI + normal] = negative ? 0.0 : 1.0;
+            {
+                const Cmpnts X = cent[f[2]][f[1]][f[0]];
+                const PetscReal dx = X.x - face_centre.x, dy = X.y - face_centre.y, dz = X.z - face_centre.z;
+                slots->values[s][PICURV_SOURCE_VAR_R] = PetscSqrtReal(dx * dx + dy * dy + dz * dz) * L_ref;
+            }
             PetscCall(ComputeCellEdgeVectors(aj[c[2]][c[1]][c[0]], csi[c[2]][c[1]][c[0]], eta[c[2]][c[1]][c[0]], zet[c[2]][c[1]][c[0]], slots->edges[s]));
             const Cmpnts m = (normal == 0) ? csi[f[2]][f[1]][f[0]] : (normal == 1) ? eta[f[2]][f[1]][f[0]] : zet[f[2]][f[1]][f[0]];
             const Cmpnts through = {user->GridOrientation * m.x, user->GridOrientation * m.y, user->GridOrientation * m.z};

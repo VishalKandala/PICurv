@@ -111,6 +111,7 @@ particle `fields`.
 | `case.yml: initial_conditions.params.velocity_difference (stability_mode_velocity)` | VELOCITY | cli | U |
 | `case.yml: properties.initial_conditions.constraints` | VELOCITY | evaluator | U |
 | `case.yml: properties.initial_conditions.source` | VELOCITY | evaluator | U |
+| `case.yml: constants` | PAYLOAD | evaluator | by the expression using it |
 | `case.yml: models.physics.particles.fields` | PAYLOAD | evaluator | by payload field |
 | `case.yml: models.physics.particles.point_source.x` | LENGTH | cli | L |
 | `case.yml: models.physics.particles.point_source.y` | LENGTH | cli | L |
@@ -236,7 +237,7 @@ solver's own units exactly.
 
 - **Grids.** A `.picgrid`, whether supplied or written by `grid.gen`, is physical and is
   divided by `L` when staged; `programmatic_settings` bounds are divided by `L` in C.
-- **Inlet profiles.** A `file` or `generated` PICSLICE is a physical velocity. A
+- **Inlet profiles.** A `file` PICSLICE is a physical velocity. A
   `field_slice` re-samples an earlier run's solver-unit field, and names that run's case
   (`source_case`) or its `velocity_scale`.
 - **File initial conditions.** A `type: file` payload is physical: `Ucat` in velocity,

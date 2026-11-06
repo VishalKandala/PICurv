@@ -4,6 +4,7 @@
  */
 
 #include "test_support.h"
+#include <sys/stat.h>
 
 #include "Boundaries.h"
 #include "wallfunction.h"
@@ -110,8 +111,8 @@ static PetscErrorCode ConfigureNormalSourceInlet(UserCtx *user, BCFace face, con
     user->boundary_faces[face].mathematical_type = INLET;
     user->boundary_faces[face].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
     PetscCall(AppendBCParam(&user->boundary_faces[face].params, "source_id", "0"));
-    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_frame", "normal"));
-    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_expr_0", speed));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_frame", "normal"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_0", speed));
     PetscFunctionReturn(0);
 }
 
@@ -512,7 +513,7 @@ static PetscErrorCode TestInletSourceAddsToPicSlice(void)
         mean /= (PetscReal)slots;
         char bulk[64];
         PetscCall(PetscSNPrintf(bulk, sizeof(bulk), "%.17g", (double)(mean + 2.0)));
-        PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_bulk_velocity", bulk));
+        PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_bulk_velocity", bulk));
     }
     PetscCall(VecSet(user->Ucont, 0.0));
     PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
@@ -523,9 +524,9 @@ static PetscErrorCode TestInletSourceAddsToPicSlice(void)
     PetscCall(PicurvAssertRealNear(37.0, ucont[0][4][4].z, 1.0e-10, "the file's speeds keep their measured differences"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DestroyBoundaryHandler(&bc));
-    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_bulk_velocity"));
-    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_frame"));
-    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_expr_0"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_bulk_velocity"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_frame"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_expr_0"));
     FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
     user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
     remove(profile_path);
@@ -1141,8 +1142,8 @@ static PetscErrorCode TestInletSourceFollowsTimeAndBulkVelocity(void)
     PetscCall(DestroyBoundaryHandler(&bc));
 
     /* A shape in xi rescaled to a bulk velocity of 3: on a uniform face the mean of xi is 1/2. */
-    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_expr_0", "xi"));
-    PetscCall(PetscOptionsSetValue(NULL, "-inlet_source_0_bulk_velocity", "3.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_0", "xi"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_bulk_velocity", "3.0"));
     PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
     PetscCall(bc->Initialize(bc, &ctx));
     PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
@@ -1154,10 +1155,266 @@ static PetscErrorCode TestInletSourceFollowsTimeAndBulkVelocity(void)
     PetscCall(PicurvAssertRealNear(2.0 * 3.0 * 0.1 / simCtx->scaling.U_ref, ucont[0][3][1].z, 1.0e-12,
                                    "the shape keeps its form: twice the bulk times xi"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
-    PetscCall(PetscOptionsClearValue(NULL, "-inlet_source_0_bulk_velocity"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_bulk_velocity"));
 
     PetscCall(DestroyBoundaryHandler(&bc));
     ResetBoundaryFaceConfig(&user->boundary_faces[BC_FACE_NEG_Z]);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Runs the handler at one time as a new step of its own.
+ */
+static PetscErrorCode ApplyHandlerAtTime(BoundaryCondition *bc, BCContext *ctx, PetscInt step, PetscReal physical_time)
+{
+    SimCtx *simCtx = ctx->user->simCtx;
+
+    PetscFunctionBeginUser;
+    simCtx->step = step;
+    simCtx->ti = physical_time * simCtx->scaling.L_ref / simCtx->scaling.U_ref;
+    PetscCall(bc->PreStep(bc, ctx, NULL, NULL));
+    PetscCall(bc->Apply(bc, ctx));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests a recording of Cartesian velocities: every component reaches the boundary, reversed flow
+ *        is allowed, frames interpolate linearly in time, and past the end they repeat when asked
+ *        and are refused when not.
+ */
+static PetscErrorCode TestInletRecordingOfCartesianVelocities(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL, ***ubcs = NULL;
+    char path[PETSC_MAX_PATH_LEN];
+    FILE *fd = NULL;
+    const PetscReal w_of_frame[3] = {-1.0, 3.0, 5.0};
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(PetscSNPrintf(path, sizeof(path), "/tmp/picurv_unit_recording_%d.picslice", (int)getpid()));
+    fd = fopen(path, "w");
+    PetscCheck(fd, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open %s.", path);
+    fprintf(fd, "PICSLICE\n3\n%d %d 3 0.1\n", (int)(user->JM - 1), (int)(user->IM - 1));
+    for (PetscInt frame = 0; frame < 3; ++frame)
+    for (PetscInt a = 0; a < user->JM - 1; ++a)
+    for (PetscInt b = 0; b < user->IM - 1; ++b) fprintf(fd, "%.16e 7.0 %.16e\n", (double)(10 * a + b), (double)w_of_frame[frame]);
+    fclose(fd);
+
+    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
+    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
+    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PRESCRIBED_VELOCITY;
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_id", "0"));
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", path));
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_repeat", "true"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_frame", "cartesian"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_expr_0"));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+
+    PetscCall(ApplyHandlerAtTime(bc, &ctx, 1, 0.05));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertRealNear(1.0, ucont[0][1][1].z, 1.0e-12, "halfway between frames is their mean"));
+    PetscCall(PicurvAssertRealNear(11.0, ubcs[0][2][2].x, 1.0e-12, "the file's first component is x, in row order"));
+    PetscCall(PicurvAssertRealNear(7.0, ubcs[0][2][2].y, 1.0e-12, "the file's second component is y"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(ApplyHandlerAtTime(bc, &ctx, 2, 0.0));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(-1.0, ucont[0][1][1].z, 1.0e-12, "a frame may reverse the flow"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    /* Three frames 0.1 apart repeat every 0.3, the last blending back into the first. */
+    PetscCall(ApplyHandlerAtTime(bc, &ctx, 3, 0.25));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(2.0, ucont[0][1][1].z, 1.0e-12, "past the last frame it blends into the first"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(ApplyHandlerAtTime(bc, &ctx, 4, 0.35));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(1.0, ucont[0][1][1].z, 1.0e-12, "a repeat starts again from the first frame"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DestroyBoundaryHandler(&bc));
+
+    /* Without repeat the recording's end is a time the source does not define. */
+    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
+    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_id", "0"));
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", path));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyHandlerAtTime(bc, &ctx, 5, 0.2));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(5.0, ucont[0][1][1].z, 1.0e-12, "the last frame's own time is defined"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    simCtx->step = 6;
+    simCtx->ti = 0.21 * simCtx->scaling.L_ref / simCtx->scaling.U_ref;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    {
+        PetscErrorCode past = bc->PreStep(bc, &ctx, NULL, NULL);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PicurvAssertBool((PetscBool)(past != 0), "past the last frame without repeat is refused"));
+    }
+    PetscCall(DestroyBoundaryHandler(&bc));
+
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_frame"));
+    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
+    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
+    remove(path);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that a flow-rate target sets the face's total flux, whatever its area, and that `r` is
+ *        the distance from the face's centre.
+ */
+static PetscErrorCode TestInletFlowRateAndFaceRadius(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL, ***cent = NULL, centre;
+    PetscReal local_inflow = 0.0, local_outflow = 0.0, area = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(ConfigureNormalSourceInlet(user, BC_FACE_NEG_Z, "2.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_flow_rate", "8.0"));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
+    /* Each identity slot has unit solver area, so L_ref^2 physical. */
+    PetscCall(PicurvAssertRealNear(8.0 / (simCtx->scaling.U_ref * simCtx->scaling.L_ref * simCtx->scaling.L_ref), local_inflow, 1.0e-10,
+                                   "the face's flux is the flow rate"));
+    /* The per-step record reads back the flow rate and its mean over the open area. */
+    {
+        char row[256] = {0}, path[PETSC_MAX_PATH_LEN + 16];
+        FILE *record = NULL;
+        double time = 0.0, face_area = 0.0, rate = 0.0;
+        int step = 0;
+        char face[32] = {0};
+        PetscCall(PetscSNPrintf(simCtx->analysis_dir, sizeof(simCtx->analysis_dir), "/tmp/picurv_unit_inlet_%d", (int)getpid()));
+        PetscCheck(mkdir(simCtx->analysis_dir, 0700) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not make the record's directory.");
+        user->boundary_faces[BC_FACE_NEG_Z].handler = bc;
+        PetscCall(LogPrescribedFlowDiagnostics(user));
+        user->boundary_faces[BC_FACE_NEG_Z].handler = NULL;
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s/inlet_flow.csv", simCtx->analysis_dir));
+        record = fopen(path, "r");
+        PetscCheck(record, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "The inlet-flow record was not written.");
+        PetscCheck(fgets(row, sizeof(row), record) && fgets(row, sizeof(row), record), PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "No inlet-flow row.");
+        fclose(record);
+        PetscCheck(sscanf(row, "%d,%le,%31[^,],%le,%le", &step, &time, face, &face_area, &rate) == 5, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Bad row: %s", row);
+        PetscCall(PicurvAssertRealNear(8.0, rate, 1.0e-8, "the record's flow rate is the target"));
+        remove(path);
+        rmdir(simCtx->analysis_dir);
+    }
+    PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_flow_rate"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_0", "r"));
+    PetscCall(CalculateFaceCenterAndArea(user, BC_FACE_NEG_Z, &centre, &area));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCentz, &cent));
+    cent[0][2][2].x = centre.x + 3.0;
+    cent[0][2][2].y = centre.y + 4.0;
+    cent[0][2][2].z = centre.z;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCentz, &cent));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PRESCRIBED_VELOCITY, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(ApplyInletAcrossFirstSteps(bc, &ctx));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(5.0 * simCtx->scaling.L_ref / simCtx->scaling.U_ref, ucont[0][2][2].z, 1.0e-12,
+                                   "r is the slot's distance from the face's centre"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_frame"));
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_expr_0"));
+    ResetBoundaryFaceConfig(&user->boundary_faces[BC_FACE_NEG_Z]);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests a moving wall on both a - and a + face: its velocity along the wall reaches the boundary
+ *        value and the face stays closed, a slight tilt is removed, and a velocity through the wall
+ *        is refused.
+ */
+static PetscErrorCode TestWallMovingAlongItself(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL, ***ubcs = NULL;
+    const BCFace faces[2] = {BC_FACE_NEG_Y, BC_FACE_POS_Y};
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_frame", "cartesian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_0", "2.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_1", "0.02"));
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_2", "3.0"));
+    ctx.user = user;
+    for (PetscInt f = 0; f < 2; ++f) {
+        const BCFace face = faces[f];
+        const PetscInt layer = (face == BC_FACE_NEG_Y) ? 0 : user->info.my - 2;
+        const PetscInt boundary = (face == BC_FACE_NEG_Y) ? 0 : user->info.my - 1;
+        user->boundary_faces[face].face_id = face;
+        user->boundary_faces[face].mathematical_type = WALL;
+        user->boundary_faces[face].handler_type = BC_HANDLER_WALL_MOVING;
+        PetscCall(AppendBCParam(&user->boundary_faces[face].params, "source_id", "0"));
+        ctx.face_id = face;
+        PetscCall(VecSet(user->Ucont, 9.0));
+        PetscCall(BoundaryCondition_Create(BC_HANDLER_WALL_MOVING, &bc));
+        PetscCall(PicurvAssertBool((PetscBool)(bc->priority == BC_PRIORITY_WALL), "a moving wall runs with the walls"));
+        PetscCall(bc->Initialize(bc, &ctx));
+        PetscCall(ApplyHandlerAtTime(bc, &ctx, 1 + f, 0.0));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(PicurvAssertRealNear(0.0, ucont[2][layer][2].y, 1.0e-12, "a moving wall closes its face"));
+        PetscCall(PicurvAssertRealNear(2.0 / simCtx->scaling.U_ref, ubcs[2][boundary][2].x, 1.0e-12, "the wall moves in x"));
+        PetscCall(PicurvAssertRealNear(0.0, ubcs[2][boundary][2].y, 1.0e-12, "a slight tilt through the wall is removed"));
+        PetscCall(PicurvAssertRealNear(3.0 / simCtx->scaling.U_ref, ubcs[2][boundary][2].z, 1.0e-12, "the wall moves in z"));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCall(DestroyBoundaryHandler(&bc));
+    }
+    PetscCall(PetscOptionsSetValue(NULL, "-face_source_0_expr_1", "1.0"));
+    user->GridOrientation = 1;
+    ctx.face_id = BC_FACE_NEG_Y;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_WALL_MOVING, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    {
+        PetscErrorCode through = bc->PreStep(bc, &ctx, NULL, NULL);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PicurvAssertBool((PetscBool)(through != 0), "a velocity through the wall is refused"));
+    }
+    PetscCall(DestroyBoundaryHandler(&bc));
+    for (PetscInt c = 0; c < 3; ++c) {
+        char option[64];
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-face_source_0_expr_%d", (int)c));
+        PetscCall(PetscOptionsClearValue(NULL, option));
+    }
+    PetscCall(PetscOptionsClearValue(NULL, "-face_source_0_frame"));
+    for (PetscInt f = 0; f < 2; ++f) ResetBoundaryFaceConfig(&user->boundary_faces[faces[f]]);
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -2005,6 +2262,9 @@ int main(int argc, char **argv)
         {"inlet-picslice-source-behavior", TestInletPicSliceSourceBehavior},
         {"inlet-source-adds-to-picslice", TestInletSourceAddsToPicSlice},
         {"inlet-source-follows-time-and-bulk-velocity", TestInletSourceFollowsTimeAndBulkVelocity},
+        {"inlet-recording-of-cartesian-velocities", TestInletRecordingOfCartesianVelocities},
+        {"inlet-flow-rate-and-face-radius", TestInletFlowRateAndFaceRadius},
+        {"wall-moving-along-itself", TestWallMovingAlongItself},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},
         {"finalize-post-projection-cell-fields-non-periodic", TestFinalizePostProjectionCellFieldsNonPeriodic},

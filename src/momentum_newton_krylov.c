@@ -262,6 +262,8 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
         switch (cfg->handler_type) {
             case BC_HANDLER_WALL_NOSLIP:
             case BC_HANDLER_WALL_FREE_SLIP:
+            /* As on an inlet, its velocity is refreshed once per step in PreStep. */
+            case BC_HANDLER_WALL_MOVING:
                 supported = (PetscBool)(cfg->mathematical_type == WALL);
                 break;
             /* The inlet's velocity is refreshed once per step in PreStep, so every
