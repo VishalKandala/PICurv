@@ -1,0 +1,1 @@
+- `picurv run --dry-run` reports a recording that a new run would outlast as a blocking problem, and a run refused while its assets, pinned executables or control file are staged leaves no run directory behind.
