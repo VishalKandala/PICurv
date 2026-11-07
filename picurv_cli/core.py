@@ -7550,29 +7550,38 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         normalized["source_block"] = source_block
     return normalized
 
-def _refuse_recording_shorter_than_run(staged_slice: str, case_cfg: dict, face: str) -> None:
+def recording_outlast_problem(source: dict, case_cfg: dict, case_path: str, face: str) -> "str | None":
     """!
-    @brief Refuse at staging a recording that a fresh run would outlast without repeat.
+    @brief What is wrong with a recording that a new run would outlast without repeat.
     @details A restart's time comes from its checkpoint, so only the solver can check one.
-    @param[in] staged_slice Staged PICSLICE path.
+    @param[in] source Normalized profile data source of the inlet.
     @param[in] case_cfg The parsed case.yml configuration dictionary.
+    @param[in] case_path Path of case.yml, which anchors a file source.
     @param[in] face Face the recording drives, for the message.
-    @throws ValueError when the run's last time lies past the last frame.
+    @return The problem, or None.
     """
     run_control = case_cfg.get("run_control") or {}
-    if int(run_control.get("start_step", 0) or 0) != 0:
-        return
-    with open(staged_slice, "r", encoding="utf-8") as stream:
-        lines = _iter_nonempty_noncomment_lines(stream)
-        next(lines)
-        frames = int(next(lines)[1])
-        shape = next(lines)[1].split()
-    if frames < 2 or len(shape) < 4:
-        return
-    duration, end_time = (frames - 1) * float(shape[3]), int(run_control["total_steps"]) * float(run_control["dt_physical"])
-    if end_time > duration * (1.0 + 1.0e-9):
-        raise ValueError(
-            f"Face {face}: the run ends at t = {end_time:g} s, past the {frames} frames of its recording, which "
+    if source.get("repeat") or int(run_control.get("start_step", 0) or 0) != 0:
+        return None
+    frames, interval = 1, 0.0
+    if source.get("field_files"):
+        files = source["field_files"]
+        frames, interval = (files["last"] - files["first"]) // files["every"] + 1, source["frame_interval"]
+    elif source.get("type") == "file":
+        path = _resolve_case_relative_path(source["path"], os.path.dirname(os.path.abspath(case_path)))
+        if not os.path.isfile(path):
+            return None
+        with open(path, "r", encoding="utf-8") as stream:
+            lines = _iter_nonempty_noncomment_lines(stream)
+            next(lines, None)
+            frame_line, shape_line = next(lines, (0, "1"))[1], next(lines, (0, ""))[1]
+        shape = shape_line.split()
+        if frame_line.isdigit() and len(shape) >= 4:
+            frames, interval = int(frame_line), float(shape[3])
+    duration, end_time = (frames - 1) * interval, int(run_control["total_steps"]) * float(run_control["dt_physical"])
+    if frames < 2 or end_time <= duration * (1.0 + 1.0e-9):
+        return None
+    return (f"Face {face}: the run ends at t = {end_time:g} s, past the {frames} frames of its recording, which "
             f"end at t = {duration:g} s. Set repeat: true to loop them, or shorten the run.")
 
 
@@ -13248,8 +13257,10 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
             params = dict(bc.get('params') or {})
             if profile_data_source(bc):
                 source = params.pop("source")
-                source_repeat = bool(source.get("repeat"))
-                if source_repeat:
+                problem = recording_outlast_problem(source, case_cfg, case_path, face)
+                if problem:
+                    raise ValueError(problem)
+                if source.get("repeat"):
                     params["source_repeat"] = True
                 velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
@@ -13311,8 +13322,6 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                         f"{os.path.relpath(staged_path)} dims={summary['dims']}"
                     )
                     params["source_file"] = os.path.abspath(staged_path)
-                if not source_repeat:
-                    _refuse_recording_shorter_than_run(params["source_file"], case_cfg, face)
             params_str = ""
             if params:
                 parts = []
@@ -18885,6 +18894,12 @@ def build_run_dry_plan(args) -> dict:
                                         f"'allow_unsafe_paths: true' is set.")
             else:
                 plan["blocking"].append(_message)
+        for _block in validate_and_prepare_boundary_conditions(loaded_case_cfg):
+            for _bc in _block:
+                _source = profile_data_source(_bc) and (_bc.get("params") or {}).get("source")
+                _problem = _source and recording_outlast_problem(_source, loaded_case_cfg, case_path, _bc["face"])
+                if _problem:
+                    plan["blocking"].append(_problem)
         plan["inputs"].update({"case": case_path, "solver": solver_path, "monitor": monitor_path})
         asset_plan = plan_run_assets(
             loaded_case_cfg, case_path, unused_asset_kinds(loaded_case_cfg, solver_cfg)
@@ -20779,7 +20794,7 @@ def run_workflow(args):
         try:
             apply_run_executable_pinning(run_dir, active_config["revision"], args, workspace_root)
         except ValueError as exc:
-            discard_unused_run_directory(run_dir, created=not continue_mode)
+            discard_unused_run_directory(run_dir, created=not continue_mode, staged=True)
             print(f"[FATAL] {exc}", file=sys.stderr)
             sys.exit(1)
         try:
@@ -20792,7 +20807,7 @@ def run_workflow(args):
                 skip_kinds=unused_asset_kinds(configs["case"], configs["solver"]),
             )
         except ValueError as exc:
-            discard_unused_run_directory(run_dir, created=not continue_mode)
+            discard_unused_run_directory(run_dir, created=not continue_mode, staged=True)
             print(f"[FATAL] {exc}", file=sys.stderr)
             sys.exit(1)
         # Publish identity and lineage before either executable starts.  Besides making
@@ -20847,6 +20862,9 @@ def run_workflow(args):
             discard_unused_run_directory(run_dir, created=not continue_mode, staged=True)
             print(f"[FATAL] {exc}", file=sys.stderr)
             sys.exit(1)
+        except SystemExit:  # The generator has reported its own refusal.
+            discard_unused_run_directory(run_dir, created=not continue_mode, staged=True)
+            raise
         active_config = archive_active_generated_configuration(
             run_dir,
             [

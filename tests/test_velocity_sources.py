@@ -700,22 +700,25 @@ def test_a_recordings_frames_are_part_of_its_asset_identity(tmp_path):
     assert [v["sha256"] for v in before.values()][0] == [v["sha256"] for v in after.values()][0]
 
 
-def test_a_recording_shorter_than_a_fresh_run_is_refused_at_staging(tmp_path):
+def test_a_recording_shorter_than_a_fresh_run_is_a_problem(tmp_path):
     """!
-    @brief A run that ends past the last frame is refused before it queues; one ending on it is not.
+    @brief A new run ending past the last frame is refused; one ending on it, a loop, or a restart is not.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     recording = tmp_path / "recording.picslice"
     recording.write_text("PICSLICE\n3\n2 2 1 0.5\n" + "1.0\n" * 12, encoding="utf-8")
+    source = {"type": "file", "path": "recording.picslice"}
+    case_path = str(tmp_path / "case.yml")
     case = {"run_control": {"start_step": 0, "total_steps": 10, "dt_physical": 0.1}}
-    CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
+    problem = lambda spec: CORE.recording_outlast_problem(spec, case, case_path, "-Zeta")
+    assert problem(source) is None
     case["run_control"]["total_steps"] = 11
-    with pytest.raises(ValueError, match="repeat: true"):
-        CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
-    # A restart's time comes from its checkpoint, so the solver checks it.
+    assert "repeat: true" in problem(source)
+    assert problem(dict(source, repeat=True)) is None
+    assert "repeat: true" in problem({"type": "field_slice", "frame_interval": 0.5, "field_files": {"first": 10, "last": 30, "every": 10}})
     case["run_control"]["start_step"] = 5
-    CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
-    single = tmp_path / "steady.picslice"
-    single.write_text("PICSLICE\n1\n2 2\n" + "1.0\n" * 4, encoding="utf-8")
+    assert problem(source) is None
     case["run_control"]["start_step"] = 0
-    CORE._refuse_recording_shorter_than_run(str(single), case, "-Zeta")
+    (tmp_path / "steady.picslice").write_text("PICSLICE\n1\n2 2\n" + "1.0\n" * 4, encoding="utf-8")
+    assert problem({"type": "file", "path": "steady.picslice"}) is None
+    assert problem({"type": "file", "path": "absent.picslice"}) is None

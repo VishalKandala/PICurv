@@ -368,8 +368,8 @@ Unknown keys are rejected with the allowed set named. `output_file` is refused f
 `field_slice`: `picurv` writes sliced profiles under `<run.inputs>/inlet_profiles/`.
 `components` says what each slot holds: `normal` (default), a nonnegative speed, or `cartesian`,
 a velocity that may be tangential or reversed. `repeat: true` returns to the first frame after
-the last. Otherwise staging refuses a new run that ends past the last frame, and a restart that
-reaches it stops there.
+the last. Otherwise a new run that ends past the last frame is refused, by its `--dry-run` plan as
+well as at staging, and a restart that reaches it stops there.
 
 `constraints` - optional, applied in order: `scale` multiplies every value (for a data
 source the profile is multiplied as it is staged, so `scale` must be positive);

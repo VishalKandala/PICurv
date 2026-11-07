@@ -5663,6 +5663,32 @@ def test_a_run_refused_at_staging_reports_it_and_leaves_no_directory(tmp_path):
     assert not list((workspace / "runs").glob("*"))
 
 
+def test_a_recording_a_run_would_outlast_is_refused_by_the_plan_and_the_run(tmp_path):
+    """!
+    @brief The dry run blocks a recording shorter than the run, and the real run leaves no directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    workspace = make_workspace(tmp_path)
+    (workspace / "recording.picslice").write_text("PICSLICE\n2\n2 2 1 1.0e-6\n" + "1.0\n" * 8, encoding="utf-8")
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    inlet = next(entry for entry in case_cfg["boundary_conditions"] if entry["type"] == "INLET")
+    inlet.pop("constraints", None)
+    inlet.update(handler="prescribed_velocity", source={"type": "file", "path": "recording.picslice"})
+    case_path = workspace / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    base = ["run", "--solve", "--case", str(case_path), "--solver", str(valid / "solver.yml"),
+            "--monitor", str(valid / "monitor.yml")]
+
+    plan = run_picurv(base + ["--dry-run", "--format", "json"], cwd=workspace)
+    assert plan.returncode != 0
+    assert any("repeat: true" in message for message in json.loads(plan.stdout)["blocking"])
+    refused = run_picurv(base, cwd=workspace)
+    assert refused.returncode == 1
+    assert "Traceback" not in refused.stderr and "repeat: true" in refused.stderr
+    assert not list((workspace / "runs").glob("*"))
+
+
 def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
     """!
     @brief Test that grid-gen mode accepts top-level DMDA processor layout hints.
