@@ -1,0 +1,1 @@
+- Experimental: velocity and pressure expressions in inlet and initial-condition sources may draw `uniform()` and `normal()`, anew per face cell and step on a face and per cell in an initial field, under the new top-level `source_random_seed`. Draws are keyed on global indices, so they do not depend on the rank layout or need saving for a restart. Analytical fields refuse them.

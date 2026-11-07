@@ -1,0 +1,1 @@
+- Fixed: an initial condition's source can read the top-level `constants:`, `rho` and `nu`, as an inlet's could. Such a case was refused as an unsupported name.
