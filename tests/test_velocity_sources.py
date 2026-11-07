@@ -94,7 +94,7 @@ def test_a_named_source_feeds_the_inlet_and_the_initial_condition():
 
     ic = CORE.resolve_initial_condition_config(
         case["properties"]["initial_conditions"], [], CORE.resolve_reference_scales(case),
-        named_sources=case["sources"])
+        case_cfg=case)
     assert ic["source"]["expressions"] == inlet["source"]["expressions"]
 
 
@@ -171,7 +171,7 @@ def test_invalid_sources_are_refused(sources, inlet, initial_conditions, message
         validate(case, solver, monitor)
         CORE.resolve_initial_condition_config(case["properties"]["initial_conditions"], [],
                                               CORE.resolve_reference_scales(case),
-                                              named_sources=case.get("sources"))
+                                              case_cfg=case)
     text = capsys.readouterr().err + str(caught.value)
     assert message in text
 
@@ -223,7 +223,7 @@ def resolve_initial(case):
     """
     return CORE.resolve_initial_condition_config(
         case["properties"]["initial_conditions"], CORE.validate_and_prepare_boundary_conditions(case),
-        CORE.resolve_reference_scales(case), named_sources=case.get("sources"))
+        CORE.resolve_reference_scales(case), case_cfg=case)
 
 
 def test_a_sum_adds_a_generator_to_a_source_and_projects():
@@ -518,6 +518,14 @@ def test_constants_come_from_the_fluid_the_case_and_the_source():
     case["constants"] = {"U": "three"}
     with pytest.raises(ValueError, match="constants.U must be a number"):
         CORE.resolve_velocity_source({"components": "normal", "expression": "U"}, case, "src", True)
+
+
+def test_an_initial_condition_reads_the_case_constants_too():
+    """! @brief The same `constants:`, `rho` and `nu` reach every target's source. """
+    case, _, _ = load_configs(initial_conditions={"source": {"expression": {"w": "U*nu*rho"}}})
+    case["properties"]["fluid"] = {"density": 2.0, "viscosity": 0.5}
+    case["constants"] = {"U": 3.0}
+    assert resolve_initial(case)["source"]["expressions"][2] == "(3.0)*(0.25)*(2.0)"
 
 
 def test_a_flow_rate_is_a_target_of_the_face_alone():

@@ -10330,7 +10330,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             resolved_ic = resolve_initial_condition_config(
                 ic, prepared_blocks, scales=scaling_contract,
                 provider_context={"kinematic_viscosity": scaling_contract["nondimensional_kinematic_viscosity"]},
-                named_sources=case_cfg.get("sources"),
+                case_cfg=case_cfg,
             )
         except KeyError as e:
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
@@ -14925,7 +14925,7 @@ def initial_field_term(ic: dict) -> dict:
 
 
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
-                                     named_sources=None) -> dict:
+                                     case_cfg=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
     @details Every value the user writes is physical; the resolved contract carries solver
@@ -14934,7 +14934,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
     @param[in] provider_context Optional conductor-derived provider context.
-    @param[in] named_sources The case's `sources:` mapping, which `source:` may name.
+    @param[in] case_cfg Case configuration, for the `sources:` that `source:` may name and the
+               constants a source may use.
     @return Normalized launcher initial-condition contract.
     """
     if not isinstance(ic, dict):
@@ -14950,11 +14951,11 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     where = "properties.initial_conditions.source"
     spec = ic["source"]
     project = isinstance(spec, dict) and "sum" in spec
-    spec, field_term = _split_initial_field_term(spec, where, named_sources)
+    spec, field_term = _split_initial_field_term(spec, where, (case_cfg or {}).get("sources"))
     field = None if field_term is None else _resolve_initial_field_term(
         field_term, where, prepared_blocks, scales, provider_context)
     source = {"frame": "cartesian", "expressions": [], "constants": {}, "data": None} if spec is None else \
-        resolve_velocity_source(spec, {"sources": named_sources or {}}, where, allow_normal=False)
+        resolve_velocity_source(spec, case_cfg or {}, where, allow_normal=False)
     constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
         else ic.get("constraints")
     if isinstance(constraints, dict) and "project" in constraints:
@@ -17037,7 +17038,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             resolved_ic = resolve_initial_condition_config(
                 ic, prepared_blocks, fluid_scaling,
                 provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
-                named_sources=case_cfg.get("sources"),
+                case_cfg=case_cfg,
             )
             print(f"  - Initial Condition: {resolved_ic['label']}")
             ic_cli.extend(velocity_source_control_lines(
@@ -19246,7 +19247,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
             validate_and_prepare_boundary_conditions(case_cfg),
             scales=fluid_scaling,
             provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
-            named_sources=case_cfg.get("sources"),
+            case_cfg=case_cfg,
         )
     except (KeyError, ValueError):
         return
@@ -19855,7 +19856,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
             provider_context={
                 "kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]
             },
-            named_sources=case_cfg.get("sources"),
+            case_cfg=case_cfg,
         )
         if (grid_cfg.get("mode") == "programmatic_c" and is_generated_ic_provider(resolved_ic)
                 and not os.path.isfile(staged_grid)):
