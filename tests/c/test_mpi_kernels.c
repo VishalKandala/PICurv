@@ -1034,7 +1034,8 @@ static PetscErrorCode TestLESAveragingIsDecompositionIndependent(void)
  *          every third. The global count and identities are computed from the formula over all
  *          face cells, so they hold whatever the decomposition. Each particle carries the value
  *          at the face, sits within u dt of it, awaits location, and a second call for the same
- *          step reproduces the first.
+ *          step reproduces the first. With a diffusivity, each particle moves further by exactly
+ *          its own keyed Brownian displacement for the step.
  */
 static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
 {
@@ -1124,6 +1125,37 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
     }
     PetscCall(PicurvAssertRealNear(positions_first, positions_second, 1.0e-9, "injection carries no state from one call to the next"));
 #undef TEST_INLET_FLUX
+
+    {
+        const PetscReal   diffusivity = 0.5;
+        PetscInt          nlocal = 0;
+        PetscReal        *without_kick = NULL;
+        const PetscReal  *position = NULL;
+        const PetscInt64 *pid = NULL;
+
+        PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+        PetscCall(PetscMalloc1(3 * nlocal, &without_kick));
+        PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&position));
+        PetscCall(PetscArraycpy(without_kick, position, 3 * nlocal));
+        PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&position));
+
+        PetscCall(VecSet(user->lDiffusivity, diffusivity));
+        PetscCall(DMSwarmSetLocalSizes(user->swarm, 0, -1));
+        PetscCall(InjectParticlesAtInlets(user));
+        PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&position));
+        PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+        for (PetscInt p = 0; p < nlocal; ++p) {
+            Cmpnts kick;
+
+            PetscCall(CalculateBrownianDisplacement(user, pid[p], diffusivity, &kick));
+            PetscCall(PicurvAssertRealNear(without_kick[3 * p + 0] + kick.x, position[3 * p + 0], 1.0e-12, "a new particle takes the step's Brownian displacement in x"));
+            PetscCall(PicurvAssertRealNear(without_kick[3 * p + 1] + kick.y, position[3 * p + 1], 1.0e-12, "a new particle takes the step's Brownian displacement in y"));
+            PetscCall(PicurvAssertRealNear(without_kick[3 * p + 2] + kick.z, position[3 * p + 2], 1.0e-12, "a new particle takes the step's Brownian displacement in z"));
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+        PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&position));
+        PetscCall(PetscFree(without_kick));
+    }
 
     PetscCall(PicurvDestroyRuntimeContext(&simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));

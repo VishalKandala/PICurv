@@ -2,6 +2,7 @@
 
 #include "ParticleSwarm.h"
 #include "ParticleInitialConditions.h"
+#include "ParticleMotion.h"
 #include "verification_sources.h"
 
 #define INTERPOLATION_DISTANCE_TOLERANCE 1.0e-14
@@ -1220,6 +1221,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     const PetscInt          n_cells = table->n[0] * table->n[1] * table->n[2];
     const Vec               metric_vec = (normal == 0) ? user->lCsi : (normal == 1) ? user->lEta : user->lZet;
     const Cmpnts         ***coor = NULL, ***ucont = NULL, ***metric = NULL;
+    const PetscReal      ***diffusivity = NULL;
     PetscInt64             *cell_id = NULL;
     PetscInt               *count = NULL;
     Cmpnts                 *travel = NULL, *inward = NULL;
@@ -1287,6 +1289,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
             PetscCall(DMSwarmRestoreField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
         }
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->lDiffusivity, (void *)&diffusivity));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
@@ -1298,7 +1301,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
                 const PetscReal  share = PicurvUnitFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INLET, 1, pid, 0));
                 PetscInt  ci, cj, ck;
                 PetscReal xi, eta, zta;
-                Cmpnts    point;
+                Cmpnts    point, kick;
 
                 PetscCall(DrawSeedingPoint(user, coor, table, c, pid, &ci, &cj, &ck, &xi, &eta, &zta));
                 PetscCall(MetricLogicalToPhysical(user, coor, ci, cj, ck, xi, eta, zta, &point));
@@ -1307,9 +1310,12 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
                 cell[3 * p + 0] = ci; cell[3 * p + 1] = cj; cell[3 * p + 2] = ck;
                 pids[p] = pid;
                 status[p] = NEEDS_LOCATION;
-                inward[p - first].x = share * travel[c].x;
-                inward[p - first].y = share * travel[c].y;
-                inward[p - first].z = share * travel[c].z;
+                /* This step's Brownian kick, as every other particle had. Without it they refill
+                 * the inlet layer that this share also fills, and the first cell runs dense. */
+                PetscCall(CalculateBrownianDisplacement(user, pid, diffusivity[ck + 1][cj + 1][ci + 1], &kick));
+                inward[p - first].x = share * travel[c].x + kick.x;
+                inward[p - first].y = share * travel[c].y + kick.y;
+                inward[p - first].z = share * travel[c].z + kick.z;
                 LOG_PARTICLE(simCtx, pid, "inject", "through %s on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                              BCFaceToString(inlet->face), (int)simCtx->rank, point.x, point.y, point.z, ci, cj, ck);
             }
@@ -1319,6 +1325,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lDiffusivity, (void *)&diffusivity));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
     }
 

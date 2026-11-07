@@ -161,7 +161,9 @@ fed slowly by the inlet can run short. `particles_per_cell_min` in `search_metri
 time, as on a seeded particle (@ref p45_particle_values_sec): `x y z t xi eta zeta L_xi L_eta L_zeta
 pid uniform() normal()`, with `xi eta zeta` from the crossing cell. It then moves in along
 the face normal by a uniform share of `u_n dt`, so one step's particles do not travel as a
-sheet, and the search that follows the particle update locates it.
+sheet, and takes the step's Brownian displacement with the diffusivity of its cell, which
+keeps the density uniform up to the inlet. The search that follows the particle update
+locates it.
 
 **Inlet policy.** An injecting inlet defaults to `particle_policy: reflect`. The inlet then
 fixes the total flux entering, and a particle diffusing back across it stays in the domain.
