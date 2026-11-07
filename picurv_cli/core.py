@@ -7550,6 +7550,32 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         normalized["source_block"] = source_block
     return normalized
 
+def _refuse_recording_shorter_than_run(staged_slice: str, case_cfg: dict, face: str) -> None:
+    """!
+    @brief Refuse at staging a recording that a fresh run would outlast without repeat.
+    @details A restart's time comes from its checkpoint, so only the solver can check one.
+    @param[in] staged_slice Staged PICSLICE path.
+    @param[in] case_cfg The parsed case.yml configuration dictionary.
+    @param[in] face Face the recording drives, for the message.
+    @throws ValueError when the run's last time lies past the last frame.
+    """
+    run_control = case_cfg.get("run_control") or {}
+    if int(run_control.get("start_step", 0) or 0) != 0:
+        return
+    with open(staged_slice, "r", encoding="utf-8") as stream:
+        lines = _iter_nonempty_noncomment_lines(stream)
+        next(lines)
+        frames = int(next(lines)[1])
+        shape = next(lines)[1].split()
+    if frames < 2 or len(shape) < 4:
+        return
+    duration, end_time = (frames - 1) * float(shape[3]), int(run_control["total_steps"]) * float(run_control["dt_physical"])
+    if end_time > duration * (1.0 + 1.0e-9):
+        raise ValueError(
+            f"Face {face}: the run ends at t = {end_time:g} s, past the {frames} frames of its recording, which "
+            f"end at t = {duration:g} s. Set repeat: true to loop them, or shorten the run.")
+
+
 def _normalize_field_slice_selector(slice_cfg, field_name: str) -> dict:
     """!
     @brief Validate the field_slice slice selector.
@@ -13222,7 +13248,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
             params = dict(bc.get('params') or {})
             if profile_data_source(bc):
                 source = params.pop("source")
-                if source.get("repeat"):
+                source_repeat = bool(source.get("repeat"))
+                if source_repeat:
                     params["source_repeat"] = True
                 velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
@@ -13284,6 +13311,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                         f"{os.path.relpath(staged_path)} dims={summary['dims']}"
                     )
                     params["source_file"] = os.path.abspath(staged_path)
+                if not source_repeat:
+                    _refuse_recording_shorter_than_run(params["source_file"], case_cfg, face)
             params_str = ""
             if params:
                 parts = []
@@ -20803,16 +20832,21 @@ def run_workflow(args):
             print(f"[INFO] Restart source: {resolved_restart_source_dir}")
         if is_continue:
             print("[INFO] Continue mode: logs will be appended, not overwritten.")
-        control_file = generate_solver_control_file(
-            run_dir,
-            run_id,
-            configs,
-            solver_num_procs_effective,
-            monitor_files,
-            restart_source_dir=resolved_restart_source_dir,
-            continue_mode=is_continue,
-            config_dir=generated_config_dir,
-        )
+        try:
+            control_file = generate_solver_control_file(
+                run_dir,
+                run_id,
+                configs,
+                solver_num_procs_effective,
+                monitor_files,
+                restart_source_dir=resolved_restart_source_dir,
+                continue_mode=is_continue,
+                config_dir=generated_config_dir,
+            )
+        except ValueError as exc:
+            discard_unused_run_directory(run_dir, created=not continue_mode, staged=True)
+            print(f"[FATAL] {exc}", file=sys.stderr)
+            sys.exit(1)
         active_config = archive_active_generated_configuration(
             run_dir,
             [

@@ -5648,6 +5648,21 @@ def test_dry_run_reports_the_solver_and_post_decompositions():
     assert len(json.loads(refused.stdout)["blocking"]) == 1
 
 
+def test_a_run_refused_at_staging_reports_it_and_leaves_no_directory(tmp_path):
+    """!
+    @brief A real run with a rank count no layout fits fails as the dry run does, without a traceback.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    workspace = make_workspace(tmp_path)
+    refused = run_picurv(["run", "--solve", "--case", str(valid / "case.yml"), "--solver", str(valid / "solver.yml"),
+                          "--monitor", str(valid / "monitor.yml"), "-n", "64"], cwd=workspace)
+    assert refused.returncode == 1
+    assert "Traceback" not in refused.stderr
+    assert "No decomposition of 64 ranks" in refused.stderr
+    assert not list((workspace / "runs").glob("*"))
+
+
 def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
     """!
     @brief Test that grid-gen mode accepts top-level DMDA processor layout hints.

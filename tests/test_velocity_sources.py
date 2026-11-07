@@ -698,3 +698,24 @@ def test_a_recordings_frames_are_part_of_its_asset_identity(tmp_path):
     after = CORE._provider_source_fingerprints(spec, case_path)
     assert before != after
     assert [v["sha256"] for v in before.values()][0] == [v["sha256"] for v in after.values()][0]
+
+
+def test_a_recording_shorter_than_a_fresh_run_is_refused_at_staging(tmp_path):
+    """!
+    @brief A run that ends past the last frame is refused before it queues; one ending on it is not.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    recording = tmp_path / "recording.picslice"
+    recording.write_text("PICSLICE\n3\n2 2 1 0.5\n" + "1.0\n" * 12, encoding="utf-8")
+    case = {"run_control": {"start_step": 0, "total_steps": 10, "dt_physical": 0.1}}
+    CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
+    case["run_control"]["total_steps"] = 11
+    with pytest.raises(ValueError, match="repeat: true"):
+        CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
+    # A restart's time comes from its checkpoint, so the solver checks it.
+    case["run_control"]["start_step"] = 5
+    CORE._refuse_recording_shorter_than_run(str(recording), case, "-Zeta")
+    single = tmp_path / "steady.picslice"
+    single.write_text("PICSLICE\n1\n2 2\n" + "1.0\n" * 4, encoding="utf-8")
+    case["run_control"]["start_step"] = 0
+    CORE._refuse_recording_shorter_than_run(str(single), case, "-Zeta")

@@ -368,7 +368,8 @@ Unknown keys are rejected with the allowed set named. `output_file` is refused f
 `field_slice`: `picurv` writes sliced profiles under `<run.inputs>/inlet_profiles/`.
 `components` says what each slot holds: `normal` (default), a nonnegative speed, or `cartesian`,
 a velocity that may be tangential or reversed. `repeat: true` returns to the first frame after
-the last; otherwise a time past the last frame stops the run.
+the last. Otherwise staging refuses a new run that ends past the last frame, and a restart that
+reaches it stops there.
 
 `constraints` - optional, applied in order: `scale` multiplies every value (for a data
 source the profile is multiplied as it is staged, so `scale` must be positive);
@@ -805,9 +806,11 @@ it reads the source `PICGRID` header. Sliced dimensional profiles and
 `profile.info` are written under `<run.inputs>/inlet_profiles/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
-A recording slices a plane of a precursor run at each of its checkpoints. A workspace reads only its
-own paths, so register the precursor's files first; `--mode reference` records where they are without
-copying them:
+A recording slices a plane of a precursor run at each of its checkpoints. Slicing needs both grids as
+files, so the precursor and this case each use `grid.mode: file` or `grid_gen`, because a `programmatic_c`
+run stages no `grid.run`. An analytical precursor accepts `file` only. A workspace reads only its own
+paths, so register the precursor's files first; `--mode reference` records where they are without copying
+them:
 
 ```bash
 picurv inputs import grid <precursor_run>/inputs/grid/grid.run --name precursor.run --mode reference
