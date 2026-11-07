@@ -188,7 +188,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **What it does.** Builds a structured block directly in the C runtime from cell counts, extents, and stretching ratios. No mesh file exists or is read.
 
-**When to choose it.** For Cartesian boxes - channels, ducts, isotropic boxes - and for anything where the geometry is a handful of numbers you want in the case file rather than in a binary alongside it. It is also the only mode `TGV3D` accepts.
+**When to choose it.** For Cartesian boxes - channels, ducts, isotropic boxes - and for anything where the geometry is a handful of numbers you want in the case file rather than in a binary alongside it.
 
 **Parameters it owns.** `grid.programmatic_settings.im/jm/km` (cell counts, converted to node counts before `-im/-jm/-km`), `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`, `rxs/rys/rzs`, and `cgrids` -> `-cgrids` - see @ref p07_grid_prog_ssec for why this is not a real geometry choice.
 
@@ -212,7 +212,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Parameters it owns.** `grid.generator.config_file` (required; `picurv` does not synthesize one), `grid.generator.grid_type` -> **@ref p48_cap_geom_sec**, and `grid.generator.cli_args` for per-run overrides such as `--ncells-i`.
 
-**Interactions.** Mutually exclusive with `file` and `programmatic_c`. The generator accepts cell counts (`ncells_*`) and writes node counts into the `.picgrid` header, so the count convention matches `programmatic_c` at the YAML boundary.
+**Interactions.** Mutually exclusive with `file` and `programmatic_c`. Compatible with an analytical field. The generator accepts cell counts (`ncells_*`) and writes node counts into the `.picgrid` header, so the count convention matches `programmatic_c` at the YAML boundary.
 
 **Diagnostics.** Generator stdout is captured into the run's scheduler log, and the staged grid appears as `<run.inputs>/grid/grid.run`. A generator failure aborts before the solver launches.
 

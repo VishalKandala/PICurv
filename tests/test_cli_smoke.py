@@ -2626,9 +2626,9 @@ def test_validate_analytical_tgv3d_accepts_file_grid(tmp_path):
     assert "requires grid.mode" not in result.stderr
 
 
-def test_validate_analytical_mode_rejects_grid_gen(tmp_path):
+def test_validate_analytical_mode_accepts_grid_gen(tmp_path):
     """!
-    @brief Test that analytical TGV3D still rejects grid.mode grid_gen.
+    @brief Test that an analytical field accepts a generated grid, as it does a file grid.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -2658,9 +2658,8 @@ def test_validate_analytical_mode_rejects_grid_gen(tmp_path):
         ]
     )
 
-    assert result.returncode == 1
-    assert "grid.mode" in result.stderr
-    assert "programmatic_c" in result.stderr
+    assert "analytical field" not in result.stderr, result.stderr
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

@@ -10624,10 +10624,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     errors.append(f"  {solver_path}: {e}")
 
             if eulerian_source_mode == "analytical":
-                if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
-                    errors.append(f"  {case_path}: grid.mode '{grid_mode}' is not supported for an analytical field. "
-                                  "Use 'programmatic_c' or 'file'.")
-                elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
+                if grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
                     missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
                     if missing_dims:
                         errors.append(f"  {case_path}: grid.programmatic_settings must include {missing_dims} for an "

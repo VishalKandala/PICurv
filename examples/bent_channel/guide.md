@@ -32,14 +32,9 @@ realistic setup.
   --post my_bent_case/standard_analysis.yml
 ```
 
-Analytical uniform-flow variant: `config/solvers/Analytical.yml` needs
-`grid.mode: file` or `programmatic_c` - `grid_gen` is refused for an analytical field
-(see `docs/pages/14_Config_Contract.md`). To pair it with this case's bent
-geometry, override `grid` in `bent_channel.yml` to `mode: file` pointing at a copy of
-`examples/search_robustness/bent_channel_coarse.picgrid` placed in the case directory
-(`source_file` resolves relative to the case root). `tests/smoke/run_smoke.sh`'s
-`bent_analytical_uniform` workflow does exactly this and is the reference for the exact
-steps.
+Analytical variant: pair this case with `config/solvers/Analytical.yml` and the
+case's source becomes the prescribed field on the generated bent grid
+(`docs/pages/32_Analytical_Solutions.md`).
 
 If you run this example on a cluster and need site-specific MPI launcher tokens, edit the `.picurv-execution.yml` that `init` created in the case directory. Existing cases or repo-root site configs can still start from `execution.example.yml`. That same file can drive both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` reserved for scheduler policy and batch-only overrides. Generated Slurm solver jobs now enable the runtime walltime guard by default; override it in `slurm_cluster.yml -> execution.walltime_guard` only when needed.
 

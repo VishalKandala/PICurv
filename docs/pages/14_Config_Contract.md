@@ -163,7 +163,7 @@ supported. Evidence and limits per value are at
 
 Analytical-mode compatibility rule:
 
-- when `operation_mode.eulerian_field_source: analytical` is selected, `case.yml -> grid.mode` is `programmatic_c` or `file`, and the field is the case's `properties.initial_conditions.source` (@ref p32_activation_sec).
+- when `operation_mode.eulerian_field_source: analytical` is selected, the field is the case's `properties.initial_conditions.source` (@ref p32_activation_sec).
 
 Verification-pathway rule:
 
