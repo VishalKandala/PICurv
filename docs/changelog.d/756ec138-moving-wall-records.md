@@ -1,0 +1,1 @@
+- Two measurement records back the `moving` wall handler: the lid-driven cavity at Re 100 converges to the Botella and Peyret (1998) centreline extrema at second order, and an oscillating wall reproduces the Stokes second problem at second order in space and time.

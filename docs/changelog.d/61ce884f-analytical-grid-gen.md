@@ -1,0 +1,1 @@
+- An analytical field (`eulerian_field_source: analytical`) accepts `grid.mode: grid_gen`, as it accepts `file` and `programmatic_c`; the generated grid reaches the solver as the same staged grid file.
