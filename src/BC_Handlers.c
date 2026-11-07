@@ -814,7 +814,7 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
         PetscCall(PetscStrallocpy(source_file, &data->source_file));
     }
     PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "face_source_%d", (int)id));
-    PetscCall(PicurvVelocitySourceCreate(prefix, PETSC_TRUE, (PetscBool)(data->source_file != NULL), &data->source));
+    PetscCall(PicurvVelocitySourceCreate(prefix, PETSC_TRUE, (PetscBool)(data->source_file != NULL), PETSC_TRUE, &data->source));
     PetscCheck(!data->source_file || data->source.frame == PICURV_SOURCE_FRAME_NORMAL ||
                data->source.frame == PICURV_SOURCE_FRAME_CARTESIAN, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
                "Face %s: a profile file and the expressions added to it are in the normal or cartesian frame.",
@@ -1091,10 +1091,16 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
     if (frames_vary) PetscCall(InterpolatePrescribedFrames(data, ctx->face_id, physical_time));
     if (evaluate && data->source.count > 0) {
         const PetscReal U_ref = simCtx->scaling.U_ref;
+        const PetscInt  nodes[3] = {user->info.mx, user->info.my, user->info.mz};
         for (PetscInt s = 0; s < data->slots.n[0] * data->slots.n[1]; ++s) {
+            const PetscInt p = s % data->slots.n[0], q = s / data->slots.n[0];
+            const PicurvExpressionDrawKey key = {(PetscInt64)simCtx->sourceRandomSeed,
+                                                 ((PetscInt64)user->_this << 48) +
+                                                 PicurvFaceCellId(nodes, ctx->face_id, data->slots.lo[0] + p - 1, data->slots.lo[1] + q - 1),
+                                                 (PetscInt64)simCtx->step, 0, PETSC_TRUE};
             Cmpnts v;
             data->slots.values[s][PICURV_SOURCE_VAR_T] = physical_time;
-            PetscCall(PicurvVelocitySourceEvaluate(&data->source, data->slots.values[s], data->slots.edges[s], &v));
+            PetscCall(PicurvVelocitySourceEvaluate(&data->source, data->slots.values[s], &key, data->slots.edges[s], &v));
             data->velocity[s].x = v.x / U_ref;
             data->velocity[s].y = v.y / U_ref;
             data->velocity[s].z = v.z / U_ref;

@@ -184,7 +184,7 @@ is a test-local routine.
     become quoted `-face_source_<id>_*` / `-ic_source_*` options with only `source_id` in
     the bcs row, and validation refuses unknown names, wrong frames, bad expressions and
     constraints a target does not take; the C side is `make unit-mpi`
-    (`grid-line-fractions-follow-arc-length`)
+    (`grid-line-fractions-follow-arc-length`, `source-draws-are-keyed-on-the-grid`)
 - `test_field_catalog.py`
   - the published field inventory matches the compiled Eulerian and particle catalogs
   - missing fields, wrong layout groups, undocumented layout values, and renamed

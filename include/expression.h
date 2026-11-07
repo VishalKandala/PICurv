@@ -21,15 +21,17 @@ extern "C" {
 #endif
 
 /**
- * @brief Disjoint key spaces of the keyed particle draws, so draws made for different
- *        purposes never coincide for one particle.
+ * @brief Disjoint key spaces of the keyed draws, so draws made for different purposes never
+ *        coincide for one particle, grid cell, or face cell.
  */
 typedef enum {
     PICURV_DRAW_SPACE_FIELD = 0,        /**< An expression's default, per-field stream. */
     PICURV_DRAW_SPACE_NAMED_STREAM = 1, /**< `uniform(k)`/`normal(k)`: a stream shared across fields. */
     PICURV_DRAW_SPACE_BROWNIAN = 2,     /**< Brownian increments; the salt is the step. */
     PICURV_DRAW_SPACE_PLACEMENT = 3,    /**< Seeding points; the salt is the rejection attempt. */
-    PICURV_DRAW_SPACE_INLET = 4         /**< Injection at an inlet: stream 0 counts per face cell, stream 1 distance in. */
+    PICURV_DRAW_SPACE_INLET = 4,        /**< Injection at an inlet: stream 0 counts per face cell, stream 1 distance in. */
+    PICURV_DRAW_SPACE_GRID_FIELD = 5,   /**< A velocity or pressure source's default stream, per component. */
+    PICURV_DRAW_SPACE_GRID_NAMED_STREAM = 6 /**< `uniform(k)`/`normal(k)` in such a source: shared across components. */
 } PicurvDrawSpace;
 
 /**
@@ -47,29 +49,33 @@ uint64_t PicurvMix64(uint64_t z);
 PetscReal PicurvUnitFromHash(uint64_t hash);
 
 /**
- * @brief Hash that keys a particle draw: a pure function of its arguments, so a draw does
- *        not depend on the rank a particle lives on, the order particles are visited, or
- *        what was drawn before it.
- * @param[in] seed   Run seed (`-particle_random_seed`).
+ * @brief Hash that keys a draw: a pure function of its arguments, so a draw does not depend
+ *        on the rank that makes it, the order points are visited, or what was drawn before it.
+ * @param[in] seed   Run seed.
  * @param[in] space  Purpose of the draw.
  * @param[in] stream Stream within the space.
- * @param[in] pid    Particle identity.
- * @param[in] salt   Event that distinguishes repeated draws for one particle.
+ * @param[in] id     Global identity of the particle, grid cell, or face cell.
+ * @param[in] salt   Event that distinguishes repeated draws for one identity.
  * @return 64 mixed bits; derive further independent values with PicurvMix64().
  */
-uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
-                                PetscInt64 pid, PetscInt64 salt);
+uint64_t PicurvDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
+                                PetscInt64 id, PetscInt64 salt);
 
 /** @brief A compiled expression: postfix code for a small stack evaluator. */
 typedef struct PicurvExpression PicurvExpression;
 
-/** @brief What a random draw is keyed on, besides the particle and its stream. */
+/** @brief What a random draw is keyed on, besides its stream. */
 typedef struct {
-    PetscInt64 seed;   /**< Run seed (`-particle_random_seed`). */
-    PetscInt64 pid;    /**< Particle identity; draws are pure functions of it. */
-    PetscInt64 salt;   /**< Event that produced the particle: 0 for the t=0 population. */
-    PetscInt64 field;  /**< Field whose expression draws, the default stream's namespace. */
+    PetscInt64 seed;   /**< Run seed: `-particle_random_seed`, or `-source_random_seed` on the grid. */
+    PetscInt64 pid;    /**< Global identity of the particle, or on the grid of the cell or face cell. */
+    PetscInt64 salt;   /**< Event: for a particle what produced it, 0 for the t=0 population; on a
+                            face the step; in a cell #PICURV_DRAW_SALT_INITIAL_FIELD. */
+    PetscInt64 field;  /**< Field or component whose expression draws, the default stream's namespace. */
+    PetscBool  grid;   /**< The draw is for a grid point, not a particle. */
 } PicurvExpressionDrawKey;
+
+/** @brief Salt of a cell's draws: the field is set once, and no step has this number. */
+#define PICURV_DRAW_SALT_INITIAL_FIELD ((PetscInt64)-1)
 
 /**
  * @brief Compile one expression against a list of variable names.
@@ -108,6 +114,14 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
  * @return Zero on success.
  */
 PetscErrorCode PicurvExpressionDestroy(PicurvExpression **expression);
+
+/**
+ * @brief Whether an expression draws random numbers.
+ * @param[in]  expression Compiled expression.
+ * @param[out] draws      True when it calls `uniform` or `normal`.
+ * @return Zero on success.
+ */
+PetscErrorCode PicurvExpressionDraws(const PicurvExpression *expression, PetscBool *draws);
 
 /**
  * @brief Whether a compiled expression reads one of its variables.
@@ -156,7 +170,7 @@ typedef struct {
     PicurvSourceFrame frame;
     PetscInt          count;          /**< 1 for the normal frame, otherwise 3; 0 for staged data alone. */
     PicurvExpression *component[3];
-    PetscBool         time_dependent; /**< Some component reads `t`. */
+    PetscBool         time_dependent; /**< Some component reads `t` or draws, so a face re-evaluates it each step. */
     PicurvExpression *bulk;           /**< Target mean speed [m/s] in `t`, or NULL. */
     PetscBool         bulk_time_dependent;
     PetscBool         bulk_is_flow_rate; /**< `bulk` is a volumetric flow rate [m^3/s] through a face instead. */
@@ -167,17 +181,19 @@ typedef struct {
  * @details Reads `-<prefix>_frame` (`cartesian`, `curvilinear`, on a face `normal`, otherwise `contravariant`), one
  *          expression per value, `-<prefix>_expr_<c>`, written in physical units over the names
  *          of #PicurvSourceVariable, and the optional `-<prefix>_bulk_velocity`, an expression
- *          in `t`. Random draws are not available.
+ *          in `t`.
  * @param[in]  prefix   Option prefix without its dash, e.g. `ic_source` or `face_source_0`.
  * @param[in]  on_face  Whether the target is a face, where the normal frame means something.
  * @param[in]  has_data Whether the target also has staged data, which makes the expressions
  *                      optional; without a frame, data on a face is a normal speed.
+ * @param[in]  allow_draws Whether the expressions may call `uniform` and `normal`; a target
+ *                      evaluated at arbitrary points has nothing to key them on.
  * @param[out] source   Compiled source; release it with PicurvVelocitySourceDestroy().
  * @return Zero on success; `PETSC_ERR_USER_INPUT` for a missing option or unknown frame,
  *         `PETSC_ERR_ARG_WRONG` for a malformed expression.
  */
 PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face, PetscBool has_data,
-                                          PicurvVelocitySource *source);
+                                          PetscBool allow_draws, PicurvVelocitySource *source);
 
 /**
  * @brief Factor on a source's expressions that makes a target's whole mean equal its bulk velocity.
@@ -217,6 +233,24 @@ static inline void PicurvSourceSetVariables(PetscReal *values, Cmpnts point, Cmp
     values[PICURV_SOURCE_VAR_L_ZETA] = length.z * L_ref;
 }
 
+/**
+ * @brief Global identity of a boundary face cell, unique over the six faces of a block and
+ *        independent of the decomposition.
+ * @param[in] nodes Global node counts along i, j, k.
+ * @param[in] face  Face.
+ * @param[in] p     Zero-based cell index along the first tangential axis.
+ * @param[in] q     Zero-based cell index along the second.
+ * @return The identity, from 0 below `2 (nx ny + ny nz + nz nx)` for `nx ny nz` cells.
+ */
+static inline PetscInt64 PicurvFaceCellId(const PetscInt nodes[3], BCFace face, PetscInt p, PetscInt q)
+{
+    const PetscInt64 cells[3] = {nodes[0] - 2, nodes[1] - 2, nodes[2] - 2};
+    PetscInt64 id = p + cells[((PetscInt)face / 2 == 0) ? 1 : 0] * q;
+
+    for (PetscInt f = 0; f < (PetscInt)face; ++f) id += cells[(f / 2 + 1) % 3] * cells[(f / 2 + 2) % 3];
+    return id;
+}
+
 /** @brief What a source reads at each boundary-face slot this rank owns, gathered once. */
 typedef struct {
     PetscInt   normal;  /**< Logical axis of the face normal. */
@@ -254,13 +288,15 @@ PetscErrorCode PicurvSourceFaceSlotsDestroy(PicurvSourceFaceSlots *slots);
  * @brief Evaluate a source at one point.
  * @param[in]  source Compiled source.
  * @param[in]  values One value per #PicurvSourceVariable.
+ * @param[in]  key    The point's draw key, whose `field` this sets to each component; may be
+ *                    NULL for a source that does not draw.
  * @param[in]  edges  Cell edge vectors along xi, eta, zeta (any length); read only in the
  *                    curvilinear frame.
  * @param[out] value  Physical Cartesian velocity, or for the normal frame the speed in `x`.
  * @return Zero on success; `PETSC_ERR_FP` for a non-finite value.
  */
 PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, const PetscReal *values,
-                                            const Cmpnts edges[3], Cmpnts *value);
+                                            const PicurvExpressionDrawKey *key, const Cmpnts edges[3], Cmpnts *value);
 
 /**
  * @brief Set a block's pressure at every interior cell centre from an expression in Pa. Dummy cells

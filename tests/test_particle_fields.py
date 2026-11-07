@@ -154,8 +154,8 @@ def test_velocity_sources_take_regions_and_refuse_draws():
     assert "where(" in source["expressions"][0]
     source = CORE.resolve_velocity_source({"expression": {"w": regions}}, case, "src", False)
     assert "where(" in source["expressions"][2]
-    with pytest.raises(ValueError, match="uniform"):
-        CORE.resolve_velocity_source({"components": "normal", "expression": "uniform()"}, case, "src", True)
+    with pytest.raises(ValueError, match="pid"):
+        CORE.resolve_velocity_source({"components": "normal", "expression": "pid"}, case, "src", True)
 
 
 @pytest.mark.parametrize("particles, message", [

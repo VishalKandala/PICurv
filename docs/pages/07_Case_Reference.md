@@ -1224,6 +1224,10 @@ Supported type/handler combinations:
     selects a compatible override
   - The top-level `constants:` maps names to numbers every source may use; `rho` and `nu` come
     from `properties.fluid`.
+  - An expression may draw `uniform()` and `normal()`, per face cell and step on a face
+    (@ref p44_cap_prescribed_velocity) and per cell in an initial field (@ref p33_source_ssec).
+    The top-level `source_random_seed` (`-source_random_seed`, integer `0`..`2147483647`, default
+    `12345`) seeds them, apart from the particles' `random_seed`.
   - `source` may instead name an entry of the top-level `sources:` mapping, which an
     initial condition can share
 - `OUTLET` + `conservation`

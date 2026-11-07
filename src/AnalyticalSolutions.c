@@ -44,7 +44,7 @@ static PetscErrorCode AnalyticalFieldCreate(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     PetscCall(PetscNew(&field));
-    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, PETSC_FALSE, &field->source));
+    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, PETSC_FALSE, PETSC_FALSE, &field->source));
     PetscCall(PetscOptionsGetString(NULL, NULL, "-ic_source_pressure", text, sizeof(text), &found));
     if (found) {
         PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE, &field->pressure));
@@ -139,7 +139,7 @@ static PetscErrorCode SetBoundaryVelocityFromSource(UserCtx *user, const struct 
             /* A + face's boundary value sits one past its flux, in the dummy layer. */
             f[slots->normal] = slots->layer + face % 2; f[slots->a] = slots->lo[0] + p; f[slots->b] = slots->lo[1] + q;
             slots->values[s][PICURV_SOURCE_VAR_T] = physical_time;
-            PetscCall(PicurvVelocitySourceEvaluate(&field->source, slots->values[s], slots->edges[s], &v));
+            PetscCall(PicurvVelocitySourceEvaluate(&field->source, slots->values[s], NULL, slots->edges[s], &v));
             ubcs[f[2]][f[1]][f[0]].x = field->factor * v.x / U_ref;
             ubcs[f[2]][f[1]][f[0]].y = field->factor * v.y / U_ref;
             ubcs[f[2]][f[1]][f[0]].z = field->factor * v.z / U_ref;
@@ -175,7 +175,7 @@ static PetscErrorCode SetCellVelocityFromSource(UserCtx *user, const struct Anal
     for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
         Cmpnts v;
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
-        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
+        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, NULL, &v));
         ucat[k][j][i].x = field->factor * v.x / scaling->U_ref;
         ucat[k][j][i].y = field->factor * v.y / scaling->U_ref;
         ucat[k][j][i].z = field->factor * v.z / scaling->U_ref;
@@ -256,7 +256,7 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
         values[PICURV_SOURCE_VAR_X] = data[i] * scaling->L_ref;
         values[PICURV_SOURCE_VAR_Y] = data[i + 1] * scaling->L_ref;
         values[PICURV_SOURCE_VAR_Z] = data[i + 2] * scaling->L_ref;
-        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, &v));
+        PetscCall(PicurvVelocitySourceEvaluate(&field->source, values, NULL, NULL, &v));
         data[i] = v.x / scaling->U_ref;
         data[i + 1] = v.y / scaling->U_ref;
         data[i + 2] = v.z / scaling->U_ref;

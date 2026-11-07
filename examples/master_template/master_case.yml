@@ -84,6 +84,8 @@ properties:
     # in the cartesian, curvilinear or contravariant frame (a volume flux through each face, [m^3/s]),
     # inline or named under a top-level `sources:`.
     # Constraints: scale, bulk_velocity, and project (make it divergence-free before step 1).
+    # An expression may draw uniform() and normal(), per cell, under the top-level
+    # `source_random_seed` (default 12345): white noise, for seeding instability.
     source: {components: cartesian, expression: {w: 1.0}}   # [m/s]
 
     # A shaped source, in the frame of the grid lines:
@@ -491,7 +493,8 @@ boundary_conditions:
     # On a face it also reads r, the distance from the face's centre [m]. Omitted components are 0;
     # `constants:` names numbers the expressions use, on top of the case's top-level `constants:` and
     # rho and nu from properties.fluid. A source used by several targets can be named under a
-    # top-level `sources:` mapping and given by name here.
+    # top-level `sources:` mapping and given by name here. An expression may draw uniform() and
+    # normal(), anew per face cell and step, under the top-level `source_random_seed`.
     #
     # constraints: {bulk_velocity: <mean normal speed>}, or {flow_rate: <m^3/s>}, each a number or
     # an expression in t.

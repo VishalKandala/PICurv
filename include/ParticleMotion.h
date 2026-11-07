@@ -32,7 +32,7 @@ void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal 
  * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.
  *        Equation: dX_stoch = sqrt(2 * Gamma_eff * dt) * N(0,1)
  *
- * The normals come from PicurvParticleDrawHash() in the Brownian key space with the step
+ * The normals come from PicurvDrawHash() in the Brownian key space with the step
  * as salt, so a particle's increment at a step is a function of `particleRandomSeed`, its
  * PID and the step alone: independent of the rank layout, of the particle's position in
  * the local swarm, and of whether the run was restarted.

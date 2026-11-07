@@ -589,6 +589,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->particleInlets = NULL;
     simCtx->particleInletCount = 0;
     simCtx->particleRandomSeed = 12345;
+    simCtx->sourceRandomSeed = 12345;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
     simCtx->interpolationMethod = INTERP_TRILINEAR;
@@ -1142,6 +1143,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_random_seed", &simCtx->particleRandomSeed, NULL); CHKERRQ(ierr);
     PetscCheck(simCtx->particleRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-particle_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->particleRandomSeed);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-source_random_seed", &simCtx->sourceRandomSeed, NULL); CHKERRQ(ierr);
+    PetscCheck(simCtx->sourceRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-source_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->sourceRandomSeed);
     ierr = ParticleFieldPlanCreate("particle_fields", &simCtx->particleFieldPlan); CHKERRQ(ierr);
     ierr = ParticleInletsCreate(simCtx); CHKERRQ(ierr);
     PetscCheck(!simCtx->particleFieldPlan || ParticlesEnabled(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,

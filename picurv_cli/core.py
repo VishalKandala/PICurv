@@ -8988,7 +8988,7 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
 _CASE_SCHEMA = {
     (): {
         "title", "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
-        "sources", "constants",
+        "sources", "constants", "source_random_seed",
     },
     ("sources",): None,
     ("constants",): None,
@@ -9406,6 +9406,7 @@ INPUT_QUANTITIES = {
     # Expressions at physical coordinates; each value is in its field's physical units.
     ("case", "models", "physics", "particles", "fields"): (None, "evaluator"),
     ("case", "constants"): (None, "evaluator"),
+    ("case", "source_random_seed"): NOT_A_QUANTITY,
     # Velocity sources: physical expressions the runtime evaluates and divides by U.
     ("case", "sources"): (VELOCITY, "evaluator"),
     ("case", "properties", "initial_conditions", "source"): (VELOCITY, "evaluator"),
@@ -10336,12 +10337,21 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
+    source_seed = case_cfg.get("source_random_seed")
+    if source_seed is not None and (isinstance(source_seed, bool) or not isinstance(source_seed, int)
+                                    or not 0 <= source_seed <= 2147483647):
+        errors.append(f"  {case_path}: source_random_seed must be an integer from 0 to 2147483647 (got {source_seed!r}).")
     if ic_is_analytical and resolved_ic and resolved_ic["source"]["frame"] == "contravariant":
         errors.append(f"  {case_path}: an analytical field sets a velocity at the cell centres and on the boundaries, "
                       "which contravariant fluxes do not give; write it in cartesian or curvilinear components.")
     if ic_is_analytical and resolved_ic and (resolved_ic["kind"] != "source" or resolved_ic["source"]["project"]):
         errors.append(f"  {case_path}: an analytical field is re-evaluated from its expressions every step, so its "
                       "source takes neither a generator or file term nor project.")
+    if ic_is_analytical and resolved_ic and resolved_ic["kind"] == "source" and any(
+            EXPRESSION_DRAW.search(text) for text in resolved_ic["source"]["expressions"]
+            + [resolved_ic["source"].get("pressure") or ""]):
+        errors.append(f"  {case_path}: an analytical field is the exact answer at any point and time, so its source "
+                      "cannot draw uniform() or normal().")
     if ic_is_authoritative and resolved_ic and resolved_ic.get("kind") == "stability_mode_velocity":
         dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
                              .get("dimensionality", "3D"))).strip().upper()
@@ -10440,7 +10450,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
             if pinit_code == 2:
                 for entry in particle_fields:
-                    if not any(re.search(r"\b(uniform|normal)\s*\(", e) for e in entry["expressions"]):
+                    if not any(EXPRESSION_DRAW.search(e) for e in entry["expressions"]):
                         warnings.append(
                             f"{case_path}: models.physics.particles.fields.{entry['name']} has no random draw, "
                             "but init_mode is PointSource: every particle starts at one point and gets the "
@@ -14356,6 +14366,8 @@ SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", 
                  "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
 _SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
+#: A call to a random draw in expression text.
+EXPRESSION_DRAW = re.compile(r"\b(uniform|normal)\s*\(")
 
 
 def _source_text(value, constants: dict, names, where: str, ic_gen, random: bool = False) -> str:
@@ -14420,6 +14432,8 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
              `sum` of sources. Every value is physical; the runtime nondimensionalizes them. On a
              face, a source may instead be data: a `type` of file or field_slice names a profile
              of normal speeds or Cartesian velocities, one frame or a recording, staged as a PICSLICE.
+             An expression may draw `uniform()` and `normal()`: per cell in an initial field, per
+             face cell and step on a face.
     @param[in] spec Inline mapping, or the name of an entry of `sources:`.
     @param[in] case_cfg Case configuration holding `sources:`.
     @param[in] where Configuration path of the reference.
@@ -14461,7 +14475,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     if frame == "normal":
         if isinstance(expression, dict) and "regions" not in expression:
             raise ValueError(f"{where}.expression takes one value in the normal frame.")
-        texts = [_source_text(expression, constants, names, f"{where}.expression", ic_gen)]
+        texts = [_source_text(expression, constants, names, f"{where}.expression", ic_gen, random=True)]
     else:
         components = SOURCE_FRAMES[frame]
         if not isinstance(expression, dict):
@@ -14470,10 +14484,10 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         if extra:
             raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
         texts = [_source_text(expression.get(name, 0), constants, names,
-                              f"{where}.expression.{name}", ic_gen) for name in components]
+                              f"{where}.expression.{name}", ic_gen, random=True) for name in components]
     pressure = None
     if "pressure" in spec:
-        pressure = _source_text(spec["pressure"], constants, names, f"{where}.pressure", ic_gen)
+        pressure = _source_text(spec["pressure"], constants, names, f"{where}.pressure", ic_gen, random=True)
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
@@ -14624,8 +14638,8 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     """!
     @brief Resolve a particle field's source, given inline or by its name under the case's `sources:`.
     @details A source is one `expression`, with optional named `constants`, or a `sum` of sources.
-             An expression uses the language and variables of every source, and on a particle also
-             `pid` and the draws `uniform()` and `normal()`.
+             An expression uses the language, variables and draws of every source, and on a
+             particle also `pid`.
     @param[in] spec Inline mapping, or the name of an entry of `sources:`.
     @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
     @param[in] where Configuration path of the reference.
@@ -16451,6 +16465,9 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
                 if yaml_key in current_level:
                     control_lines.append(f"{flag} {format_flag_value(current_level[yaml_key])}")
         except KeyError: continue
+
+    if 'source_random_seed' in case_cfg:
+        control_lines.append(f"-source_random_seed {format_flag_value(case_cfg['source_random_seed'])}")
 
     wall_cfg = (((models.get('physics') or {}).get('turbulence') or {}).get('wall_function'))
     needs_scales = isinstance(wall_cfg, dict) and 'roughness_height' in wall_cfg

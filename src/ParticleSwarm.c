@@ -320,7 +320,7 @@ static PetscErrorCode DrawSeedingPoint(
     // little accepts almost every draw. The cap only guards a degenerate envelope.
     for (PetscInt attempt = 0; attempt < 1000; ++attempt) {
         PetscReal density;
-        uint64_t  hash = PicurvParticleDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt);
+        uint64_t  hash = PicurvDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt);
         for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
         // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
         for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - 1.0e-7), 0.0);
@@ -1220,8 +1220,6 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     const PetscInt          n_cells = table->n[0] * table->n[1] * table->n[2];
     const Vec               metric_vec = (normal == 0) ? user->lCsi : (normal == 1) ? user->lEta : user->lZet;
     const Cmpnts         ***coor = NULL, ***ucont = NULL, ***metric = NULL;
-    const PetscInt64        cells[3] = {nodes[0] - 2, nodes[1] - 2, nodes[2] - 2};
-    PetscInt64              face_start = 0;
     PetscInt64             *cell_id = NULL;
     PetscInt               *count = NULL;
     Cmpnts                 *travel = NULL, *inward = NULL;
@@ -1235,7 +1233,6 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     PetscCheck(!PetscIsInfOrNanReal(density) && density >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "The number density of inlet %s is %g at t = %g; it must be finite and not negative.",
                BCFaceToString(inlet->face), (double)density, (double)event->physical_time);
-    for (PetscInt f = 0; f < (PetscInt)inlet->face; ++f) face_start += cells[(f / 2 + 1) % 3] * cells[(f / 2 + 2) % 3];
 
     // --- 1. How many enter each face cell: the mean's integer part, and one more by chance ---
     PetscCall(PetscMalloc3(n_cells, &count, n_cells, &cell_id, n_cells, &travel));
@@ -1257,9 +1254,9 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
                    "Inlet %s would inject %g particles through one face cell in one step; the limit is %" PetscInt64_FMT
                    ". Lower number_density or the time step.", BCFaceToString(inlet->face), (double)expected,
                    PARTICLE_INLET_PIDS_PER_CELL - 1);
-        cell_id[c] = first_id + face_start + origin[a] + cells[a] * origin[b];
+        cell_id[c] = first_id + PicurvFaceCellId(nodes, inlet->face, origin[a], origin[b]);
         count[c] = (PetscInt)whole;
-        if (PicurvUnitFromHash(PicurvParticleDrawHash(seed, PICURV_DRAW_SPACE_INLET, 0, cell_id[c], 0)) < expected - whole) count[c]++;
+        if (PicurvUnitFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INLET, 0, cell_id[c], 0)) < expected - whole) count[c]++;
         travel[c].x = along_m * m.x; travel[c].y = along_m * m.y; travel[c].z = along_m * m.z;
         n_new += count[c];
         sums[0] += flux * simCtx->scaling.U_ref * L_ref * L_ref;
@@ -1298,7 +1295,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         for (PetscInt c = 0; c < n_cells; ++c) {
             for (PetscInt k = 0; k < count[c]; ++k, ++p) {
                 const PetscInt64 pid = PARTICLE_INLET_PID_BASE + cell_id[c] * PARTICLE_INLET_PIDS_PER_CELL + k;
-                const PetscReal  share = PicurvUnitFromHash(PicurvParticleDrawHash(seed, PICURV_DRAW_SPACE_INLET, 1, pid, 0));
+                const PetscReal  share = PicurvUnitFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INLET, 1, pid, 0));
                 PetscInt  ci, cj, ck;
                 PetscReal xi, eta, zta;
                 Cmpnts    point;

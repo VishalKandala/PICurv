@@ -76,7 +76,7 @@ KERNELS = {
     "MetricGetFacePlaneArrays": "1.0/particle per step",
     "MetricRestoreFacePlaneArrays": "1.0/particle per step",
     "PicurvMix64": "7.7/particle per step",
-    "PicurvParticleDrawHash": "0.9/particle per step",
+    "PicurvDrawHash": "0.9/particle per step",
     "PicurvUnitFromHash": "3.4/particle per step",
     "PoissonMultigrid_InterpolationParent": "57/cell per step",
     "PoissonOperator_AddFaceFlux": "2.3/cell per step",

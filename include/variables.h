@@ -1016,6 +1016,7 @@ typedef struct SimCtx {
     //================ Group 9: Particle / DMSwarm Data & Settings ================
     PetscInt  np;
     PetscInt  particleRandomSeed; ///< Base seed for every particle RNG stream (-particle_random_seed).
+    PetscInt  sourceRandomSeed;   ///< Seed of the draws in velocity and pressure sources (-source_random_seed).
     DM        dm_swarm;
     BoundingBox *bboxlist;
     ParticleInitializationType ParticleInitialization;

@@ -388,6 +388,25 @@ validated against the grid before the run starts (@ref p44_picslice_ssec), and
 units of its own. Newton-Krylov momentum accepts the inlet: the velocity is fixed within
 a step, so every residual evaluation sees the same boundary value.
 
+An expression may draw `uniform()`, in [0, 1), and `normal()`, from N(0, 1):
+
+```yaml
+source_random_seed: 7                   # top level; optional, default 12345
+boundary_conditions:
+- face: -Zeta
+  type: INLET
+  handler: prescribed_velocity
+  source:
+    expression: {u: "0.05*normal(1)", v: "0.05*normal(2)", w: "6*eta*(1 - eta) + 0.1*normal(3)"}
+  constraints: {flow_rate: 1.0}
+```
+
+Each face cell draws anew each step, once per stream, and keeps its value through the step's
+passes. A draw is a pure function of the seed, the block, the face cell's global index, the step
+and the stream, so it does not depend on the rank layout and needs nothing in a checkpoint.
+`bulk_velocity` and `flow_rate` rescale each step's draws, so the flow rate holds exactly and the
+noise moves flux between face cells.
+
 **Diagnostics.** The startup banner names the face's `-face_source_<id>` options, or
 its staged `source_file`. A data source logs its file, dimensions and speed range when
 first applied. `inlet_flow.csv` under `<run.analysis.metrics>` records each inlet's area,
@@ -407,9 +426,17 @@ and `tests/test_cli_smoke.py` exercise the data-source types and the face-dimens
 Production exercised in `examples/flat_channel`. Run once, not registered as measurements: `r` with
 `flow_rate` on a circular pipe, a swirling Cartesian inlet whose face velocities match the source to
 4e-12, a curvilinear inlet, and a recording whose mean speed matched the interpolated analytic value to
-1.2e-9 and whose fields agreed across 1 and 3 ranks to 2.8e-13.
+1.2e-9 and whose fields agreed across 1 and 3 ranks to 2.8e-13. `make unit-mpi`
+(`source-draws-are-keyed-on-the-grid`) compares each drawn inlet flux with the draw its global
+index keys, including a later step and a revisited one. Run once on a 13x13x25 channel with a
+drawn inlet and initial field, not registered as a measurement: the inlet's flux agreed to
+7e-18 across 1 and 4 ranks and exactly across a restart at step 10; the interior `Ucont` after
+20 steps agreed to 1.3e-11 across ranks and to 2.5e-7 across the restart, the same as a draw-free
+case of similar roughness (2.5e-7), which is the restart's existing difference.
 
-**Limitations.** Random draws are not available in a source. On a multi-block case the
+**Limitations.** Drawn noise is white: uncorrelated between face cells and between steps, so it
+is not a model of an inflow's turbulence. Its effect depends on `dt` and the grid, since a smaller
+step averages more draws per unit time. On a multi-block case the
 fractions run from 0 to 1 within each block. A data source is steady; only its
 `bulk_velocity` and any expressions added to it may vary in time.
 

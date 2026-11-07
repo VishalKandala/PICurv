@@ -38,7 +38,7 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
-    hash = PicurvParticleDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
+    hash = PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
     for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
     GenerateGaussianNoise(1.0 - u[0], u[1], &n[0], &n[1]); /* 1 - u lies in (0, 1]: log finite */
     GenerateGaussianNoise(1.0 - u[2], u[3], &n[2], &n[3]);

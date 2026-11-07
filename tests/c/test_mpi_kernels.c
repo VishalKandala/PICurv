@@ -1081,7 +1081,7 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
         const PetscInt64 id = simCtx->step * faces + face_start + (i - 1) + (PetscInt64)nx * (j - 1);
         const PetscReal  mean = PetscMax(TEST_INLET_FLUX(i, j), 0.0) * 2000.0 * L * L * L * simCtx->dt;
         const PetscReal  whole = PetscFloorReal(mean);
-        const uint64_t   hash = PicurvParticleDrawHash((PetscInt64)simCtx->particleRandomSeed, PICURV_DRAW_SPACE_INLET, 0, id, 0);
+        const uint64_t   hash = PicurvDrawHash((PetscInt64)simCtx->particleRandomSeed, PICURV_DRAW_SPACE_INLET, 0, id, 0);
         const PetscInt   n = (PetscInt)whole + ((PicurvUnitFromHash(hash) < mean - whole) ? 1 : 0);
         for (PetscInt k = 0; k < n; ++k) expected_pid_sum += ((PetscInt64)1 << 40) + id * 1024 + k;
         expected_count += n;
@@ -1125,6 +1125,110 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
     PetscCall(PicurvAssertRealNear(positions_first, positions_second, 1.0e-9, "injection carries no state from one call to the next"));
 #undef TEST_INLET_FLUX
 
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Velocity sources draw by global index, whatever the decomposition.
+ * @details Every value is compared with a draw this test makes from the cell's or face cell's
+ *          global indices alone, so a key that depended on the rank layout would fail at any
+ *          rank count but one. A cell reads one draw per component; a face cell a new one each
+ *          step, and the same one when a step is revisited.
+ */
+static PetscErrorCode TestSourceDrawsAreKeyedOnTheGrid(void)
+{
+    const char *options = "-source_random_seed 77\n"
+                          "-ic_source_expr_0 \"uniform()\"\n"
+                          "-ic_source_expr_1 \"uniform()\"\n"
+                          "-ic_source_expr_2 \"1 + uniform(3)\"\n"
+                          "-face_source_0_expr_0 \"1 + 0.1*normal()\"\n";
+    static const char *const kNames[] = {"t"};
+    SimCtx           *simCtx = NULL;
+    UserCtx          *user = NULL;
+    char              tmpdir[PETSC_MAX_PATH_LEN];
+    PicurvExpression *cell[3] = {NULL, NULL, NULL}, *face = NULL;
+    PetscReal         worst = 0.0, changed = 0.0;
+    PetscInt          compared[2] = {0, 0};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(PicurvExpressionCompile("uniform()", kNames, 1, PETSC_TRUE, &cell[0]));
+    PetscCall(PicurvExpressionCompile("uniform()", kNames, 1, PETSC_TRUE, &cell[1]));
+    PetscCall(PicurvExpressionCompile("1 + uniform(3)", kNames, 1, PETSC_TRUE, &cell[2]));
+    PetscCall(PicurvExpressionCompile("1 + 0.1*normal()", kNames, 1, PETSC_TRUE, &face));
+
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt   nodes[3] = {info->mx, info->my, info->mz};
+    const PetscReal  U_ref = simCtx->scaling.U_ref;
+    const Cmpnts  ***ucont = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
+
+    /* The initial field: each interior face is the draw of the cell behind it. */
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, (void *)&ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&zet));
+    for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, nodes[2] - 2); ++k)
+    for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, nodes[1] - 2); ++j)
+    for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, nodes[0] - 2); ++i) {
+        PicurvExpressionDrawKey key = {77, i + (PetscInt64)nodes[0] * (j + (PetscInt64)nodes[1] * k),
+                                       PICURV_DRAW_SALT_INITIAL_FIELD, 0, PETSC_TRUE};
+        Cmpnts v;
+        key.field = 0; PetscCall(PicurvExpressionEvaluate(cell[0], NULL, &key, &v.x));
+        key.field = 1; PetscCall(PicurvExpressionEvaluate(cell[1], NULL, &key, &v.y));
+        key.field = 2; PetscCall(PicurvExpressionEvaluate(cell[2], NULL, &key, &v.z));
+        const Cmpnts m[3] = {csi[k][j][i], eta[k][j][i], zet[k][j][i]};
+        const PetscReal found[3] = {ucont[k][j][i].x, ucont[k][j][i].y, ucont[k][j][i].z};
+        for (PetscInt a = 0; a < 3; ++a) {
+            const PetscReal expected = (v.x * m[a].x + v.y * m[a].y + v.z * m[a].z) / U_ref;
+            worst = PetscMax(worst, PetscAbsReal(found[a] - expected));
+        }
+        compared[0]++;
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, (void *)&ucont));
+
+    /* The inlet: a draw per face cell and step. */
+    PetscReal *first = NULL;
+    const PetscInt owned[2] = {PetscMin(info->xs + info->xm, nodes[0] - 1) - PetscMax(info->xs, 1),
+                               PetscMin(info->ys + info->ym, nodes[1] - 1) - PetscMax(info->ys, 1)};
+    PetscCall(PetscCalloc1(owned[0] * owned[1], &first));
+    for (PetscInt pass = 0; pass < 3; ++pass) {
+        const PetscInt64 step = (pass == 1) ? 4 : 3;
+        simCtx->step = step;
+        PetscCall(BoundarySystem_ExecuteStep(user));
+        if (info->zs != 0) continue;
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, (void *)&ucont));
+        for (PetscInt j = 1, n = 0; j < nodes[1] - 1; ++j)
+        for (PetscInt i = 1; i < nodes[0] - 1; ++i) {
+            if (j < info->ys || j >= info->ys + info->ym || i < info->xs || i >= info->xs + info->xm) continue;
+            const PicurvExpressionDrawKey key = {77, PicurvFaceCellId(nodes, BC_FACE_NEG_Z, i - 1, j - 1), step, 0, PETSC_TRUE};
+            const Cmpnts m = zet[0][j][i];
+            PetscReal speed;
+            PetscCall(PicurvExpressionEvaluate(face, NULL, &key, &speed));
+            worst = PetscMax(worst, PetscAbsReal(ucont[0][j][i].z - speed / U_ref * PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z)));
+            if (pass == 0) first[n] = ucont[0][j][i].z;
+            if (pass == 1) changed += PetscAbsReal(ucont[0][j][i].z - first[n]);
+            if (pass == 2) worst = PetscMax(worst, PetscAbsReal(ucont[0][j][i].z - first[n]));
+            compared[1]++;
+            ++n;
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, (void *)&ucont));
+    }
+    PetscCall(PetscFree(first));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&csi));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &worst, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &changed, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, compared, 2, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual((nodes[0] - 3) * (nodes[1] - 3) * (nodes[2] - 3), compared[0], "every interior cell was compared"));
+    PetscCall(PicurvAssertIntEqual(3 * (nodes[0] - 2) * (nodes[1] - 2), compared[1], "every inlet cell was compared on each pass"));
+    PetscCall(PicurvAssertRealNear(0.0, worst, 1.0e-12, "a value is the draw its global index keys"));
+    PetscCall(PicurvAssertBool((PetscBool)(changed > 0.0), "a later step draws anew"));
+    for (PetscInt a = 0; a < 3; ++a) PetscCall(PicurvExpressionDestroy(&cell[a]));
+    PetscCall(PicurvExpressionDestroy(&face));
     PetscCall(PicurvDestroyRuntimeContext(&simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
@@ -1255,6 +1359,7 @@ int main(int argc, char **argv)
         {"grid-line-fractions-follow-arc-length", TestGridLineFractionsFollowArcLength},
         {"injection-follows-flux-and-is-keyed-on-the-grid", TestInjectionFollowsFluxAndIsKeyedOnTheGrid},
         {"injection-refuses-a-face-that-is-not-an-inlet", TestInjectionRefusesAFaceThatIsNotAnInlet},
+        {"source-draws-are-keyed-on-the-grid", TestSourceDrawsAreKeyedOnTheGrid},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

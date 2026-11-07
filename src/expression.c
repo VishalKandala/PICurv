@@ -602,28 +602,29 @@ PetscReal PicurvUnitFromHash(uint64_t hash)
 }
 
 /**
- * @brief Implementation of \ref PicurvParticleDrawHash().
- * @see PicurvParticleDrawHash()
+ * @brief Implementation of \ref PicurvDrawHash().
+ * @see PicurvDrawHash()
  */
-uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
-                                PetscInt64 pid, PetscInt64 salt)
+uint64_t PicurvDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
+                        PetscInt64 id, PetscInt64 salt)
 {
     uint64_t hash = PicurvMix64((uint64_t)seed);
     hash = PicurvMix64(hash ^ (uint64_t)space);
     hash = PicurvMix64(hash ^ stream);
-    hash = PicurvMix64(hash ^ (uint64_t)pid);
+    hash = PicurvMix64(hash ^ (uint64_t)id);
     return PicurvMix64(hash ^ (uint64_t)salt);
 }
 
-/** @brief A draw keyed on the particle, the event, the stream, and the function. */
+/** @brief A draw keyed on the particle or grid point, the event, the stream, and the function. */
 static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstruction *instruction)
 {
     PROFILE_HELPER_BEGIN;
     /* A default stream is the drawing field's own, so two fields draw independently; an
        explicit stream is shared by every expression that names it. */
-    const PicurvDrawSpace space = instruction->arg ? PICURV_DRAW_SPACE_NAMED_STREAM : PICURV_DRAW_SPACE_FIELD;
+    const PicurvDrawSpace space = key->grid ? (instruction->arg ? PICURV_DRAW_SPACE_GRID_NAMED_STREAM : PICURV_DRAW_SPACE_GRID_FIELD)
+                                            : (instruction->arg ? PICURV_DRAW_SPACE_NAMED_STREAM : PICURV_DRAW_SPACE_FIELD);
     const uint64_t stream = instruction->arg ? (uint64_t)instruction->value : (uint64_t)key->field;
-    const uint64_t hash = PicurvMix64(PicurvParticleDrawHash(key->seed, space, stream, key->pid, key->salt)
+    const uint64_t hash = PicurvMix64(PicurvDrawHash(key->seed, space, stream, key->pid, key->salt)
                                       ^ (uint64_t)instruction->op);
     if (instruction->op == OP_UNIFORM) { PROFILE_HELPER_END; return PicurvUnitFromHash(hash); }
     /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
@@ -799,6 +800,19 @@ PetscErrorCode PicurvExpressionDestroy(PicurvExpression **expression)
 
 
 /**
+ * @brief Implementation of \ref PicurvExpressionDraws().
+ * @see PicurvExpressionDraws()
+ */
+PetscErrorCode PicurvExpressionDraws(const PicurvExpression *expression, PetscBool *draws)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    *draws = expression->draws;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref PicurvExpressionUsesVariable().
  * @see PicurvExpressionUsesVariable()
  */
@@ -828,7 +842,7 @@ const char *const kPicurvSourceVariableNames[PICURV_SOURCE_VAR_COUNT] = {
  * @see PicurvVelocitySourceCreate()
  */
 PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face, PetscBool has_data,
-                                          PicurvVelocitySource *source)
+                                          PetscBool allow_draws, PicurvVelocitySource *source)
 {
     static const char *const kTime[] = {"t"};
     char      option[PETSC_MAX_PATH_LEN], frame[32], text[PICURV_SOURCE_EXPRESSION_LENGTH];
@@ -849,16 +863,17 @@ PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face,
                  option, frame, on_face ? "normal" : "contravariant");
     source->count = (source->frame == PICURV_SOURCE_FRAME_NORMAL) ? 1 : 3;
     for (PetscInt c = 0; c < source->count; ++c) {
-        PetscBool uses_t = PETSC_FALSE;
+        PetscBool uses_t = PETSC_FALSE, draws = PETSC_FALSE;
         PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_expr_%d", prefix, (int)c));
         PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
         if (!found && has_data && c == 0) { source->count = 0; break; }
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "Velocity source option %s is required.", option);
         PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames,
-                                          on_face ? PICURV_SOURCE_VAR_COUNT : PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE,
+                                          on_face ? PICURV_SOURCE_VAR_COUNT : PICURV_SOURCE_VAR_CELL_COUNT, allow_draws,
                                           &source->component[c]));
         PetscCall(PicurvExpressionUsesVariable(source->component[c], PICURV_SOURCE_VAR_T, &uses_t));
-        source->time_dependent = (PetscBool)(source->time_dependent || uses_t);
+        PetscCall(PicurvExpressionDraws(source->component[c], &draws));
+        source->time_dependent = (PetscBool)(source->time_dependent || uses_t || draws);
     }
     PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_bulk_velocity", prefix));
     PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
@@ -905,14 +920,16 @@ PetscErrorCode PicurvVelocitySourceBulkFactor(const PicurvVelocitySource *source
  * @see PicurvVelocitySourceEvaluate()
  */
 PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, const PetscReal *values,
-                                            const Cmpnts edges[3], Cmpnts *value)
+                                            const PicurvExpressionDrawKey *key, const Cmpnts edges[3], Cmpnts *value)
 {
     PetscReal v[3] = {0.0, 0.0, 0.0};
+    PicurvExpressionDrawKey component_key = {0, 0, 0, 0, PETSC_FALSE};
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (PetscInt c = 0; c < source->count; ++c) {
-        PetscCall(PicurvExpressionEvaluate(source->component[c], values, NULL, &v[c]));
+        if (key) { component_key = *key; component_key.field = c; }
+        PetscCall(PicurvExpressionEvaluate(source->component[c], values, key ? &component_key : NULL, &v[c]));
         PetscCheck(!PetscIsInfOrNanReal(v[c]), PETSC_COMM_SELF, PETSC_ERR_FP,
                    "Velocity source value %" PetscInt_FMT " is %g at (x, y, z) = (%g, %g, %g), t = %g.",
                    c, (double)v[c], (double)values[PICURV_SOURCE_VAR_X], (double)values[PICURV_SOURCE_VAR_Y],
@@ -935,6 +952,18 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
     }
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
+}
+
+/** @brief Draw key of a cell: every value set from a cell's or its + faces' source reads one draw per stream. */
+static PicurvExpressionDrawKey CellDrawKey(const UserCtx *user, PetscInt i, PetscInt j, PetscInt k)
+{
+    PROFILE_HELPER_BEGIN;
+    const PetscInt64 mx = user->info.mx, my = user->info.my;
+    const PicurvExpressionDrawKey key = {(PetscInt64)user->simCtx->sourceRandomSeed,
+                                         ((PetscInt64)user->_this << 48) + i + mx * (j + my * k),
+                                         PICURV_DRAW_SALT_INITIAL_FIELD, 0, PETSC_TRUE};
+    PROFILE_HELPER_END;
+    return key;
 }
 
 /**
@@ -971,7 +1000,8 @@ PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySou
         Cmpnts edges[3], v;
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], L_ref);
         PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
-        PetscCall(PicurvVelocitySourceEvaluate(source, values, edges, &v));
+        const PicurvExpressionDrawKey key = CellDrawKey(user, i, j, k);
+        PetscCall(PicurvVelocitySourceEvaluate(source, values, &key, edges, &v));
         const PetscReal speed = PetscSqrtReal(v.x * v.x + v.y * v.y + v.z * v.z);
         local[0] += speed * volume;
         if (speed > 0.0) local[1] += U_ref * (ucat[k][j][i].x * v.x + ucat[k][j][i].y * v.y +
@@ -1029,6 +1059,7 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
     for (PetscInt i = lo[0]; i < hi[0]; ++i) {
         const PetscInt cell[3] = {i, j, k};
         const PetscReal lengths[3] = {len[k][j][i].x, len[k][j][i].y, len[k][j][i].z};
+        PicurvExpressionDrawKey key = CellDrawKey(user, i, j, k);
         Cmpnts edges[3];
         PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
         for (PetscInt a = 0; a < 3; ++a) {
@@ -1044,18 +1075,19 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
                 PetscReal flux;
                 PicurvSourceSetVariables(values, centre, frac[k][j][i], len[k][j][i], L_ref);
                 values[PICURV_SOURCE_VAR_XI + a] += side ? -half : half;
+                key.field = a;
                 if (source->frame == PICURV_SOURCE_FRAME_CONTRAVARIANT) {
                     PetscReal value;
-                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, NULL, &value));
+                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, &key, &value));
                     flux = factor * value / (U_ref * L_ref * L_ref);
                 } else if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
                     const PetscReal area = PetscSqrtReal(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
                     PetscReal value;
-                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, NULL, &value));
+                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, &key, &value));
                     flux = factor * (value / U_ref) * user->GridOrientation * area;
                 } else {
                     Cmpnts v;
-                    PetscCall(PicurvVelocitySourceEvaluate(source, values, edges, &v));
+                    PetscCall(PicurvVelocitySourceEvaluate(source, values, &key, edges, &v));
                     flux = (factor * v.x / U_ref) * metric.x + (factor * v.y / U_ref) * metric.y +
                            (factor * v.z / U_ref) * metric.z;
                 }
@@ -1105,8 +1137,10 @@ PetscErrorCode PicurvSourceSetCellPressure(UserCtx *user, const PicurvExpression
     for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
     for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
         PetscReal value;
+        PicurvExpressionDrawKey key = CellDrawKey(user, i, j, k);
+        key.field = 3; /* After the velocity's three components. */
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
-        PetscCall(PicurvExpressionEvaluate(pressure, values, NULL, &value));
+        PetscCall(PicurvExpressionEvaluate(pressure, values, &key, &value));
         p[k][j][i] = value / scaling->P_ref;
     }
     PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));

@@ -30,7 +30,7 @@ An initial condition is one `source` and optional `constraints`, the same defini
 | `{type: file, field, path}` | read from a velocity file, staged |
 | `{sum: [...]}` | expressions added to at most one staged field (@ref p33_source_ssec) |
 
-The same language gives particle-carried fields their initial values: one expression per particle, which also reads `pid` and may draw `uniform()` and `normal()` (@ref p45_particle_values_sec).
+The same language gives particle-carried fields their initial values: one expression per particle, which also reads `pid` (@ref p45_particle_values_sec).
 
 A velocity file:
 
@@ -121,6 +121,35 @@ given. Projecting evens each plane's flux to the same value without changing `bu
 volume mean on a periodic axis; between an inlet and an outlet, conservation sets each plane's
 flux to the inlet's, so a `bulk_velocity` other than the inlet's does not survive it. A source's
 `pressure` expression [Pa] sets the initial `P` at the cell centres, and is otherwise zero.
+
+A velocity or pressure expression may draw `uniform()`, in [0, 1), and `normal()`, from N(0, 1), to
+perturb a field with white noise:
+
+```yaml
+source_random_seed: 7                   # top level; optional, default 12345
+properties:
+  initial_conditions:
+    source: {expression: {u: "0.1*normal()", v: "0.1*normal()", w: "1 + 0.1*normal()"}}
+    constraints: {project: true}
+```
+
+Each cell draws once per component, and sets the faces it owns with that draw. Each component
+has its own default stream; `normal(k)` with a non-negative integer literal `k` names a stream that
+components can share. Calling `normal()` twice in one expression gives the same number twice, so
+independent terms need different streams. A draw is a pure function of the seed, the block, the
+cell's global index and the stream, so a field is the same at any rank layout, and
+`source_random_seed` varies the flow without changing the draws particles make under
+`models.physics.particles.random_seed`.
+
+Two consequences of drawing per cell. Each face has the amplitude written, while a cell centre
+averages two faces: `0.1*normal()` gave a face rms of 0.100 and a cell-centre rms of 0.071, which
+is `1/sqrt(2)` as much, on a 24^3 periodic box. Noise is not divergence-free, so a projection removes
+about a third of its energy: `project: true` kept 0.664 of the face energy there, against 2/3 for
+isotropic white noise. Without `project`, the first step's projection removes that third instead.
+The field has no spatial correlation, and a different grid draws a different field, so it seeds
+instability; for a prescribed spectrum use a generator (@ref p33_cap_gen_spectral_random_velocity_sub).
+`bulk_velocity` reads the same draws, as the mean along each cell's own direction, so noise across
+the mean adds to the speed it scales; an analytical field refuses draws, since it is an exact answer.
 
 Every component reaches the velocity through the faces, evaluated at each face centre. A Cartesian
 velocity is dotted with the face metric. A `curvilinear` component is the speed through the grid face

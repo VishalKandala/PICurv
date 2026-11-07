@@ -61,7 +61,7 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, simCtx->initialConditionStaged, &source));
+    PetscCall(PicurvVelocitySourceCreate("ic_source", PETSC_FALSE, simCtx->initialConditionStaged, PETSC_TRUE, &source));
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
     PetscCall(VecSet(user->Ucat, 0.0));
     PetscCall(VecSet(user->Ucont, 0.0));
@@ -79,7 +79,7 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
         if (source.bulk) PetscCall(PicurvSourceCellBulkFactor(user, &source, fraction, length, physical_time, &factor));
         if (source.count > 0) PetscCall(PicurvSourceAddFluxes(user, &source, fraction, length, physical_time, factor, PETSC_FALSE));
         if (has_pressure) {
-            PetscCall(PicurvExpressionCompile(pressure_text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_FALSE, &pressure));
+            PetscCall(PicurvExpressionCompile(pressure_text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_TRUE, &pressure));
             PetscCall(PicurvSourceSetCellPressure(user, pressure, fraction, length, physical_time));
             PetscCall(PicurvExpressionDestroy(&pressure));
         }

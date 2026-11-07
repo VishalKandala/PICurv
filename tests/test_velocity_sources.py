@@ -528,6 +528,36 @@ def test_an_initial_condition_reads_the_case_constants_too():
     assert resolve_initial(case)["source"]["expressions"][2] == "(3.0)*(0.25)*(2.0)"
 
 
+def test_a_velocity_or_pressure_source_may_draw():
+    """! @brief Draws reach the runtime from an inlet and an IC under their own seed; a target that takes a value at any point or time refuses them. """
+    noisy = {"components": "cartesian", "expression": {"w": "1 + 0.1*normal()", "u": "0.1*normal(2)"},
+             "pressure": "0.01*uniform()"}
+    case, solver, monitor = load_configs(inlet={"handler": "prescribed_velocity",
+                                                "source": {"components": "normal", "expression": "1 + 0.1*normal()"}},
+                                         initial_conditions={"source": noisy})
+    case["source_random_seed"] = 4242
+    validate(case, solver, monitor)
+    lines = []
+    CORE.parse_and_add_model_flags(case, lines)
+    assert "-source_random_seed 4242" in lines
+    resolved = resolve_initial(case)["source"]
+    assert resolved["expressions"][2] == "1 + 0.1*normal()" and resolved["pressure"] == "0.01*uniform()"
+    assert "-particle_random_seed" not in " ".join(lines)
+
+    case["source_random_seed"] = -1
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)
+    del case["source_random_seed"]
+
+    solver["operation_mode"] = {"eulerian_field_source": "analytical"}
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)
+
+    with pytest.raises(ValueError, match="flow_rate"):
+        source = CORE.resolve_velocity_source({"components": "normal", "expression": "1"}, case, "src", True)
+        CORE.apply_source_constraints(source, {"flow_rate": "1 + uniform()"}, "c", {"flow_rate"})
+
+
 def test_a_flow_rate_is_a_target_of_the_face_alone():
     """! @brief A flow rate reaches the runtime, excludes a bulk velocity, and is no initial condition's. """
     case, _, _ = load_configs()

@@ -357,6 +357,12 @@ static PetscErrorCode TestExpressionDrawsArePureAndKeyed(void)
     key.field = 5;
     PetscCall(PicurvExpressionEvaluate(uniform, NULL, &key, &b));
     PetscCall(PicurvAssertBool((PetscBool)(a != b), "another field's default stream is independent"));
+    key.field = 6;
+    key.grid = PETSC_TRUE;
+    PetscCall(PicurvExpressionEvaluate(uniform, NULL, &key, &b));
+    PetscCall(PicurvAssertBool((PetscBool)(a != b), "a grid point with the same number as a particle draws independently"));
+    key.grid = PETSC_FALSE;
+    key.field = 5;
     PetscCall(PicurvExpressionEvaluate(shared, NULL, &key, &a));
     key.field = 6;
     PetscCall(PicurvExpressionEvaluate(shared, NULL, &key, &b));
