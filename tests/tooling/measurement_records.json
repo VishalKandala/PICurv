@@ -1361,6 +1361,36 @@
       },
       "limitations": "Planar or Cartesian programmatic grids and one periodic grid_gen box; up to 8 ranks. Identity holds for the seeded population; later steps of a coupled run agree only to the rounding of the flow solve.",
       "artifacts": []
+    },
+    {
+      "id": "lid-driven-cavity-re100-2026-11-06",
+      "question": "Does the lid-driven cavity at Re 100, driven by the moving wall handler, converge to the Botella-Peyret spectral benchmark, and at what order?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2",
+      "environment": "User's Slurm cluster (Grace), short partition, 1 node x 16 ranks, petsc-prod module (optimized PETSc 3.20.3), OpenMPI with UCX; jobs 20425303 and 20425304",
+      "configuration": "examples/lid_driven_cavity: grid_gen box of 64 x 64 and 128 x 128 cells in x and y, periodic in z, lid +Eta moving at u = 1 through the moving handler, other walls noslip; nu 0.01 (Re 100), dt 0.005, 6000 steps to t = 30, Newton-Krylov momentum. Steady by t = 30: the largest change of Ucat over the last time unit was 1.85e-8 (64^2) and 1.81e-8 (128^2). Velocity extrema along the centrelines x = 0.5 and y = 0.5 compared with Botella and Peyret (1998, Computers and Fluids 27, Table 2, N = 48 to 96, converged to seven digits).",
+      "result": {
+        "measured": "Against u min -0.2140424, v min -0.2538030 and v max 0.1795728: errors 1.25e-3, 1.48e-3 and 1.06e-3 on 64^2, and 3.02e-4, 3.13e-4 and 2.43e-4 on 128^2, an observed order of 2.05, 2.24 and 2.13. Against the Ghia et al. (1982) 129^2 values the difference grew with refinement (0.0039 to 0.0050 in u, 0.0082 to 0.0090 in v); Botella and Peyret's Table 2 places those values 1.5% (u), 2.4% (v max) and 3.3% (v min) from the converged extrema, which accounts for it.",
+        "threshold": "Error to the spectral benchmark decreasing at an observed order between 1.5 and 2.5 per grid doubling.",
+        "verdict": "met"
+      },
+      "limitations": "Re 100 only, and two grids, so the order rests on one ratio per quantity. Extrema are of the centreline samples, and their locations, the vorticity and the stream function were not compared. Nothing treats the corner singularity: the top-corner cell pressure grows by 1.8 to 2.2 per doubling, consistent with p ~ 1/r. One rank layout.",
+      "artifacts": []
+    },
+    {
+      "id": "stokes-second-problem-order-2026-11-07",
+      "question": "Does a wall oscillating in its own plane, through the moving wall handler, reproduce the Stokes second problem in a channel, and is the error discretization error of the expected order?",
+      "date": "2026-11-07",
+      "commit": "bb065b0d (simulator built from e7bcb692; no C source changed between them)",
+      "environment": "Local WSL2 workstation, 12 cores; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec at 3 ranks (1 x 3 x 1), no scheduler",
+      "configuration": "Box [0,1]^3, programmatic_c 9 x N x 9 cells with N = 33, 65 and 129, periodic in x and z; -Eta noslip, +Eta moving with u = sin(2 pi t); nu 0.05, started from rest, run to t = 2. dt 0.005 on every grid, and 0.01 and 0.0025 on N = 65. Newton-Krylov, matrix-free, frozen-momentum point-block preconditioner, Poisson fgmres with two-level multigrid. Reference: the exact solution in the channel, the periodic part Im[exp(i w t) sinh(k y)/sinh(k)], k = sqrt(i w / nu), plus the transient sine series (4000 terms), at the cell centres. Grace's run of the same flow on 64^3 cells at dt 0.005 (job 20425290, 2cf2dec2) gave max error 3.526e-3 at t = 2.",
+      "result": {
+        "measured": "At t = 2, dt 0.005: max error 1.209e-2, 3.424e-3 and 9.100e-4 for N = 33, 65, 129, an observed order of 1.86 then 1.93; rms 2.69e-3, 7.11e-4, 1.90e-4, order 1.96 then 1.93. The maximum is in the cell next to the moving wall at every grid and output time. On N = 65 the largest difference between successive time steps was 2.0e-4 (0.01 to 0.005) and 5.0e-5 (0.005 to 0.0025), order 2.01, so time error at dt 0.005 is about 1.5% of the spatial error. Every x-z plane was uniform to 1e-11. N = 65 reproduces Grace's 3.53e-3 at 64 cells.",
+        "threshold": "Observed spatial and temporal orders near 2 (between 1.7 and 2.3), with the reported error explained by them.",
+        "verdict": "met"
+      },
+      "limitations": "Planar wall moving tangentially on a uniform Cartesian grid; no wall-normal motion (transpiration is not supported), no curvature or stretching. Three grids up to 129 cells; the 257-cell run was stopped to stay within the local time budget. One momentum solver configuration and one rank layout; temporal order from self-differences, not against the exact solution, where spatial error dominates.",
+      "artifacts": []
     }
   ]
 }

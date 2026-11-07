@@ -55,6 +55,10 @@
             ],
             "production": [
               "example:examples/lid_driven_cavity"
+            ],
+            "analytical": [
+              "measurement:lid-driven-cavity-re100-2026-11-06",
+              "measurement:stokes-second-problem-order-2026-11-07"
             ]
           }
         },

@@ -236,11 +236,13 @@ of its magnitude through the wall stops the run naming the velocity and position
 
 **Evidence.** Unit verified - `make unit-boundaries` (`wall-moving-along-itself` in `tests/c/test_boundaries.c`) covers both sides of
 a face, the closed flux, the tilt removed and the refusal. Integration verified -
-`tests/test_velocity_sources.py` covers its resolution and refusals. Production exercised in `examples/lid_driven_cavity`. Run once, not registered as
-measurements: Couette flow between walls moving at +1 and -1 reached `u = 2y - 1` to 1.7e-10 (Newton-Krylov)
-and 5e-13 (Picard) on 32 wall-normal cells, with no flux through the walls; a lid-driven cavity at Re 100 on 32 x 32
-cells stayed within 0.003 of the Ghia, Ghia and Shin (1982) centreline velocity, whose values were
-typed from memory of the table rather than checked against the paper.
+`tests/test_velocity_sources.py` covers its resolution and refusals. Production exercised in `examples/lid_driven_cavity`.
+Analytically verified - `lid-driven-cavity-re100-2026-11-06`: the cavity at Re 100 converges to the
+Botella and Peyret (1998) centreline extrema at second order, within 3.2e-4 on 128 x 128 cells;
+`stokes-second-problem-order-2026-11-07`: a wall oscillating along itself reproduces the Stokes second
+problem at second order in space and time, the largest error in the cell next to the wall. Run once, not
+registered as a measurement: Couette flow between walls moving at +1 and -1 reached `u = 2y - 1` to 1.7e-10
+(Newton-Krylov) and 5e-13 (Picard) on 32 wall-normal cells, with no flux through the walls.
 
 **Limitations.** No transpiration: the wall stays closed, so blowing or suction is out of reach. The
 grid does not move, so the wall's motion is along its own surface.

@@ -1,8 +1,9 @@
 # Lid-driven cavity
 
 A square cavity whose top wall moves at unit speed, the example of `handler: moving`. At
-`Re = 100` the flow settles to one primary vortex with two small corner eddies; Ghia, Ghia and
-Shin (1982, J. Comput. Phys. 48) tabulate its centreline velocities, the usual reference.
+`Re = 100` the flow settles to one primary vortex with two small corner eddies. Botella and
+Peyret (1998, Computers and Fluids 27) give its centreline velocity extrema to seven digits; the
+older Ghia, Ghia and Shin (1982) table is 1.5 to 3.3% from them at this Reynolds number.
 
 `grid.gen` reads `grid.cfg`: 64 x 64 cells on a unit square, with 8 periodic cells along `k`, so
 the flow is two-dimensional. Multigrid coarsens only `i` and `j`, because a periodic axis keeps at
@@ -23,12 +24,10 @@ picurv run --solve --post-process -n 4 --case config/case.yml --solver config/so
 ```
 
 The shipped 3000 steps reach `t = 30`, about 3 viscous times of the cavity. Check steadiness in
-`solution_convergence.csv`, then cut `Ucat_nodal` along `x = 0.5` and compare `u` with Table I
-of Ghia et al.
+`solution_convergence.csv`, then take the extrema of `u` along `x = 0.5` and of `v` along
+`y = 0.5` and compare them with Table 2 of Botella and Peyret.
 
 ## What was checked
 
-On a reduced 32 x 32 grid, run once with `dt = 0.02` to `t = 24`, `u` along `x = 0.5` stayed within
-0.003 of Ghia's values, typed from memory of the table, with a minimum of -0.2088 against
--0.2109. This grid has not been compared with the paper, so treat it as an example of the moving
-wall rather than a validated benchmark.
+Measurement `lid-driven-cavity-re100-2026-11-06`: on 64 x 64 and 128 x 128 cells the extrema
+converge to Botella and Peyret's at second order, within 1.5e-3 and 3.2e-4.
