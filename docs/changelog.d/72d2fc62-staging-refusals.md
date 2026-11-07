@@ -1,0 +1,1 @@
+- A run refused while its control file is generated, such as a rank count no layout fits, reports the message without a traceback and removes the run directory it staged. A new run ending past the last frame of a recording without `repeat` is refused at staging.

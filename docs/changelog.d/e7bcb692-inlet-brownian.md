@@ -1,0 +1,1 @@
+- Experimental: particles injected through an inlet take the step's Brownian displacement. Without it the first cell ran about 27% dense and the next cell thin at CFL near 1. Cases with injection give different particle positions from this version on.
