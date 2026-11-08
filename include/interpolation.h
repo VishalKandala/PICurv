@@ -111,8 +111,12 @@
  * The weights come from `ComputeTrilinearWeights()`, which clamps the coordinates to [0,1].
  *
  * @param[in]  fieldScal Scalar array indexed [k][j][i].
- * @param[in]  i,j,k     Index of the lowest of the eight entries.
- * @param[in]  a1,a2,a3  Coordinates in the eight-entry cell along i, j and k, in [0,1].
+ * @param[in]  i         i index of the lowest of the eight entries.
+ * @param[in]  j         j index of the lowest of the eight entries.
+ * @param[in]  k         k index of the lowest of the eight entries.
+ * @param[in]  a1        Coordinate in the eight-entry cell along i, in [0,1].
+ * @param[in]  a2        Coordinate along j, in [0,1].
+ * @param[in]  a3        Coordinate along k, in [0,1].
  * @param[out] val       The interpolated value.
  * @return PetscErrorCode 0 on success.
  */
@@ -133,8 +137,12 @@ PetscErrorCode TrilinearInterpolation_Scalar(
  * the weighted sum is divided by the weights' sum, and is zero when that sum is below 1e-14.
  *
  * @param[in]  fieldVec  Vector array indexed [k][j][i].
- * @param[in]  i,j,k     Index of the lowest of the eight entries.
- * @param[in]  a1,a2,a3  Coordinates in the eight-entry cell along i, j and k, in [0,1].
+ * @param[in]  i         i index of the lowest of the eight entries.
+ * @param[in]  j         j index of the lowest of the eight entries.
+ * @param[in]  k         k index of the lowest of the eight entries.
+ * @param[in]  a1        Coordinate in the eight-entry cell along i, in [0,1].
+ * @param[in]  a2        Coordinate along j, in [0,1].
+ * @param[in]  a3        Coordinate along k, in [0,1].
  * @param[out] vec       The interpolated vector.
  * @return PetscErrorCode 0 on success.
  */

@@ -17,8 +17,8 @@
 #endif
 
 /**
- * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Vector()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateFieldFromCornerToCenter_Vector().
+ * @see InterpolateFieldFromCornerToCenter_Vector()
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     Cmpnts ***field_arr,     /* Input: Ghosted local array view from user->fda (global node indices) */
@@ -77,8 +77,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
 }
 
 /**
- * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Scalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateFieldFromCornerToCenter_Scalar().
+ * @see InterpolateFieldFromCornerToCenter_Scalar()
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
     PetscReal ***field_arr,     /* Input: Ghosted local array view from user->fda (global node indices) */
@@ -127,8 +127,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 }
 
 /**
- * @brief Internal helper implementation: `TestCornerToCenterInterpolation()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref TestCornerToCenterInterpolation().
+ * @see TestCornerToCenterInterpolation()
  */
 PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
 {
@@ -186,8 +186,8 @@ PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Vector()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateFieldFromCenterToCorner_Vector().
+ * @see InterpolateFieldFromCenterToCorner_Vector()
  */
 PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     Cmpnts ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
@@ -318,8 +318,8 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
 }
 
 /**
- * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Scalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateFieldFromCenterToCorner_Scalar().
+ * @see InterpolateFieldFromCenterToCorner_Scalar()
  */
 PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscReal ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
@@ -491,8 +491,8 @@ static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, 
 
 
 /**
- * @brief Internal helper implementation: `TrilinearInterpolation_Scalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref TrilinearInterpolation_Scalar().
+ * @see TrilinearInterpolation_Scalar()
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
     PetscReal  ***fieldScal,
@@ -542,8 +542,8 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 
 
 /**
- * @brief Internal helper implementation: `TrilinearInterpolation_Vector()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref TrilinearInterpolation_Vector().
+ * @see TrilinearInterpolation_Vector()
  */
 PetscErrorCode TrilinearInterpolation_Vector(
     Cmpnts     ***fieldVec,  /* 3D array [k][j][i], dimension [mz][my][mx] */
@@ -694,7 +694,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
       (PetscInt)blockSize);
   }
 
-  PROFILE_FUNCTION_END;
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -1440,8 +1440,8 @@ static PetscErrorCode InterpolateEulerFieldsToSwarm(UserCtx *user, PetscInt n, c
 
 
 /**
- * @brief Internal helper implementation: `InterpolateAllFieldsToSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateAllFieldsToSwarm().
+ * @see InterpolateAllFieldsToSwarm()
  */
 PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 {
@@ -1930,8 +1930,8 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Scalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateCornerToFaceCenter_Scalar().
+ * @see InterpolateCornerToFaceCenter_Scalar()
  */
 PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
     PetscReal ***corner_arr,
@@ -2018,8 +2018,8 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
 
 
 /**
- * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Vector()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InterpolateCornerToFaceCenter_Vector().
+ * @see InterpolateCornerToFaceCenter_Vector()
  */
 PetscErrorCode InterpolateCornerToFaceCenter_Vector(
     Cmpnts ***corner_arr,

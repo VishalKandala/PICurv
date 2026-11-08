@@ -23,8 +23,8 @@ void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal 
 }
 
 /**
- * @brief Internal helper implementation: `CalculateBrownianDisplacement()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CalculateBrownianDisplacement().
+ * @see CalculateBrownianDisplacement()
  */
 PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, PetscReal diff_eff, Cmpnts *displacement)
 {
@@ -49,8 +49,8 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 }
 
 /**
- * @brief Internal helper implementation: `UpdateParticlePosition()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateParticlePosition().
+ * @see UpdateParticlePosition()
  */
 PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 {
@@ -71,13 +71,13 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
   particle->loc.y += ((particle->vel.y + particle->diffusivitygradient.y) * dt) + brownian_disp.y;
   particle->loc.z += ((particle->vel.z + particle->diffusivitygradient.z) * dt) + brownian_disp.z;
 
-  PROFILE_FUNCTION_END;
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateAllParticlePositions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateAllParticlePositions().
+ * @see UpdateAllParticlePositions()
  */
 PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 {
@@ -164,8 +164,8 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `CheckAndRemoveLostParticles()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CheckAndRemoveLostParticles().
+ * @see CheckAndRemoveLostParticles()
  */
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
@@ -260,8 +260,8 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 
 
 /**
- * @brief Internal helper implementation: `SetMigrationRanks()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetMigrationRanks().
+ * @see SetMigrationRanks()
  */
 PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationList, PetscInt migrationCount)
 {
@@ -473,7 +473,7 @@ PetscErrorCode PerformMigration(UserCtx *user, PetscInt *n_survivors)
 }
 
 //-----------------------------------------------------------------------------
-// MODULE (COUNT): Calculates Particle Count Per Cell - REVISED FOR DMDAVecGetArray
+// MODULE (COUNT): Particle count per cell
 //-----------------------------------------------------------------------------
 
 /**
@@ -652,8 +652,8 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 }
 
 /**
- * @brief Internal helper implementation: `PreCheckAndResizeSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PreCheckAndResizeSwarm().
+ * @see PreCheckAndResizeSwarm()
  */
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
                                       PetscInt ti,
@@ -690,8 +690,8 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
 
 
 /**
- * @brief Internal helper implementation: `GetLocalPIDSnapshot()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GetLocalPIDSnapshot().
+ * @see GetLocalPIDSnapshot()
  */
 PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[], 
                                    PetscInt n_local, 
@@ -743,8 +743,8 @@ PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[],
 }
 
 /**
- * @brief Internal helper implementation: `AddToMigrationList()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AddToMigrationList().
+ * @see AddToMigrationList()
  */
 PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
                                   PetscInt *capacity_p,
@@ -793,7 +793,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
     (*count_p)++;
     
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -834,8 +834,8 @@ static PetscErrorCode VerifyNewcomersAgainstPIDs(UserCtx *user, PetscInt n_befor
 }
 
 /**
- * @brief Internal helper implementation: `FlagNewcomersForLocation()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FlagNewcomersForLocation().
+ * @see FlagNewcomersForLocation()
  */
 PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, PetscInt first_newcomer)
 {
@@ -866,8 +866,8 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, Petsc
 }
 
 /**
- * @brief Internal helper implementation: `MigrateRestartParticlesUsingCellID()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref MigrateRestartParticlesUsingCellID().
+ * @see MigrateRestartParticlesUsingCellID()
  */
 PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 {

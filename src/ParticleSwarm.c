@@ -31,8 +31,8 @@ PetscErrorCode InitializeSwarm(UserCtx* user) {
 
 
 /**
- * @brief Internal helper implementation: `RegisterSwarmField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref RegisterSwarmField().
+ * @see RegisterSwarmField()
  */
 PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype)
 {
@@ -147,7 +147,7 @@ static PetscErrorCode SeedingMeasureDensity(UserCtx *user, const Cmpnts ***coor,
         cross.z = J[0][b] * J[1][c] - J[1][b] * J[0][c];
         *density = PetscSqrtReal(cross.x * cross.x + cross.y * cross.y + cross.z * cross.z);
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -318,7 +318,7 @@ static PetscErrorCode FreeSeedingCellTable(SeedingCellTable *table)
     PROFILE_HELPER_BEGIN;
     PetscCall(PetscFree2(table->pid_lo, table->pid_hi));
     PetscCall(PetscFree(table->bound));
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -389,7 +389,7 @@ static PetscErrorCode DrawSeedingPoint(
     }
     *xi_metric_logic_out = logic[0]; *eta_metric_logic_out = logic[1]; *zta_metric_logic_out = logic[2];
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -604,8 +604,8 @@ static PetscErrorCode InitializeDefaultParticleFields(DM swarm, PetscInt first, 
 
 
 /**
- * @brief Internal helper implementation: `AssignInitialPropertiesToSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AssignInitialPropertiesToSwarm().
+ * @see AssignInitialPropertiesToSwarm()
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
                                             PetscInt particlesPerProcess)
@@ -709,8 +709,8 @@ static PetscErrorCode DistributeParticlesByOwnedMeasure(UserCtx *user, PetscInt 
 }
 
 /**
- * @brief Internal helper implementation: `CreateParticleSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CreateParticleSwarm().
+ * @see CreateParticleSwarm()
  */
 PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess) {
     PetscErrorCode ierr;                      // PETSc error handling variable
@@ -865,14 +865,14 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     // so we initialize it to a known invalid state.
     particle->destination_rank = MPI_PROC_NULL;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateSwarmFields()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateSwarmFields().
+ * @see UpdateSwarmFields()
  */
 PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *positions, 
@@ -939,13 +939,13 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
         psi[i] = particle->psi;
     }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateParticleWeights()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateParticleWeights().
+ * @see UpdateParticleWeights()
  */
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
@@ -978,7 +978,7 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
 
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

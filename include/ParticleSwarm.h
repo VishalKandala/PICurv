@@ -214,11 +214,16 @@ PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx);
  * @details Collective. A face cell receives on average `n (u.A) dt` particles, none where the flow
  *          leaves, so the entering fluid has number density `n` whatever its velocity profile.
  *          Counts, positions and identities come from keyed draws on the grid position, the step
- *          and the particle, so they carry no state and do not depend on the rank layout. Field
- *          values are set on the face, where the particle crossed it, and the particle then moves
- *          in along the normal by a uniform share of `u_n dt`. The new particles are left
- *          `NEEDS_LOCATION` for the settlement that follows. Writes `particle_injection.csv`.
- * @param[in,out] user Finest-level context of the block holding the swarm; reads `lUcont`.
+ *          and the particle, so they carry no state and do not depend on the rank layout. A
+ *          particle is placed just inside the face, by area and inward velocity, and its field
+ *          values are set there, where it crossed. It then moves in by a uniform share of `dt`
+ *          times the velocity the configured interpolation method gives at that point (the face
+ *          cell's mean inward velocity where the cell has none) plus this step's Brownian kick
+ *          from the face cell's diffusivity. The new particles are left `NEEDS_LOCATION` for the
+ *          settlement that follows. Writes `particle_injection.csv`.
+ * @param[in,out] user Finest-level context of the block holding the swarm; reads `lUcont`, `lCoor`,
+ *                     the face-normal metric, `lDiffusivity`, and the interpolated velocity's
+ *                     sources (`lUcat`, or `lUcont` and the metrics for FaceFlux).
  * @return PetscErrorCode 0 on success; an error on a face that is not an INLET, an invalid number
  *         density, or a particle-ID or particle-count limit being reached.
  */

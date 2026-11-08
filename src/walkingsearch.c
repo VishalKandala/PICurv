@@ -62,7 +62,7 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
     // Average edge length
     *cellSize = totalEdgeLen / 12.0;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
@@ -141,7 +141,7 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
 	      d[0], d[1], d[2], d[3], d[4], d[5]);
     
-    PROFILE_FUNCTION_END;      
+    PROFILE_HELPER_END;      
     PetscFunctionReturn(0); // Indicate successful execution of the function.
 }
 
@@ -201,7 +201,7 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
         *result = -1; // Outside the cell
     }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
@@ -253,7 +253,6 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
       }
     } else {
         // No valid previous cell ID (e.g., -1,-1,-1 or first time).
-        // IMPROVED: Use distance-based multi-seed approach to find the closest strategic cell.
         // Sample the 6 face centers + volume center (7 total candidates) and start from the closest.
 
         Cmpnts ***cent;
@@ -333,7 +332,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     // Initialize traversal step counter
     *traversal_steps = 0;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -392,7 +391,7 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
         *is_within = PETSC_FALSE;
     }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -441,7 +440,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     }
     ierr = VecRestoreArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -462,13 +461,13 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
     // 0 inside, 1 (2 or 3) on a face (edge or corner), -1 outside.
     ierr = DeterminePointPosition(d, position); CHKERRQ(ierr);
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateCellIndicesBasedOnDistances()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateCellIndicesBasedOnDistances().
+ * @see UpdateCellIndicesBasedOnDistances()
  */
 PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
 {
@@ -527,14 +526,14 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
     *idz = PetscMax(czs,               PetscMin(*idz, czm));
     */
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
 
 /**
- * @brief Internal helper implementation: `FindOwnerOfCell()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FindOwnerOfCell().
+ * @see FindOwnerOfCell()
  */
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank)
 {
@@ -577,7 +576,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
         (j >= info->ys_cell && j < info->ys_cell + info->ym_cell) &&
         (k >= info->zs_cell && k < info->zs_cell + info->zm_cell)) *owner_rank = (PetscMPIInt)r;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -605,7 +604,7 @@ PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, Petsc
     p->y += 2.0 * d[face] * n[face].y;
     p->z += 2.0 * d[face] * n[face].z;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -640,7 +639,7 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
         if (dp[f] >= 0.0) continue;
         if (dc[f] <= 0.0) {
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Cell centroid is not inside face %" PetscInt_FMT "'s plane (d = %.3e); cannot place the particle.\n", f, dc[f]);
-            PROFILE_FUNCTION_END;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
         t = PetscMax(t, dp[f] / (dp[f] - dc[f]));
@@ -652,7 +651,7 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
     p->z += t * (c.z - p->z);
     *placed = PETSC_TRUE;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -722,7 +721,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         traversal_steps++;
 
         // --- 2a. GLOBAL Domain Boundary Check ---
-        // IMPROVED: Instead of failing immediately when hitting a boundary, clamp the indices
+        // Instead of failing when the walk reaches a domain boundary, clamp the indices
         // to the boundary and continue searching. This allows the search to explore other
         // directions that might lead to the particle.
         PetscBool hit_boundary = PETSC_FALSE;
@@ -970,6 +969,6 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                  particle->loc.x, particle->loc.y, particle->loc.z, (int)particle->destination_rank);
     if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
