@@ -10780,6 +10780,26 @@ def test_summarize_table_reads_an_older_runs_text_log(tmp_path):
     assert "2.500000" in shown.stdout
 
 
+def test_summarize_table_skips_an_older_runs_text_format_log(tmp_path):
+    """!
+    @brief A record an older run wrote as a `|`-column text log is not a table to print as CSV.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_particle_snapshot=False)
+    write_csv_summary_logs(run_dir)
+    logs = run_dir / "logs"
+    (logs / "Continuity_Metrics.csv").unlink()
+    (logs / "Continuity_Metrics.log").write_text(
+        "Timestep | Block | Max Divergence | Location | RHS Sum | Flux In | Flux Out | Net Flux\n"
+        "1 | 0 | 1.0e-08 | ([1][1][1] = 7) | 0.0 | 1.0 | 1.0 | 0.0\n", encoding="utf-8")
+
+    listed = run_picurv(["summarize", "--run-dir", str(run_dir), "--list-tables", "--format", "json"], cwd=tmp_path)
+    assert listed.returncode == 0, listed.stderr
+    assert "continuity" not in {item["table"] for item in json.loads(listed.stdout)["available_tables"]}
+    shown = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "continuity"], cwd=tmp_path)
+    assert shown.returncode != 0 and "has no file at" in shown.stderr
+
+
 def test_parse_runtime_memory_csv_and_legacy_text_agree(tmp_path):
     """!
     @brief Test the memory reader takes the CSV record and an older run's text log alike.

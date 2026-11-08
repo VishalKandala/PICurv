@@ -386,6 +386,9 @@ CANONICAL_RUN_PATHS = {
     "scheduler": "scheduler",
 }
 
+#: Run-relative path of the staged nondimensional PICGRID the solver reads.
+STAGED_GRID_RELPATH = os.path.join("inputs", "grid", "grid.run")
+
 #: Run-relative path of the staged initial-condition spectrum. It sits beside the
 #: post-produced spectra but is a reference overlay, not a selectable spectrum task.
 INITIAL_CONDITION_SPECTRUM_RELPATH = os.path.join(
@@ -1015,7 +1018,7 @@ def capture_continuation_records(run_dir: str, restart_dir: str) -> dict:
     records = {}
     for relative in CONTINUATION_STAGED_RECORDS:
         path = os.path.join(run_dir, *relative.split("/"))
-        records[relative] = open(path, "rb").read() if os.path.isfile(path) else None
+        records[relative] = Path(path).read_bytes() if os.path.isfile(path) else None
     checkpoints = os.path.join(restart_dir, "checkpoints")
     return {"records": records, "checkpoints": checkpoints,
             "checkpoint_entries": set(os.listdir(checkpoints)) if os.path.isdir(checkpoints) else None}
@@ -4049,7 +4052,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     script = os.path.join(GENERATORS_PATH, "spectra.gen")
     if not os.path.isfile(script):
         raise ValueError(f"spectra.gen script not found: {script}")
-    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     if not os.path.isfile(staged_grid):
         raise ValueError(f"spectra require a staged PICGRID at {staged_grid}.")
 
@@ -4319,7 +4322,7 @@ def run_post_reducers_stage(run_dir: str, post_cfg: dict, quiet: bool = False) -
     if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
         post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
     script = os.path.join(GENERATORS_PATH, "reduce.gen")
-    grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     case_path = load_active_run_configuration(run_dir).get("case")
     case_cfg = read_yaml_file(case_path) if case_path and os.path.isfile(case_path) else {}
     scaling = resolve_fluid_scaling(case_cfg)
@@ -7394,6 +7397,18 @@ def _face_artifact_token(face: str) -> str:
     """
     return face.replace("+", "pos").replace("-", "neg")
 
+
+def inlet_profile_filename(block: int, face: str, sliced: bool = False) -> str:
+    """!
+    @brief File name of one inlet face's staged PICSLICE, or of the dimensional one field slicing writes.
+    @param[in] block Block index.
+    @param[in] face Canonical face token such as -Zeta.
+    @param[in] sliced Whether to name the dimensional `field_slice` output rather than the staged profile.
+    @return File name under the run's `inputs/inlet_profiles`.
+    """
+    stem = f"inlet_profile_block{block}_{_face_artifact_token(face)}"
+    return stem + (".sliced.dimensional.picslice" if sliced else ".picslice")
+
 def _resolve_run_artifact_path(run_dir: str, configured_path: str, default_path: str,
                                default_to_config_dir: bool = False) -> str:
     """!
@@ -7776,7 +7791,7 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
         candidate = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
         if os.path.isfile(candidate):
             return candidate
-        staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        staged = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(staged):
             return staged
         raise ValueError("field_slice requires the generated target PICGRID to exist before profile extraction.")
@@ -8263,7 +8278,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         candidates = []
         if run_dir:
             candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
-            candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+            candidates.append(os.path.join(run_dir, STAGED_GRID_RELPATH))
         for candidate in candidates:
             if os.path.isfile(candidate):
                 return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
@@ -8404,12 +8419,12 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
     motions are modelled somewhere. Three combinations cannot be, and each fails here
     rather than after the mesh is built.
 
-    @param case_cfg Parsed case configuration, read for the Reynolds number.
-    @param les_cfg  `models.physics.turbulence.les`, or None.
-    @param wall_cfg `models.physics.turbulence.wall_function`, or None.
-    @param case_path Case path, for message prefixes.
-    @param errors   Collected blocking messages, appended to.
-    @param warnings Collected advisory messages, appended to.
+    @param[in] case_cfg Parsed case configuration, read for the Reynolds number.
+    @param[in] les_cfg `models.physics.turbulence.les`, or None.
+    @param[in] wall_cfg `models.physics.turbulence.wall_function`, or None.
+    @param[in] case_path Case path, for message prefixes.
+    @param[in,out] errors Collected blocking messages, appended to.
+    @param[in,out] warnings Collected advisory messages, appended to.
     """
     if not isinstance(wall_cfg, dict):
         return
@@ -8455,7 +8470,7 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
 def _case_reynolds_number(case_cfg: dict):
     """!
     @brief Reynolds number implied by a case's scaling and fluid properties.
-    @param case_cfg Parsed case configuration.
+    @param[in] case_cfg Parsed case configuration.
     @return The Reynolds number, or None when the inputs are absent or unusable.
     """
     try:
@@ -10479,12 +10494,12 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     "(restart_mode: load); their values come from the checkpoint.")
 
     if ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
-        for entry in (entry for block in normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions'))
-                      for entry in block):
-            if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
-                errors.append(
-                    f"  {case_path}: boundary_conditions {entry.get('face')}.particles.fields cannot be combined with "
-                    f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
+        for bi, block in enumerate(normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions'))):
+            for idx, entry in enumerate(block):
+                if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
+                    errors.append(
+                        f"  {case_path}: boundary_conditions[{bi}][{idx}].particles.fields cannot be combined with "
+                        f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
 
     # --- case.yml: domain and physics switches ---
     # Multi-block coupling, immersed boundaries and moving bodies are planned, not
@@ -12117,7 +12132,7 @@ def restart_grid_inputs(run_dir: str, case_cfg: dict) -> dict:
     @param[in] case_cfg That run's case configuration.
     @return Mapping of input name to a comparable value.
     """
-    staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged = os.path.join(run_dir, STAGED_GRID_RELPATH)
     grid = {key: value for key, value in (case_cfg.get("grid") or {}).items()
             if not str(key).startswith("da_processors_")}
     try:
@@ -13239,8 +13254,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     params["source_repeat"] = True
                 velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
-                staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
-                staged_path = os.path.join(profile_dir, staged_name)
+                staged_path = os.path.join(profile_dir, inlet_profile_filename(i, face))
                 if os.path.isfile(staged_path):
                     with open(staged_path, "r", encoding="utf-8") as stream:
                         header = [line.strip() for line in stream if line.strip() and not line.lstrip().startswith("#")]
@@ -13266,10 +13280,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                         source["path"], os.path.dirname(os.path.abspath(case_path))
                     )
                 elif source["type"] == "field_slice":
-                    source_path = os.path.join(
-                        profile_dir,
-                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.sliced.dimensional.picslice",
-                    )
+                    source_path = os.path.join(profile_dir, inlet_profile_filename(i, face, sliced=True))
                     if os.path.abspath(source_path) == os.path.abspath(staged_path):
                         raise ValueError(
                             f"field_slice output_file for block {i}, face {face} must differ from staged solver profile."
@@ -14855,7 +14866,7 @@ def particle_seed_count(case_cfg: dict, case_path: str, staged_grid: "str | None
     if normalize_particle_init_mode(particles.get("init_mode", "Surface")) == 0:
         entries = (normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions")) or [[]])[0]
         inlets = [e.get("face") for e in entries if isinstance(e, dict) and e.get("type") == "INLET"]
-        order = ["-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"]
+        order = list(BC_FACE_MAP.values())
         faces = [f for f in order if f in inlets]
         if not faces:
             raise ValueError("Surface seeding needs an INLET face on block 0.")
@@ -15653,7 +15664,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         script = os.path.join(GENERATORS_PATH, "ic.gen")
         output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if not os.path.isfile(staged_grid):
             raise ValueError(f"{resolved_ic['kind']} requires a staged PICGRID at inputs/grid/grid.run.")
         summary_path = os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json")
@@ -15708,7 +15719,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     cmd = [sys.executable, script, "-c", config_file, "--field",
            "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
            "--output", output_path, *petsc_index_arguments(runtime_petsc_index_bytes())]
-    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
     # The script is given the scales and writes solver units, like every other provider.
@@ -15782,7 +15793,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         if not os.path.isfile(source_path):
             raise ValueError(f"Initial-condition source file not found: {source_path}")
         payload = validate_petsc_vec_binary(source_path)
-        _check_file_ic_matches_grid(payload, os.path.join(run_dir, "inputs", "grid", "grid.run"), resolved_ic)
+        _check_file_ic_matches_grid(payload, os.path.join(run_dir, STAGED_GRID_RELPATH), resolved_ic)
         divisor = ic_payload_divisor(resolved_ic, case_dir)
     if divisor != 1.0:
         write_scaled_petsc_vec_binary(source_path, staged_path, divisor)
@@ -17163,7 +17174,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if grid_mode == 'file':
         print("[INFO] Grid Mode: Using external file...")
         case_file_dir = os.path.dirname(configs['case_path'])
-        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(nondim_grid_path):
             print(f"[INFO] Reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
@@ -17183,7 +17194,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
                 sys.exit(1)
     elif grid_mode == 'grid_gen':
-        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(nondim_grid_path):
             print(f"[INFO] Grid Mode: grid.gen, reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
@@ -17218,7 +17229,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             # the identical formula as ComputeStretchedCoord in src/grid.c, so the two are
             # guaranteed to agree. Nothing above is changed: -grid_file is never emitted,
             # so the solver still builds its own grid exactly as before.
-            nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+            nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
             if not os.path.isfile(nondim_grid_path):
                 try:
                     generate_picgrid_from_programmatic_settings(
@@ -17257,14 +17268,14 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
     for block_index, block in enumerate(prepared_blocks):
-        for entry in block:
+        for entry_index, entry in enumerate(block):
             if "source" in entry:
                 control_lines.extend(velocity_source_control_lines(
                     f"-face_source_{entry['params']['source_id']}", entry["source"],
-                    f"boundary_conditions[{block_index}] {entry['face']}.source"))
+                    f"boundary_conditions[{block_index}][{entry_index}].source"))
             if "fluctuations" in entry:
                 prefix, fluct = f"-face_source_{entry['params']['source_id']}", entry["fluctuations"]
-                where = f"boundary_conditions[{block_index}] {entry['face']}.fluctuations"
+                where = f"boundary_conditions[{block_index}][{entry_index}].fluctuations"
                 control_lines.append(f"{prefix}_fluct true")
                 for group, texts in enumerate(fluct["stress"]):
                     control_lines.extend(velocity_source_control_lines(
@@ -17273,11 +17284,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 control_lines.append(f"{prefix}_fluct_time {fluct['time_scale']!r}")
     if any("fluctuations" in entry for block in prepared_blocks for entry in block):
         control_lines.append("-inflow_fluctuations true")
-    inlets = [entry for block in prepared_blocks for entry in block if "particles" in entry]
+    inlets = [(f"boundary_conditions[{block_index}][{entry_index}].particles", entry)
+              for block_index, block in enumerate(prepared_blocks)
+              for entry_index, entry in enumerate(block) if "particles" in entry]
     if inlets:
         control_lines.append(f"-particle_inlet_count {len(inlets)}")
-    for index, entry in enumerate(inlets):
-        where = f"boundary_conditions {entry['face']}.particles"
+    for index, (where, entry) in enumerate(inlets):
         prefix = f"-particle_inlet_{index}"
         control_lines.append(f"{prefix}_face {list(BC_FACE_MAP.values()).index(entry['face'])}")
         control_lines.append(f"{prefix}_particles_per_cell \"{expression_control_value(entry['particles']['particles_per_cell'], where)}\"")
@@ -17287,12 +17299,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     configs["decomposition_resolved"] = append_grid_da_processor_layout(
         control_lines, grid_cfg, num_procs,
         block_dims=resolve_grid_node_dims(
-            case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")),
+            case_cfg, configs["case_path"], os.path.join(run_dir, STAGED_GRID_RELPATH)),
         solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg),
         explicit=configs.get("decomposition"), cluster_cfg=configs.get("cluster_cfg"))
     
     parse_and_add_model_flags(case_cfg, control_lines, particle_seed_count(
-        case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")))
+        case_cfg, configs["case_path"], os.path.join(run_dir, STAGED_GRID_RELPATH)))
     append_les_diagnostics_flags(resolve_les_diagnostics(case_cfg, configs.get('monitor') or {}), control_lines)
     
     if 'solver_parameters' in case_cfg:
@@ -17399,7 +17411,7 @@ def resolve_post_decomposition(run_dir: str, num_procs: int, explicit=None,
     case_cfg = read_yaml_file(active["case"]) if active.get("case") and os.path.isfile(active["case"]) else {}
     solver_cfg = read_yaml_file(active["solver"]) if active.get("solver") and os.path.isfile(active["solver"]) else {}
     block_dims = resolve_grid_node_dims(case_cfg, active.get("case") or os.path.join(run_dir, "config", "case.yml"),
-                                        os.path.join(run_dir, "inputs", "grid", "grid.run"))
+                                        os.path.join(run_dir, STAGED_GRID_RELPATH))
     return resolve_decomposition(num_procs, case_cfg.get("grid") or {}, block_dims, solver_cfg,
                                  case_declares_periodic_axis(case_cfg), explicit, cluster_cfg)
 
@@ -18891,7 +18903,7 @@ def build_run_dry_plan(args) -> dict:
         # cluster, after the queue wait; it is decidable here from the grid's size.
         block_dims = resolve_grid_node_dims(
             loaded_case_cfg, case_path,
-            os.path.join(run_dir, "inputs", "grid", "grid.run") if continue_mode else None)
+            os.path.join(run_dir, STAGED_GRID_RELPATH) if continue_mode else None)
         decomposition = resolve_decomposition(
             solver_num_procs_effective, loaded_case_cfg.get("grid") or {}, block_dims, solver_cfg,
             case_declares_periodic_axis(loaded_case_cfg), getattr(args, "decomposition", None),
@@ -19287,7 +19299,7 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
 
 def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
     """!
-    @brief Add generated inlet profile artifacts to a dry-run plan.
+    @brief Add the profiles a `field_slice` inlet source slices, and their staged copies, to a dry-run plan.
     @param[in,out] plan Dry-run plan to update.
     @param[in] case_cfg Parsed case configuration.
     @param[in] run_dir Preview run directory.
@@ -19297,21 +19309,16 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
     except ValueError:
         return
     profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
-    has_generated = False
+    has_sliced = False
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
             source = profile_data_source(bc) or {}
             if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
                 continue
-            has_generated = True
-            face_token = _face_artifact_token(bc["face"])
-            generated_path = os.path.join(
-                profile_dir, f"inlet_profile_block{block_idx}_{face_token}.sliced.dimensional.picslice"
-            )
-            staged_path = os.path.join(profile_dir, f"inlet_profile_block{block_idx}_{face_token}.picslice")
-            plan["artifacts"].append(generated_path)
-            plan["artifacts"].append(staged_path)
-    if has_generated:
+            has_sliced = True
+            plan["artifacts"].append(os.path.join(profile_dir, inlet_profile_filename(block_idx, bc["face"], sliced=True)))
+            plan["artifacts"].append(os.path.join(profile_dir, inlet_profile_filename(block_idx, bc["face"])))
+    if has_sliced:
         plan["artifacts"].append(os.path.join(profile_dir, "profile.info"))
 
 def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_cfg: dict, run_dir: str) -> None:
@@ -19347,7 +19354,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
     )
     if is_generated_ic_provider(resolved):
         if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
-            plan["artifacts"].append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+            plan["artifacts"].append(os.path.join(run_dir, STAGED_GRID_RELPATH))
         plan["artifacts"].append(os.path.join(initial_dir, "initial_condition.generated.dat"))
         plan["artifacts"].extend(initial_condition_diagnostic_paths(run_dir, resolved))
 
@@ -19906,7 +19913,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
 
     grid_cfg = case_cfg.get("grid", {}) or {}
     expected_nblk = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
-    staged_grid = os.path.join(build_root, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(build_root, STAGED_GRID_RELPATH)
     if "grid" in selected_kinds:
         before = fingerprint("grid")
         if grid_cfg.get("mode") in _FILE_BACKED_GRID_VALUES:
@@ -20080,7 +20087,7 @@ def _build_asset_inspection(kind: str, build_root: str, provider: dict,
     }
 
     if kind == "grid":
-        staged = os.path.join(build_root, "inputs", "grid", "grid.run")
+        staged = os.path.join(build_root, STAGED_GRID_RELPATH)
         if os.path.isfile(staged):
             try:
                 geometry = _picgrid_geometry_summary(staged)
@@ -24096,7 +24103,7 @@ def _read_runtime_diagnostics_csv(path):
     continuations seen so far, so a caller can keep restarts as separate series instead of
     drawing a line across the seam.
 
-    @param path CSV to read.
+    @param[in] path CSV to read.
     @return Generator of `(segment_index, {column: text})` pairs.
     """
     segment = 0
@@ -24124,7 +24131,7 @@ def _read_legacy_log_lines(path):
     @details The text counterpart of _read_runtime_diagnostics_csv(): `segment` counts the
              `Continuation from step N` markers seen so far, which are consumed; each record's
              reader parses the lines itself, since every text format differed.
-    @param path Text log to read.
+    @param[in] path Text log to read.
     @return Generator of `(segment_index, raw_line)` pairs.
     """
     segment = 0
@@ -24150,6 +24157,28 @@ def _log_family_path(log_dir: str, base: str) -> "str | None":
     return None
 
 
+def _record_is_csv(path: str) -> bool:
+    """!
+    @brief Whether a solver record holds CSV, whatever its extension.
+    @details Some older runs wrote a record's CSV under a `.log` name; others wrote text, with
+             `|` or whitespace-aligned columns. A CSV header, the first line that is neither
+             blank nor a comment, is comma-separated column names without spaces.
+    @param[in] path Record path.
+    @return True for CSV.
+    """
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line.strip() and not line.lstrip().startswith("#"):
+                fields = line.strip().split(",")
+                return len(fields) > 1 and all(field and "|" not in field and not any(ch.isspace() for ch in field)
+                                               for field in fields)
+    return False
+
+
+#: The block suffix of a per-block solver record's file name.
+_BLOCK_RECORD_SUFFIX = re.compile(r"_Block_(\d+)\.(csv|log)$")
+
+
 def _block_family_paths(log_dir: str, *bases: str) -> "list[tuple[int, str]]":
     """!
     @brief Return `(block, path)` for each per-block solver record, CSV preferred per block.
@@ -24161,7 +24190,7 @@ def _block_family_paths(log_dir: str, *bases: str) -> "list[tuple[int, str]]":
     for base in bases:
         for extension in (".csv", ".log"):
             for path in glob.glob(os.path.join(log_dir, f"{base}_Block_*{extension}")):
-                match = re.search(r"_Block_(\d+)\.(csv|log)$", path)
+                match = _BLOCK_RECORD_SUFFIX.search(path)
                 if match and int(match.group(1)) not in chosen:
                     chosen[int(match.group(1))] = path
     return sorted(chosen.items())
@@ -24493,13 +24522,7 @@ def _runtime_memory_rows(path: str) -> list:
         return rows
     keys = ("process_current_mb_max", "process_peak_mb_max", "petsc_allocated_mb_max",
             "petsc_peak_allocated_mb_max", "process_change_mb_max")
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        first = ""
-        for line in f:
-            if line.strip() and not line.lstrip().startswith("#"):
-                first = line
-                break
-    if first.startswith("step,"):
+    if _record_is_csv(path):
         for segment, row in _read_runtime_diagnostics_csv(path):
             step = _parse_int_loose(row.get("step"))
             if step is None:
@@ -25227,7 +25250,8 @@ def _summary_table_path(context: dict, name: str) -> str:
     @brief Resolve a `summarize --table` name to the CSV it prints.
     @param[in] context Summary context returned by `_build_summary_context()`.
     @param[in] name Table name from SUMMARY_TABLES, optionally `:<block>`.
-    @return Path to the CSV, or to the text log an older run wrote instead (it may not exist).
+    @return Path to the CSV (it may not exist), or to the `.log` an older run wrote the CSV under.
+            An older run's text log is not a table, so it is not returned.
     @throws ValueError When the name is unknown or the block is not an integer.
     """
     base, _, block = name.partition(":")
@@ -25241,7 +25265,8 @@ def _summary_table_path(context: dict, name: str) -> str:
     elif block:
         raise ValueError(f"Table '{base}' is not per-block; drop ':{block}'.")
     path = os.path.join(context[directory_key], file_name)
-    return _log_family_path(os.path.dirname(path), os.path.splitext(file_name)[0]) or path
+    found = _log_family_path(os.path.dirname(path), os.path.splitext(file_name)[0])
+    return found if found and found != path and _record_is_csv(found) else path
 
 
 def _list_summary_tables(context: dict, output_format: str):
@@ -25253,9 +25278,9 @@ def _list_summary_tables(context: dict, output_format: str):
     found = []
     for name in sorted(SUMMARY_TABLES):
         names = [name]
-        if "{block}" in (SUMMARY_TABLES[name][1] or ""):
+        if "{block}" in SUMMARY_TABLES[name][1]:
             pattern = os.path.join(context["log_dir"], SUMMARY_TABLES[name][1].format(block="*"))
-            blocks = sorted(int(re.search(r"_Block_(\d+)\.csv$", path).group(1)) for path in glob.glob(pattern))
+            blocks = sorted(int(_BLOCK_RECORD_SUFFIX.search(path).group(1)) for path in glob.glob(pattern))
             names = [name if b == 0 else f"{name}:{b}" for b in blocks]
         for table in names:
             path = _summary_table_path(context, table)

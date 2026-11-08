@@ -61,16 +61,16 @@ def create_stretched_linspace(
 ) -> np.ndarray:
     """!
     @brief Generates a 1D array of points with hyperbolic tangent stretching.
-    @param num_points The number of points in the array.
-    @param stretch_factor Controls the intensity of clustering. A value of 0 means
-                          uniform spacing. Values > 1 create noticeable clustering
-                          at the boundaries.
-    @param min_val The minimum value of the output array.
-    @param max_val The maximum value of the output array.
-    @param first_cell_start Desired size of first cell at start (normalized). If specified,
-                            overrides stretch_factor for one-sided stretching from start.
-    @param first_cell_end Desired size of first cell at end (normalized). If specified,
-                          overrides stretch_factor for one-sided stretching from end.
+    @param[in] num_points The number of points in the array.
+    @param[in] stretch_factor Controls the intensity of clustering. A value of 0 means
+                              uniform spacing. Values > 1 create noticeable clustering
+                              at the boundaries.
+    @param[in] min_val The minimum value of the output array.
+    @param[in] max_val The maximum value of the output array.
+    @param[in] first_cell_start Desired size of first cell at start (normalized). If specified,
+                                overrides stretch_factor for one-sided stretching from start.
+    @param[in] first_cell_end Desired size of first cell at end (normalized). If specified,
+                              overrides stretch_factor for one-sided stretching from end.
     @return A NumPy array with the stretched coordinates.
     """
     domain_length = max_val - min_val
@@ -218,9 +218,9 @@ def create_stretched_linspace(
 def compute_geometric_ratio(num_cells: int, total_length: float, first_cell: float) -> float:
     """!
     @brief Computes geometric growth ratio for given first cell size.
-    @param num_cells Number of cells.
-    @param total_length Total domain length.
-    @param first_cell First cell dimension.
+    @param[in] num_cells Number of cells.
+    @param[in] total_length Total domain length.
+    @param[in] first_cell First cell dimension.
     @return Geometric ratio r.
     """
     if num_cells == 1:
