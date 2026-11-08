@@ -129,6 +129,25 @@ static PetscErrorCode FormatStatisticsPath(const char *root, PetscInt window, Pe
 }
 
 /**
+ * @brief The DMDA a vector belongs to, or NULL for a vector of any other layout (a swarm field).
+ * @param[in]  field_vec Vector.
+ * @param[out] dmda      Its DMDA, or NULL.
+ * @return PETSc error code.
+ */
+static inline PetscErrorCode FieldVecDMDA(Vec field_vec, DM *dmda)
+{
+    DM          dm = NULL;
+    const char *dm_type = NULL;
+
+    PetscFunctionBeginUser;
+    *dmda = NULL;
+    PetscCall(VecGetDM(field_vec, &dm));
+    if (dm) PetscCall(DMGetType(dm, &dm_type));
+    if (dm_type && !strcmp(dm_type, DMDA)) *dmda = dm;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Express a vector in decomposition-independent natural ordering.
  * @details A DMDA vector is permuted into a new natural vector; any other vector (a swarm
  *          field, for one) is already ordered rank by rank and is returned as is, with
@@ -137,15 +156,13 @@ static PetscErrorCode FormatStatisticsPath(const char *root, PetscInt window, Pe
 static PetscErrorCode NaturalOrderedVector(Vec field_vec, Vec *natural_vec, Vec *ordered_vec)
 {
     DM dm = NULL;
-    const char *dm_type = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     *natural_vec = NULL;
     *ordered_vec = field_vec;
-    PetscCall(VecGetDM(field_vec, &dm));
-    if (dm) PetscCall(DMGetType(dm, &dm_type));
-    if (dm_type && !strcmp(dm_type, DMDA)) {
+    PetscCall(FieldVecDMDA(field_vec, &dm));
+    if (dm) {
         PetscCall(DMDACreateNaturalVector(dm, natural_vec));
         PetscCall(DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, *natural_vec));
         PetscCall(DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, *natural_vec));
@@ -514,8 +531,8 @@ PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step)
 
 
 /**
- * @brief Internal helper implementation: `ReadGridGenerationInputs()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadGridGenerationInputs().
+ * @see ReadGridGenerationInputs()
  */
 PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
 {
@@ -613,8 +630,8 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ReadGridFile()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadGridFile().
+ * @see ReadGridFile()
  */
 PetscErrorCode ReadGridFile(UserCtx *user)
 {
@@ -713,8 +730,8 @@ void FreeBC_ParamList(BC_Param *head) {
 }
 
 /**
- * @brief Internal helper implementation: `StringToBCFace()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref StringToBCFace().
+ * @see StringToBCFace()
  */
 PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
     PROFILE_FUNCTION_BEGIN;
@@ -730,8 +747,8 @@ PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
 }
 
 /**
- * @brief Internal helper implementation: `StringToBCType()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref StringToBCType().
+ * @see StringToBCType()
  */
 PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     PROFILE_FUNCTION_BEGIN;
@@ -750,8 +767,8 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
 }
 
 /**
- * @brief Internal helper implementation: `StringToBCHandlerType()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref StringToBCHandlerType().
+ * @see StringToBCHandlerType()
  */
 PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out) {
     PROFILE_FUNCTION_BEGIN;
@@ -770,8 +787,8 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
 }
 
 /**
- * @brief Internal helper implementation: `ValidateBCHandlerForBCType()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ValidateBCHandlerForBCType().
+ * @see ValidateBCHandlerForBCType()
  */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
     PROFILE_FUNCTION_BEGIN;
@@ -796,62 +813,41 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
 }
 
 /**
- * @brief Internal helper implementation: `GetBCParamReal()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GetBCParamReal().
+ * @see GetBCParamReal()
  */
-PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found) {
-    PROFILE_FUNCTION_BEGIN;
-    *found = PETSC_FALSE;
-    *value_out = 0.0;
-    if (!key) { PROFILE_FUNCTION_END; return 0; } // No key to search for
+PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found)
+{
+    const char *text = NULL;
 
-    BC_Param *current = params;
-    while (current) {
-        if (strcasecmp(current->key, key) == 0) {
-            *value_out = atof(current->value);
-            *found = PETSC_TRUE;
-            PROFILE_FUNCTION_END;
-            return 0; // Found it, we're done
-        }
-        current = current->next;
-    }
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    *value_out = 0.0;
+    PetscCall(GetBCParamString(params, key, &text, found));
+    if (*found) *value_out = atof(text);
     PROFILE_FUNCTION_END;
-    return 0; // It's not an error to not find the key.
+    PetscFunctionReturn(0); // It's not an error to not find the key.
 }
 
 /**
- * @brief Internal helper implementation: `GetBCParamBool()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GetBCParamBool().
+ * @see GetBCParamBool()
  */
-PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found) {
-    PROFILE_HELPER_BEGIN;
-    *found = PETSC_FALSE;
-    *value_out = PETSC_FALSE;
-    if (!key) { PROFILE_HELPER_END; return 0; } // No key to search for
+PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found)
+{
+    const char *text = NULL;
 
-    BC_Param *current = params;
-    while (current) {
-        if (strcasecmp(current->key, key) == 0) {
-                        // Key was found.
-            *found = PETSC_TRUE;
-            
-            // Check the value string. Default to FALSE if the value is NULL or doesn't match a "true" string.
-            if (current->value && 
-               (strcasecmp(current->value, "true") == 0 ||
-                strcmp(current->value, "1") == 0         ||
-                strcasecmp(current->value, "yes") == 0))
-            {
-                *value_out = PETSC_TRUE;
-            } else {
-                *value_out = PETSC_FALSE;
-            }
-            PROFILE_HELPER_END;
-            return 0; // Found it, we're done
-        }
-        current = current->next;
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    *value_out = PETSC_FALSE;
+    PetscCall(GetBCParamString(params, key, &text, found));
+    // FALSE unless the value is one of the "true" strings, including for a key with no value.
+    if (*found && text &&
+        (strcasecmp(text, "true") == 0 || strcmp(text, "1") == 0 || strcasecmp(text, "yes") == 0)) {
+        *value_out = PETSC_TRUE;
     }
     PROFILE_HELPER_END;
-    return 0; // It's not an error to not find the key.
+    PetscFunctionReturn(0); // It's not an error to not find the key.
 }
 
 /**
@@ -866,6 +862,7 @@ PetscErrorCode GetBCParamString(BC_Param *params, const char *key, const char **
     PROFILE_FUNCTION_BEGIN;
     *found = PETSC_FALSE;
     *value_out = NULL;
+    if (!key) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); } // No key to search for
     for (BC_Param *param = params; param; param = param->next) {
         if (strcasecmp(param->key, key) == 0) {
             *value_out = param->value;
@@ -908,8 +905,8 @@ PetscErrorCode GetDrivenSeamFluxFlag(BC_Param *params, PetscBool *value_out, Pet
 //
 //================================================================================
 /**
- * @brief Internal helper implementation: `ParseAllBoundaryConditions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ParseAllBoundaryConditions().
+ * @see ParseAllBoundaryConditions()
  */
 PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_filename)
 {
@@ -1093,8 +1090,8 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 
 // ... (existing helper functions like FreeBC_ParamList, StringToBCFace, etc.) ...
 /**
- * @brief Internal helper implementation: `DeterminePeriodicity()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref DeterminePeriodicity().
+ * @see DeterminePeriodicity()
  */
 PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 {
@@ -1199,8 +1196,8 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `VerifyPathExistence()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref VerifyPathExistence().
+ * @see VerifyPathExistence()
  */
 PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool is_optional, const char *description, PetscBool *exists)
 {
@@ -1245,8 +1242,8 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 }
 
 /**
- * @brief Internal helper implementation: `ReadFieldData()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadFieldData().
+ * @see ReadFieldData()
  */
 PetscErrorCode ReadFieldData(UserCtx *user,
                              const char *field_name,
@@ -1287,17 +1284,19 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    // natural vector, then permuted; any other vector (a swarm field) is in rank order and is read
    // into a vector of its layout, then copied, since loading into a DMSwarm view could resize it.
    DM          dm = NULL;
-   const char *dmtype = NULL;
    Vec         staged = NULL;
    PetscViewer viewer = NULL;
-   ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
-   if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
-   const PetscBool natural = (PetscBool)(dmtype && !strcmp(dmtype, DMDA));
+   ierr = FieldVecDMDA(field_vec, &dm); CHKERRQ(ierr);
+   const PetscBool natural = (PetscBool)(dm != NULL);
    if (natural) { ierr = DMDACreateNaturalVector(dm, &staged); CHKERRQ(ierr); }
    else         { ierr = VecDuplicate(field_vec, &staged); CHKERRQ(ierr); }
    ierr = OpenFieldPayloadViewer(comm, filename, FILE_MODE_READ, &viewer); CHKERRQ(ierr);
    ierr = VecLoad(staged, viewer);
-   if (ierr) SETERRQ(comm, PETSC_ERR_FILE_UNEXPECTED, "Could not load '%s' into field '%s'.", filename, field_name);
+   if (ierr) {
+      ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+      ierr = VecDestroy(&staged); CHKERRQ(ierr);
+      SETERRQ(comm, PETSC_ERR_FILE_UNEXPECTED, "Could not load '%s' into field '%s'.", filename, field_name);
+   }
    ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
    if (natural) {
       ierr = DMDANaturalToGlobalBegin(dm, staged, INSERT_VALUES, field_vec); CHKERRQ(ierr);
@@ -1382,8 +1381,8 @@ static PetscErrorCode RestoreDrivenFluxTarget(SimCtx *simCtx, UserCtx *user,
 }
 
 /**
- * @brief Internal helper implementation: `ReadSimulationFields()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadSimulationFields().
+ * @see ReadSimulationFields()
  */
 PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 {
@@ -1709,8 +1708,8 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
 }
 
 /**
- * @brief Internal helper implementation: `ReadSwarmField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadSwarmField().
+ * @see ReadSwarmField()
  */
 PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char *ext)
 {
@@ -1741,8 +1740,8 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char 
 }
 
 /**
- * @brief Internal helper implementation: `ReadSwarmIntField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadSwarmIntField().
+ * @see ReadSwarmIntField()
  */
 PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const char *ext)
 {
@@ -1810,8 +1809,8 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const ch
 }
 
 /**
- * @brief Internal helper implementation: `ReadAllSwarmFields()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ReadAllSwarmFields().
+ * @see ReadAllSwarmFields()
  */
 PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 {
@@ -1896,8 +1895,8 @@ PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt 
 
 
 /**
- * @brief Internal helper implementation: `WriteFieldData()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref WriteFieldData().
+ * @see WriteFieldData()
  */
 PetscErrorCode WriteFieldData(UserCtx *user,
                               const char *field_name,
@@ -2083,8 +2082,8 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char
 }
 
 /**
- * @brief Internal helper implementation: `WriteSwarmIntField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref WriteSwarmIntField().
+ * @see WriteSwarmIntField()
  */
 PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const char *ext)
 {
@@ -2150,8 +2149,8 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const c
 }
 
 /**
- * @brief Internal helper implementation: `WriteAllSwarmFields()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref WriteAllSwarmFields().
+ * @see WriteAllSwarmFields()
  */
 PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directory)
 {
@@ -3046,8 +3045,8 @@ PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
 
 
 /**
- * @brief Internal helper implementation: `ParsePostProcessingSettings()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ParsePostProcessingSettings().
+ * @see ParsePostProcessingSettings()
  */
 PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
 {
