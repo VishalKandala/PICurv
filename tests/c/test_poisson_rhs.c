@@ -208,7 +208,7 @@ static PetscErrorCode TestViscousUniformField(void)
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
 
-    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, visc));
+    PetscCall(ComputeViscous(user, user->lUcat, visc));
     PetscCall(PicurvAssertVecConstant(visc, 0.0, 1.0e-12, "Viscous should vanish for a uniform field"));
 
     PetscCall(VecDestroy(&visc));
@@ -279,9 +279,9 @@ static PetscErrorCode ClarkToMolecularRatioPerX(PetscReal h, PetscInt probe, Pet
     PetscCall(VecDuplicate(user->lUcont, &molecular));
     PetscCall(VecDuplicate(user->lUcont, &with_clark));
     simCtx->les_gradient_model = 0;
-    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, molecular));
+    PetscCall(ComputeViscous(user, user->lUcat, molecular));
     simCtx->les_gradient_model = 1;
-    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, with_clark));
+    PetscCall(ComputeViscous(user, user->lUcat, with_clark));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, molecular, &visc0));
     PetscCall(DMDAVecGetArrayRead(user->fda, with_clark, &visc1));

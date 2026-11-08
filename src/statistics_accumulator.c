@@ -159,12 +159,12 @@ typedef enum {
  */
 static PetscBool FieldIsParticleSampled(PetscInt field_id)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     const FieldDescriptor *descriptor = NULL;
-
-    if (FieldGetDescriptor((FieldId)field_id, &descriptor) != 0 || descriptor == NULL) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return (PetscBool)((descriptor->capabilities & FIELD_CAPABILITY_PARTICLE_SAMPLED) != 0);
+    const PetscBool        sampled = (PetscBool)(FieldGetDescriptor((FieldId)field_id, &descriptor) == 0 && descriptor != NULL &&
+                                                 (descriptor->capabilities & FIELD_CAPABILITY_PARTICLE_SAMPLED) != 0);
+    PROFILE_HELPER_END;
+    return sampled;
 }
 
 /**
@@ -177,14 +177,12 @@ static PetscBool FieldIsParticleSampled(PetscInt field_id)
  */
 static SampleSet RequestSampleSet(const PicurvWindowDefinition *definition, PetscInt slot, PetscInt pair)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (slot >= 0) {
-        PROFILE_FUNCTION_END;
-        return FieldIsParticleSampled(definition->fields[slot].field_id) ? SAMPLE_SET_OCCUPIED : SAMPLE_SET_ALL;
-    }
-    PROFILE_FUNCTION_END;
-    return (FieldIsParticleSampled(definition->covariances[pair].first) ||
-            FieldIsParticleSampled(definition->covariances[pair].second)) ? SAMPLE_SET_OCCUPIED : SAMPLE_SET_ALL;
+    PROFILE_HELPER_BEGIN;
+    const PetscBool occupied = (slot >= 0) ? FieldIsParticleSampled(definition->fields[slot].field_id)
+                                           : (PetscBool)(FieldIsParticleSampled(definition->covariances[pair].first) ||
+                                                         FieldIsParticleSampled(definition->covariances[pair].second));
+    PROFILE_HELPER_END;
+    return occupied ? SAMPLE_SET_OCCUPIED : SAMPLE_SET_ALL;
 }
 
 /**
@@ -370,17 +368,15 @@ static PetscErrorCode FindFieldSlot(const PicurvWindowDefinition *definition, Pe
 {
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    for (PetscInt field_index = 0; field_index < definition->field_count; ++field_index) {
-        if (definition->fields[field_index].field_id == field_id) {
-            *slot = field_index;
-            PROFILE_HELPER_END;
-            PetscFunctionReturn(0);
-        }
+    *slot = -1;
+    for (PetscInt field_index = 0; field_index < definition->field_count && *slot < 0; ++field_index) {
+        if (definition->fields[field_index].field_id == field_id) *slot = field_index;
     }
-    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-            "Window '%s' requests a covariance over field '%s', which is not in its field list.",
-            definition->name, FieldCanonicalName((FieldId)field_id));
+    PetscCheck(*slot >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Window '%s' requests a covariance over field '%s', which is not in its field list.",
+               definition->name, FieldCanonicalName((FieldId)field_id));
     PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
 }
 
 /**

@@ -41,32 +41,11 @@ typedef struct {
     PetscReal weight;  /**< 0.25 central, 0.5 one-sided, 0 when no fluid side remains. */
 } PoissonTransverseDifference;
 
-/** @brief Everything needed to evaluate the gradient flux through one face. */
-typedef struct {
-    PetscReal                   dot[3];   /**< F_b . F_n on the face, b = 0..2. */
-    PetscReal                   aj;       /**< Inverse Jacobian on the face. */
-    PoissonTransverseDifference diff[3];  /**< Transverse differences; diff[n] is unused. */
-} PoissonFaceGradient;
-
 /** @brief Read-only face metric arrays: `metric[n][b]` is F_b on the n-faces. */
 typedef struct {
     const Cmpnts    ***metric[3][3];
     const PetscReal ***aj[3];
 } PoissonFaceMetrics;
-
-/**
- * @brief Value of a cell-centred array at cell @p c displaced by @p d.
- *
- * @param[in] field Ghosted cell-centred array, indexed [k][j][i].
- * @param[in] c     Cell (i, j, k).
- * @param[in] d     Displacement (di, dj, dk).
- * @return The value at `c + d`.
- */
-static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_At(const PetscReal ***field, const PetscInt c[3],
-                                          const PetscInt d[3])
-{
-    return field[c[2] + d[2]][c[1] + d[1]][c[0] + d[0]];
-}
 
 /** @brief The transverse stencils a face gradient can use; see PoissonOperator_TransverseKind(). */
 typedef enum {
@@ -132,33 +111,6 @@ static PICURV_ALWAYS_INLINE PoissonTransverseKind PoissonOperator_TransverseKind
 }
 
 /**
- * @brief The rows and weight of the transverse difference along axis @p t at the face between
- *        cell @p c and `c + e_n`, for operator assembly; PoissonOperator_TransverseKind() chooses.
- *
- * @param[in] nvert    Ghosted solid field.
- * @param[in] c        Cell on the low side of the face.
- * @param[in] n        Face orientation (0, 1, 2 for i, j, k).
- * @param[in] t        Transverse axis, not @p n.
- * @param[in] m        Grid sizes (mx, my, mz).
- * @param[in] periodic Whether each axis is periodic.
- * @return The rows and weight of the difference.
- */
-static PICURV_ALWAYS_INLINE PoissonTransverseDifference PoissonOperator_TransverseDifference(
-    const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
-    const PetscInt m[3], const PetscBool periodic[3])
-{
-    PoissonTransverseDifference diff = {0, 0, 0.0};
-
-    switch (PoissonOperator_TransverseKind(nvert, c, n, t, m, periodic)) {
-        case POISSON_TRANSVERSE_LOWER:   diff.lo = -1; diff.hi = 0; diff.weight = 0.5;  break;
-        case POISSON_TRANSVERSE_UPPER:   diff.lo = 0;  diff.hi = 1; diff.weight = 0.5;  break;
-        case POISSON_TRANSVERSE_CENTRAL: diff.lo = -1; diff.hi = 1; diff.weight = 0.25; break;
-        case POISSON_TRANSVERSE_NONE:    break;
-    }
-    return diff;
-}
-
-/**
  * @brief Transverse difference of @p field along axis @p t at the face between cell @p c and
  *        `c + e_n`: `(sum of the row-pair hi - sum of the row-pair lo) * weight`.
  *
@@ -189,38 +141,6 @@ static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_TransverseFieldDifference(
         default:
             return 0.0;
     }
-}
-
-/**
- * @brief Gathers the metric coefficients and transverse differences of the gradient flux
- *        through the face between cell @p c and `c + e_n`.
- *
- * @param[in] metrics  Face metric arrays from PoissonOperator_GetFaceMetrics().
- * @param[in] nvert    Ghosted solid field.
- * @param[in] c        Cell on the low side of the face.
- * @param[in] n        Face orientation (0, 1, 2 for i, j, k).
- * @param[in] m        Grid sizes (mx, my, mz).
- * @param[in] periodic Whether each axis is periodic.
- * @return The face's metric products, inverse Jacobian and transverse differences.
- */
-static PICURV_ALWAYS_INLINE PoissonFaceGradient PoissonOperator_FaceGradientStencil(
-    const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscInt c[3],
-    PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
-{
-    PoissonFaceGradient face;
-    const Cmpnts normal = metrics->metric[n][n][c[2]][c[1]][c[0]];
-
-    face.aj = metrics->aj[n][c[2]][c[1]][c[0]];
-    for (PetscInt b = 0; b < 3; b++) {
-        const Cmpnts base = metrics->metric[n][b][c[2]][c[1]][c[0]];
-        face.dot[b] = base.x * normal.x + base.y * normal.y + base.z * normal.z;
-        if (b == n) {
-            face.diff[b].lo = 0; face.diff[b].hi = 0; face.diff[b].weight = 0.0;
-        } else {
-            face.diff[b] = PoissonOperator_TransverseDifference(nvert, c, n, b, m, periodic);
-        }
-    }
-    return face;
 }
 
 /**

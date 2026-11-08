@@ -61,13 +61,17 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc);
 /**
  * @brief Configures a BoundaryCondition object as an inlet whose velocity is a configured
  *        source: expressions over position, time and grid-line fractions, in the Cartesian,
- *        curvilinear or face-normal frame, or a PICSLICE file of normal speeds, optionally
- *        rescaled to a bulk velocity.
+ *        curvilinear or face-normal frame, a PICSLICE file, or a file with expressions added
+ *        to it, optionally rescaled to a bulk velocity or flow rate, with optional synthetic
+ *        fluctuations.
  *
  * The face's `source_id` parameter names the options `-face_source_<id>_*` that hold the
- * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` target. A
- * `source_file` parameter replaces the expressions with a staged PICSLICE file of solver-unit
- * normal speeds, one per interior face slot.
+ * source (see PicurvVelocitySourceCreate()) and its optional `_bulk_velocity` or `_flow_rate`
+ * target. A `source_file` parameter names a staged PICSLICE file of solver-unit values, one per
+ * interior face slot: a normal speed, or a Cartesian velocity with three components, in one
+ * frame or in several frames interpolated in time. Expressions in the file's frame, when
+ * given, are added to it, and the target then rescales the expressions alone. The
+ * `-face_source_<id>_fluct*` options add digital-filter fluctuations after the rescaling.
  *
  * @param bc A pointer to the generic BoundaryCondition object to be configured.
  * @return PetscErrorCode 0 on success.

@@ -24,9 +24,10 @@ PetscBool MomentumUsesBDF2(SimCtx *simCtx)
     PROFILE_HELPER_BEGIN;
     const PetscInt ti      = simCtx->step;
     const PetscInt tistart = simCtx->StartStep;
+    const PetscBool bdf2   = (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti != 1 &&
+                                         (simCtx->restartHistoryAvailable || ti > tistart + 1));
     PROFILE_HELPER_END;
-    return (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti != 1 &&
-                       (simCtx->restartHistoryAvailable || ti > tistart + 1));
+    return bdf2;
 }
 
 /**
@@ -35,8 +36,9 @@ PetscBool MomentumUsesBDF2(SimCtx *simCtx)
 PetscReal MomentumBDFCoefficient(SimCtx *simCtx)
 {
     PROFILE_HELPER_BEGIN;
+    const PetscReal a0 = MomentumUsesBDF2(simCtx) ? COEF_TIME_ACCURACY : 1.0;
     PROFILE_HELPER_END;
-    return MomentumUsesBDF2(simCtx) ? COEF_TIME_ACCURACY : 1.0;
+    return a0;
 }
 
 
@@ -89,8 +91,8 @@ PetscErrorCode ComputeTotalResidual(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `MomentumSolver_Explicit_RungeKutta4()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref MomentumSolver_Explicit_RungeKutta4().
+ * @see MomentumSolver_Explicit_RungeKutta4()
  */
 PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
@@ -319,13 +321,10 @@ static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
     return PetscAbsReal(NN) + PetscAbsReal(AN) + PetscAbsReal(BN);
 }
 
-/* nvert bands matching the physical operator:
- *   SKIP    : cell excluded from the estimate (solid/blanked), nvert > 0.1.
- *   VISC1S  : ComputeViscous() one-sided cross-derivative trigger band, (0.5, 7).
- *   QUICKBLK: ComputeConvection() QUICK-modifier band, [0.1, 7] (mirrors NOT(<0.1 || >innerblank)). */
-#define MOM_SKIP_SOLID(v)    ((v) > 0.1)
-#define MOM_VISC_ONESIDED(v) ((v) > 0.5 && (v) < 7.0)
-#define MOM_QUICK_BLOCKS(v)  ((v) >= 0.1 && (v) <= 7.0)
+/* The nvert bands are the physical operator's (rhs.h): a cell is excluded from the estimate when
+ * nvert > POISSON_SOLID_THRESHOLD, ComputeViscous() turns one-sided next to RHSIsBlankedSolid(),
+ * and ComputeConvection()'s QUICK stencil is modified next to a cell that is not
+ * RHSConvectsAsFluid(). */
 
 /* Read-only: does ANY of the six viscous faces entering cell (k,j,i) use an
  * nvert-selected one-sided cross-derivative? Conservative solid-band check over
@@ -338,7 +337,7 @@ static PetscBool MomCellUsesOneSidedViscousStencil(PetscReal ***nvert, PetscInt 
         for (PetscInt dj = -1; dj <= 1; dj++)
             for (PetscInt di = -1; di <= 1; di++) {
                 if (!dk && !dj && !di) continue;
-                if (MOM_VISC_ONESIDED(nvert[k+dk][j+dj][i+di])) { PROFILE_HELPER_END; return PETSC_TRUE; }
+                if (RHSIsBlankedSolid(nvert[k+dk][j+dj][i+di])) { PROFILE_HELPER_END; return PETSC_TRUE; }
             }
     PROFILE_HELPER_END;
     return PETSC_FALSE;
@@ -353,7 +352,7 @@ static PetscBool MomCellHasSolidNeighbor(PetscReal ***nvert, PetscInt k, PetscIn
         for (PetscInt dj = -1; dj <= 1; dj++)
             for (PetscInt di = -1; di <= 1; di++) {
                 if (!dk && !dj && !di) continue;
-                if (MOM_SKIP_SOLID(nvert[k+dk][j+dj][i+di])) { PROFILE_HELPER_END; return PETSC_TRUE; }
+                if (nvert[k+dk][j+dj][i+di] > POISSON_SOLID_THRESHOLD) { PROFILE_HELPER_END; return PETSC_TRUE; }
             }
     PROFILE_HELPER_END;
     return PETSC_FALSE;
@@ -383,7 +382,7 @@ static PetscBool MomQuickDirModified(PetscReal ***nvert, PetscInt a, PetscInt b,
         if      (dir == 'i') v = nvert[a][b][p];
         else if (dir == 'j') v = nvert[a][p][c];
         else                 v = nvert[p][b][c];
-        if (MOM_QUICK_BLOCKS(v)) { PROFILE_HELPER_END; return PETSC_TRUE; }
+        if (!RHSConvectsAsFluid(v)) { PROFILE_HELPER_END; return PETSC_TRUE; }
     }
     PROFILE_HELPER_END;
     return PETSC_FALSE;
@@ -398,11 +397,11 @@ PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt 
                            PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD)
 {
     PROFILE_HELPER_BEGIN;
-    if (MOM_SKIP_SOLID(nvert[k][j][i])) { PROFILE_HELPER_END; return 0; }     /* solid cell: all rows inactive */
+    if (nvert[k][j][i] > POISSON_SOLID_THRESHOLD) { PROFILE_HELPER_END; return 0; }     /* solid cell: all rows inactive */
     PetscInt bits = 0x7;
-    if (MOM_SKIP_SOLID(nvert[k][j][i+1])) bits &= ~0x1;  /* positive xi neighbour solid   */
-    if (MOM_SKIP_SOLID(nvert[k][j+1][i])) bits &= ~0x2;  /* positive eta neighbour solid  */
-    if (MOM_SKIP_SOLID(nvert[k+1][j][i])) bits &= ~0x4;  /* positive zeta neighbour solid */
+    if (nvert[k][j][i+1] > POISSON_SOLID_THRESHOLD) bits &= ~0x1;  /* positive xi neighbour solid   */
+    if (nvert[k][j+1][i] > POISSON_SOLID_THRESHOLD) bits &= ~0x2;  /* positive eta neighbour solid  */
+    if (nvert[k+1][j][i] > POISSON_SOLID_THRESHOLD) bits &= ~0x4;  /* positive zeta neighbour solid */
     if (np_x1 && i == mx-2) bits &= ~0x1;                /* positive non-periodic xi face  */
     if (np_y1 && j == my-2) bits &= ~0x2;
     if (np_z1 && k == mz-2) bits &= ~0x4;
@@ -803,8 +802,8 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
 }
 
 /**
- * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_JamesonRK()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref MomentumSolver_DualTime_Picard_JamesonRK().
+ * @see MomentumSolver_DualTime_Picard_JamesonRK()
  */
 PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
@@ -899,8 +898,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         // Immersed boundary interpolation (if enabled)
 
         // Workspace, allocated on the first step and kept for the run. pRhs is the backup of Rhs
-        // at the last accepted pseudo-state; zeroing Rhs gives each step the fresh workspace it
-        // used to get, and the others are overwritten before they are read.
+        // at the last accepted pseudo-state; Rhs is zeroed for each step, and the others are
+        // overwritten before they are read.
         if (!user[bi].Rhs) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].Rhs); CHKERRQ(ierr); }
         if (!user[bi].pRhs) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].pRhs); CHKERRQ(ierr); }
         if (!user[bi].dUcont) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].dUcont); CHKERRQ(ierr); }

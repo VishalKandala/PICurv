@@ -32,8 +32,8 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `DefineAllGridDimensions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref DefineAllGridDimensions().
+ * @see DefineAllGridDimensions()
  */
 PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 {
@@ -303,8 +303,8 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
 
 
 /**
- * @brief Internal helper implementation: `InitializeAllGridDMs()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InitializeAllGridDMs().
+ * @see InitializeAllGridDMs()
  */
 PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 {
@@ -383,8 +383,8 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd);
 static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_user);
 
 /**
- * @brief Internal helper implementation: `AssignAllGridCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AssignAllGridCoordinates().
+ * @see AssignAllGridCoordinates()
  */
 PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
 {
@@ -1065,8 +1065,8 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
 
 
 /**
- * @brief Internal helper implementation: `BroadcastAllBoundingBoxes()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref BroadcastAllBoundingBoxes().
+ * @see BroadcastAllBoundingBoxes()
  */
 PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 {

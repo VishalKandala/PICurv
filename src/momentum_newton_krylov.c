@@ -396,10 +396,8 @@ static MomentumRowType MomentumNewtonKrylov_ClassifyRow(
 }
 
 /** @brief Returns the squared Euclidean norm of one metric vector. */
-static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
+static inline PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
 }
 
@@ -1215,13 +1213,12 @@ static PetscErrorCode MomentumNewtonKrylov_Build(UserCtx *user)
     PetscCall(SNESSetOptionsPrefix(ctx->snes, "mom_nk_"));
     PetscCall(SNESSetType(ctx->snes, SNESNEWTONLS));
     PetscCall(SNESSetDM(ctx->snes, user->fda));
-    PetscCall(SNESSetFunction(ctx->snes, NULL, MomentumNewtonKrylov_FormResidual, ctx));
+    /* The residual and Jacobian callbacks are registered by MomentumSolver_NewtonKrylov() before
+       every solve, so none is registered here. */
     PetscCall(MomentumNewtonJacobian_Create(ctx->snes, &ctx->jacobian));
     PetscCall(MomentumPreconditionerEngine_Create(user, ctx->jacobian.jacobian_operator,
                                                   &preconditioner_description,
                                                   &ctx->preconditioning_engine));
-    PetscCall(MomentumNewtonJacobian_Register(ctx->snes, &ctx->jacobian,
-                                              &ctx->preconditioning_engine, ctx));
     PetscCall(SNESGetKSP(ctx->snes, &ksp));
     PetscCall(KSPSetType(ksp, KSPGMRES));
     PetscCall(KSPGetPC(ksp, &pc));
@@ -1327,7 +1324,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
                "Newton Krylov version one does not accept IBM or FSI objects.");
     simCtx = user->simCtx;
 
-    /* Rhs is kept for the run; zeroing it gives each step the fresh workspace it used to get. */
+    /* Rhs is kept for the run and zeroed for each step. */
     if (!user->Rhs) { ierr = VecDuplicate(user->Ucont, &user->Rhs); if (ierr) goto cleanup; }
     ierr = VecZeroEntries(user->Rhs); if (ierr) goto cleanup;
 
@@ -1339,7 +1336,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ctx->initial_norm = 0.0;
     snes = ctx->snes;
     /* The residual and Jacobian callbacks live on fda's DMSNES, which every SNES on fda shares;
-       registering them again keeps another solver on fda from leaving its own in place. */
+       registering them before each solve keeps another solver on fda from leaving its own in place. */
     ierr = SNESSetFunction(snes, NULL, MomentumNewtonKrylov_FormResidual, ctx); if (ierr) goto cleanup;
     ierr = MomentumNewtonJacobian_Register(snes, &ctx->jacobian,
                                             &ctx->preconditioning_engine, ctx); if (ierr) goto cleanup;
@@ -1458,7 +1455,7 @@ cleanup:
                                           linear_its, final_norm, committed);
     }
     /* A failed step, or a failed first build, releases what the solver holds, so the next call
-       starts afresh, as every call once did; a committed step keeps it for the next. */
+       starts afresh; a committed step keeps it for the next. */
     if (ierr) {
         cleanup_ierr = VecDestroy(&user->Rhs); if (!ierr) ierr = cleanup_ierr;
         cleanup_ierr = MomentumSolver_NewtonKrylov_Destroy(user); if (!ierr) ierr = cleanup_ierr;

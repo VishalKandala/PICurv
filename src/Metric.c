@@ -80,6 +80,26 @@ PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, con
 }
 
 /**
+ * @brief Centroid of a hexahedral cell: the mean of its eight vertices.
+ * @param[in] cell The cell.
+ * @return The centroid.
+ */
+static inline Cmpnts MetricHexCentroid(const Cell *cell)
+{
+    Cmpnts centroid = {0.0, 0.0, 0.0};
+
+    for (int v = 0; v < 8; ++v) {
+        centroid.x += cell->vertices[v].x;
+        centroid.y += cell->vertices[v].y;
+        centroid.z += cell->vertices[v].z;
+    }
+    centroid.x /= 8.0;
+    centroid.y /= 8.0;
+    centroid.z /= 8.0;
+    return centroid;
+}
+
+/**
  * @brief Implementation of \ref MetricBuildCellFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/Metric.h`.
@@ -92,17 +112,9 @@ void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes)
     static const int face_vertices[NUM_FACES][4] = {
         [LEFT] = {0, 7, 4, 3}, [RIGHT] = {1, 2, 5, 6}, [BOTTOM] = {0, 1, 6, 7},
         [TOP] = {3, 4, 5, 2}, [FRONT] = {4, 7, 6, 5}, [BACK] = {0, 3, 2, 1}};
-    Cmpnts   cell_centroid = {0.0, 0.0, 0.0};
-    PetscInt mask = 0;
+    const Cmpnts cell_centroid = MetricHexCentroid(cell);
+    PetscInt     mask = 0;
 
-    for (int i = 0; i < 8; ++i) {
-      cell_centroid.x += cell->vertices[i].x;
-      cell_centroid.y += cell->vertices[i].y;
-      cell_centroid.z += cell->vertices[i].z;
-    }
-    cell_centroid.x /= 8.0;
-    cell_centroid.y /= 8.0;
-    cell_centroid.z /= 8.0;
     for (int f = 0; f < NUM_FACES; ++f) {
         const int *v = face_vertices[f];
         PetscBool  degenerate;
@@ -124,8 +136,68 @@ static const FieldId kFacePlaneFields[] = {
     FIELD_ID_DUAL_PLANE_NORMAL_I, FIELD_ID_DUAL_PLANE_NORMAL_J, FIELD_ID_DUAL_PLANE_NORMAL_K,
     FIELD_ID_DUAL_PLANE_CENTROID_I, FIELD_ID_DUAL_PLANE_CENTROID_J, FIELD_ID_DUAL_PLANE_CENTROID_K};
 
+/** @brief The plane fields by family: [dual][normal = 0, centroid = 1][axis]. */
+static const FieldId kFacePlaneVectorFields[2][2][3] = {
+    {{FIELD_ID_PLANE_NORMAL_I, FIELD_ID_PLANE_NORMAL_J, FIELD_ID_PLANE_NORMAL_K},
+     {FIELD_ID_PLANE_CENTROID_I, FIELD_ID_PLANE_CENTROID_J, FIELD_ID_PLANE_CENTROID_K}},
+    {{FIELD_ID_DUAL_PLANE_NORMAL_I, FIELD_ID_DUAL_PLANE_NORMAL_J, FIELD_ID_DUAL_PLANE_NORMAL_K},
+     {FIELD_ID_DUAL_PLANE_CENTROID_I, FIELD_ID_DUAL_PLANE_CENTROID_J, FIELD_ID_DUAL_PLANE_CENTROID_K}}};
+
 /** @brief Offset from a face's lower-corner origin to where its family stores it (see Metric.h). */
 static const PetscInt kPrimalFaceShift[3][3] = {{0, 1, 1}, {1, 0, 1}, {1, 1, 0}};
+
+/**
+ * @brief Where a face-plane field's vectors live in @p user, and its DM. FieldGetView() needs the
+ *        vectors to exist; this reaches them before they are created and after they are destroyed.
+ * @param[in]  user   Block context.
+ * @param[in]  id     One of #kFacePlaneFields.
+ * @param[out] dm     The field's DM.
+ * @param[out] global The UserCtx member holding its global vector.
+ * @param[out] local  The UserCtx member holding its local vector.
+ * @return PETSc error code.
+ */
+static PetscErrorCode FacePlaneFieldSlots(UserCtx *user, FieldId id, DM *dm, Vec **global, Vec **local)
+{
+    const FieldDescriptor *descriptor = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(FieldGetDescriptor(id, &descriptor));
+    *dm = (descriptor->dm_kind == FIELD_DM_DA) ? user->da : user->fda;
+    *global = (Vec *)((char *)user + descriptor->global_vec_offset);
+    *local = (Vec *)((char *)user + descriptor->local_vec_offset);
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief The eight vertices of the cell whose origin node is (i, j, k), in GetCellVerticesFromGrid()
+ *        order, from a flat ghosted local array indexed as MetricCellFacePlanesIndex().
+ */
+static inline void MetricGatherHexVertices(const Cmpnts *X, const DMDALocalInfo *info,
+                                           PetscInt i, PetscInt j, PetscInt k, Cell *hex)
+{
+    hex->vertices[0] = X[MetricCellFacePlanesIndex(info, i,     j,     k)];
+    hex->vertices[1] = X[MetricCellFacePlanesIndex(info, i + 1, j,     k)];
+    hex->vertices[2] = X[MetricCellFacePlanesIndex(info, i + 1, j + 1, k)];
+    hex->vertices[3] = X[MetricCellFacePlanesIndex(info, i,     j + 1, k)];
+    hex->vertices[4] = X[MetricCellFacePlanesIndex(info, i,     j + 1, k + 1)];
+    hex->vertices[5] = X[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)];
+    hex->vertices[6] = X[MetricCellFacePlanesIndex(info, i + 1, j,     k + 1)];
+    hex->vertices[7] = X[MetricCellFacePlanesIndex(info, i,     j,     k + 1)];
+}
+
+/** @brief The local vectors of the primal or the dual planes, as MetricGetFacePlaneArrays() reads them. */
+static inline void MetricFacePlaneLocals(const UserCtx *user, PetscBool dual, Vec normals[3], Vec centroids[3])
+{
+    if (dual) {
+        normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
+        centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
+    } else {
+        normals[0] = user->lPlaneNormalI; normals[1] = user->lPlaneNormalJ; normals[2] = user->lPlaneNormalK;
+        centroids[0] = user->lPlaneCentroidI; centroids[1] = user->lPlaneCentroidJ; centroids[2] = user->lPlaneCentroidK;
+    }
+}
 
 /**
  * @brief Implementation of \ref MetricComputeFacePlanes().
@@ -140,33 +212,27 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     const PetscInt       ge[3] = {info->gxs + info->gxm, info->gys + info->gym, info->gzs + info->gzm};
     Vec                  Coor;
     const PetscScalar   *src_flat[2] = {NULL, NULL};
-    Vec                 *globals[2][6] = {
-        {&user->PlaneNormalI, &user->PlaneNormalJ, &user->PlaneNormalK,
-         &user->PlaneCentroidI, &user->PlaneCentroidJ, &user->PlaneCentroidK},
-        {&user->DualPlaneNormalI, &user->DualPlaneNormalJ, &user->DualPlaneNormalK,
-         &user->DualPlaneCentroidI, &user->DualPlaneCentroidJ, &user->DualPlaneCentroidK}};
-    Vec                 *locals[2][6] = {
-        {&user->lPlaneNormalI, &user->lPlaneNormalJ, &user->lPlaneNormalK,
-         &user->lPlaneCentroidI, &user->lPlaneCentroidJ, &user->lPlaneCentroidK},
-        {&user->lDualPlaneNormalI, &user->lDualPlaneNormalJ, &user->lDualPlaneNormalK,
-         &user->lDualPlaneCentroidI, &user->lDualPlaneCentroidJ, &user->lDualPlaneCentroidK}};
     Cmpnts              *out[2][6];
     PetscReal           *size = NULL;
 
     PetscFunctionBeginUser;
     if (user->SearchCellSize) PetscFunctionReturn(0);
     PROFILE_FUNCTION_BEGIN;
+    for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
+        DM  dm;
+        Vec *global, *local;
+        PetscCall(FacePlaneFieldSlots(user, kFacePlaneFields[f], &dm, &global, &local));
+        PetscCall(DMCreateGlobalVector(dm, global));
+        PetscCall(DMCreateLocalVector(dm, local));
+        PetscCall(VecSet(*local, 0.0)); // A zero normal marks a face no plane was built for
+    }
     for (int which = 0; which < 2; ++which) {
         for (int f = 0; f < 6; ++f) {
-            PetscCall(DMCreateGlobalVector(user->fda, globals[which][f]));
-            PetscCall(DMCreateLocalVector(user->fda, locals[which][f]));
-            PetscCall(VecSet(*locals[which][f], 0.0)); // A zero normal marks a face no plane was built for
-            PetscCall(VecGetArray(*locals[which][f], (PetscScalar **)&out[which][f]));
+            FieldView view;
+            PetscCall(FieldGetView(user, kFacePlaneVectorFields[which][f / 3][f % 3], &view));
+            PetscCall(VecGetArray(view.local_vec, (PetscScalar **)&out[which][f]));
         }
     }
-    PetscCall(DMCreateGlobalVector(user->da, &user->SearchCellSize));
-    PetscCall(DMCreateLocalVector(user->da, &user->lSearchCellSize));
-    PetscCall(VecSet(user->lSearchCellSize, 0.0));
     PetscCall(VecGetArray(user->lSearchCellSize, &size));
 
     Coor = user->lCoor;
@@ -203,22 +269,9 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
                             if (o[a] - 1 < lo[a] || o[a] > hi[a]) continue;
                             cell[a] -= 1;
                         }
-                        Cell hex; // Vertex numbering of GetCellVerticesFromGrid()
-                        hex.vertices[0] = PICURV_AT(cell[0],     cell[1],     cell[2]);
-                        hex.vertices[1] = PICURV_AT(cell[0] + 1, cell[1],     cell[2]);
-                        hex.vertices[2] = PICURV_AT(cell[0] + 1, cell[1] + 1, cell[2]);
-                        hex.vertices[3] = PICURV_AT(cell[0],     cell[1] + 1, cell[2]);
-                        hex.vertices[4] = PICURV_AT(cell[0],     cell[1] + 1, cell[2] + 1);
-                        hex.vertices[5] = PICURV_AT(cell[0] + 1, cell[1] + 1, cell[2] + 1);
-                        hex.vertices[6] = PICURV_AT(cell[0] + 1, cell[1],     cell[2] + 1);
-                        hex.vertices[7] = PICURV_AT(cell[0],     cell[1],     cell[2] + 1);
-                        Cmpnts centroid = {0.0, 0.0, 0.0};
-                        for (int v = 0; v < 8; ++v) {
-                            centroid.x += hex.vertices[v].x;
-                            centroid.y += hex.vertices[v].y;
-                            centroid.z += hex.vertices[v].z;
-                        }
-                        centroid.x /= 8.0; centroid.y /= 8.0; centroid.z /= 8.0;
+                        Cell hex;
+                        MetricGatherHexVertices(X, info, cell[0], cell[1], cell[2], &hex);
+                        const Cmpnts centroid = MetricHexCentroid(&hex);
                         // The face at o in the vertex order of the minus face (LEFT, BOTTOM, BACK) of cell o.
                         PetscInt e1[3] = {0, 0, 0}, e2[3] = {0, 0, 0};
                         if (a == 0) { e1[2] = 1; e2[1] = 1; }      // LEFT: o, o+k, o+j+k, o+j
@@ -243,14 +296,7 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
                     }
                     if (which == 0 && i >= lo[0] && i + 1 <= hi[0] && j >= lo[1] && j + 1 <= hi[1] && k >= lo[2] && k + 1 <= hi[2]) {
                         Cell hex;
-                        hex.vertices[0] = PICURV_AT(i,     j,     k);
-                        hex.vertices[1] = PICURV_AT(i + 1, j,     k);
-                        hex.vertices[2] = PICURV_AT(i + 1, j + 1, k);
-                        hex.vertices[3] = PICURV_AT(i,     j + 1, k);
-                        hex.vertices[4] = PICURV_AT(i,     j + 1, k + 1);
-                        hex.vertices[5] = PICURV_AT(i + 1, j + 1, k + 1);
-                        hex.vertices[6] = PICURV_AT(i + 1, j,     k + 1);
-                        hex.vertices[7] = PICURV_AT(i,     j,     k + 1);
+                        MetricGatherHexVertices(X, info, i, j, k, &hex);
                         PetscCall(GetCellCharacteristicSize(&hex, &size[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)]));
                     }
                 }
@@ -270,14 +316,18 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     // (the periodic face repair writes only the ghosts beyond the physical range, which none reads).
     PetscCall(VecRestoreArray(user->lSearchCellSize, &size));
     for (int which = 0; which < 2; ++which) {
-        for (int f = 0; f < 6; ++f) PetscCall(VecRestoreArray(*locals[which][f], (PetscScalar **)&out[which][f]));
+        for (int f = 0; f < 6; ++f) {
+            FieldView view;
+            PetscCall(FieldGetView(user, kFacePlaneVectorFields[which][f / 3][f % 3], &view));
+            PetscCall(VecRestoreArray(view.local_vec, (PetscScalar **)&out[which][f]));
+        }
     }
     for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
         FieldView view;
         const PetscScalar *local = NULL;
         PetscScalar       *global = NULL;
-        const PetscInt     dof = (kFacePlaneFields[f] == FIELD_ID_SEARCH_CELL_SIZE) ? 1 : 3;
         PetscCall(FieldGetView(user, kFacePlaneFields[f], &view));
+        const PetscInt     dof = view.descriptor->dof;
         // Copy the owned block (DMLocalToGlobal cannot insert on a periodic axis held by one rank).
         PetscCall(VecGetArrayRead(view.local_vec, &local));
         PetscCall(VecGetArray(view.global_vec, &global));
@@ -307,10 +357,11 @@ PetscErrorCode MetricDestroyFacePlanes(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
-        const FieldDescriptor *descriptor = NULL;
-        PetscCall(FieldGetDescriptor(kFacePlaneFields[f], &descriptor));
-        PetscCall(VecDestroy((Vec *)((char *)user + descriptor->global_vec_offset)));
-        PetscCall(VecDestroy((Vec *)((char *)user + descriptor->local_vec_offset)));
+        DM  dm;
+        Vec *global, *local;
+        PetscCall(FacePlaneFieldSlots(user, kFacePlaneFields[f], &dm, &global, &local));
+        PetscCall(VecDestroy(global));
+        PetscCall(VecDestroy(local));
     }
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
@@ -330,13 +381,7 @@ PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlane
     PetscCheck(user->lSearchCellSize, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Particle face planes are not built: MetricComputeFacePlanes() runs in CalculateAllGridMetrics() "
                "for a particle run, collectively, once the grid is final.");
-    if (dual) {
-        normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
-        centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
-    } else {
-        normals[0] = user->lPlaneNormalI; normals[1] = user->lPlaneNormalJ; normals[2] = user->lPlaneNormalK;
-        centroids[0] = user->lPlaneCentroidI; centroids[1] = user->lPlaneCentroidJ; centroids[2] = user->lPlaneCentroidK;
-    }
+    MetricFacePlaneLocals(user, dual, normals, centroids);
     arrays->dual = dual;
     for (int a = 0; a < 3; ++a) {
         PetscCall(VecGetArrayRead(normals[a], (const PetscScalar **)&arrays->normal[a]));
@@ -358,13 +403,7 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
     Vec normals[3], centroids[3];
 
     PetscFunctionBeginUser;
-    if (arrays->dual) {
-        normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
-        centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
-    } else {
-        normals[0] = user->lPlaneNormalI; normals[1] = user->lPlaneNormalJ; normals[2] = user->lPlaneNormalK;
-        centroids[0] = user->lPlaneCentroidI; centroids[1] = user->lPlaneCentroidJ; centroids[2] = user->lPlaneCentroidK;
-    }
+    MetricFacePlaneLocals(user, arrays->dual, normals, centroids);
     for (int a = 0; a < 3; ++a) {
         PetscCall(VecRestoreArrayRead(normals[a], (const PetscScalar **)&arrays->normal[a]));
         PetscCall(VecRestoreArrayRead(centroids[a], (const PetscScalar **)&arrays->centroid[a]));
@@ -550,8 +589,8 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
 
 /////////////////////////////////////////////////////////////////////////////////
 /**
- * @brief Internal helper implementation: `InvertCovariantMetricTensor()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InvertCovariantMetricTensor().
+ * @see InvertCovariantMetricTensor()
  */
 PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3])
 {
@@ -599,8 +638,8 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
 
 
 /**
- * @brief Internal helper implementation: `CalculateFaceNormalAndArea()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CalculateFaceNormalAndArea().
+ * @see CalculateFaceNormalAndArea()
  */
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
 {
@@ -643,8 +682,8 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
 }
 
 /**
- * @brief Internal helper implementation: `ComputeCellCharacteristicLengthScale()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeCellCharacteristicLengthScale().
+ * @see ComputeCellCharacteristicLengthScale()
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
 {
@@ -733,8 +772,8 @@ PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmp
 
 /* -------------------------------------------------------------------------- */
 /**
- * @brief Internal helper implementation: `CheckAndFixGridOrientation()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CheckAndFixGridOrientation().
+ * @see CheckAndFixGridOrientation()
  */
 PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 {
@@ -786,8 +825,8 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToCellCenters()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyPeriodicCorrectionsToCellCenters().
+ * @see ApplyPeriodicCorrectionsToCellCenters()
  */
 PetscErrorCode ApplyPeriodicCorrectionsToCellCenters(UserCtx *user)
 {
@@ -845,8 +884,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCenters(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToIFaceCenter()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyPeriodicCorrectionsToIFaceCenter().
+ * @see ApplyPeriodicCorrectionsToIFaceCenter()
  */
 PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 {
@@ -861,8 +900,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToJFaceCenter()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyPeriodicCorrectionsToJFaceCenter().
+ * @see ApplyPeriodicCorrectionsToJFaceCenter()
  */
 PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 {
@@ -877,8 +916,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToKFaceCenter()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyPeriodicCorrectionsToKFaceCenter().
+ * @see ApplyPeriodicCorrectionsToKFaceCenter()
  */
 PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 {
@@ -892,8 +931,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeFaceMetrics()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeFaceMetrics().
+ * @see ComputeFaceMetrics()
  */
 PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 {
@@ -1246,8 +1285,8 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `ComputeCellCenters()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeCellCenters().
+ * @see ComputeCellCenters()
  */
 PetscErrorCode ComputeCellCenters(UserCtx *user)
 {
@@ -1323,18 +1362,15 @@ PetscErrorCode ComputeCellCenters(UserCtx *user)
 PetscErrorCode ComputeGridLineFractions(UserCtx *user, Vec fraction, Vec length)
 {
     const DMDALocalInfo *info = &user->info;
-    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
-    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
-    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
-    const PetscInt lo[3] = {(xs == 0) ? 1 : xs, (ys == 0) ? 1 : ys, (zs == 0) ? 1 : zs};
-    const PetscInt hi[3] = {(xe == mx) ? mx - 1 : xe, (ye == my) ? my - 1 : ye, (ze == mz) ? mz - 1 : ze};
-    const PetscInt start[3] = {xs, ys, zs}, nodes[3] = {mx, my, mz};
+    const PetscInt start[3] = {info->xs, info->ys, info->zs}, nodes[3] = {info->mx, info->my, info->mz};
+    PetscInt lo[3], hi[3];
     const Cmpnts ***csi, ***eta, ***zet;
     const PetscReal ***aj;
     Cmpnts ***frac, ***len;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+    GetOwnedInteriorCellBounds(info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
@@ -1397,8 +1433,8 @@ PetscErrorCode ComputeGridLineFractions(UserCtx *user, Vec fraction, Vec length)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeIFaceMetrics()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeIFaceMetrics().
+ * @see ComputeIFaceMetrics()
  */
 PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 {
@@ -1604,8 +1640,8 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeJFaceMetrics()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeJFaceMetrics().
+ * @see ComputeJFaceMetrics()
  */
 PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 {
@@ -1795,8 +1831,8 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeKFaceMetrics()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeKFaceMetrics().
+ * @see ComputeKFaceMetrics()
  */
 PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 {
@@ -2005,8 +2041,8 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeMetricsDivergence()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeMetricsDivergence().
+ * @see ComputeMetricsDivergence()
  */
 PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
 {
@@ -2095,8 +2131,8 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ComputeMetricNorms()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeMetricNorms().
+ * @see ComputeMetricNorms()
  */
 PetscErrorCode ComputeMetricNorms(UserCtx *user)
 {
@@ -2225,8 +2261,8 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `CalculateAllGridMetrics()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CalculateAllGridMetrics().
+ * @see CalculateAllGridMetrics()
  */
 PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
 {

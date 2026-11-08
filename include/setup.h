@@ -350,6 +350,28 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt *xm_cell_local_out);
 
 /**
+ * @brief Index bounds of the interior cells this rank owns in the solver's cell-centred
+ *        layout: the owned range with the dummy layer at index 0 and at index m-1 removed.
+ * @details `lo[a] <= c < hi[a]` along each axis. A periodic axis is treated like a walled
+ *          one: its seam face at index 0 is not included, and callers that set it extend
+ *          the range themselves.
+ * @param[in]  info Local info of the block's da (or fda; they share the decomposition).
+ * @param[out] lo   First owned interior index along i, j, k.
+ * @param[out] hi   One past the last owned interior index along i, j, k.
+ */
+static inline void GetOwnedInteriorCellBounds(const DMDALocalInfo *info, PetscInt lo[3], PetscInt hi[3])
+{
+    const PetscInt m[3] = {info->mx, info->my, info->mz};
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+
+    for (PetscInt a = 0; a < 3; a++) {
+        lo[a] = (start[a] == 0) ? 1 : start[a];
+        hi[a] = (end[a] == m[a]) ? m[a] - 1 : end[a];
+    }
+}
+
+/**
  * @brief Computes and stores the Cartesian neighbor ranks for the DMDA decomposition.
  *
  * This function retrieves the neighbor information from the primary DMDA (user->da)

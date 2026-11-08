@@ -5,28 +5,53 @@
 #include "logging.h"
 #include "Metric.h"
 #include  "BodyForces.h"
+#include "poisson.h"   // POISSON_SOLID_THRESHOLD and the face gradient shared with the projection
+
+/** Cells whose `nvert` exceeds this are blanked inner-body cells, which convect as fluid. */
+#define RHS_INNER_BLANK 7.0
+
+/**
+ * @brief Whether a cell takes part in convection: fluid, or a blanked inner-body cell. A face
+ *        next to any other cell takes ComputeConvection()'s one-sided QUICK stencil.
+ * @param[in] nvert The cell's solid field.
+ * @return PETSC_TRUE for `nvert < POISSON_SOLID_THRESHOLD` or `nvert > RHS_INNER_BLANK`.
+ */
+static inline PetscBool RHSConvectsAsFluid(PetscReal nvert)
+{
+    return (PetscBool)(nvert < POISSON_SOLID_THRESHOLD || nvert > RHS_INNER_BLANK);
+}
+
+/**
+ * @brief Whether a cell is a blanked solid cell, which ComputeViscous()'s transverse
+ *        differences avoid with a one-sided stencil.
+ * @param[in] nvert The cell's solid field.
+ * @return PETSC_TRUE for `0.5 < nvert < RHS_INNER_BLANK`.
+ */
+static PICURV_ALWAYS_INLINE PetscBool RHSIsBlankedSolid(PetscReal nvert)
+{
+    return (PetscBool)(nvert > 0.5 && nvert < RHS_INNER_BLANK);
+}
 
 /**
  * @brief Computes the viscous contribution to the contravariant momentum RHS.
  *
  * This routine evaluates diffusive fluxes on the curvilinear grid and writes the
- * resulting term into `Visc`. The caller is responsible for providing compatible
- * vectors and for assembling any additional source terms afterwards.
+ * resulting term into `Visc`, which it zeroes first. The caller is responsible for
+ * providing compatible vectors and for assembling any additional source terms afterwards.
  *
  * @param[in]  user  Block-level solver context containing metrics and model parameters.
- * @param[in]  Ucont Contravariant velocity field used by the discretization.
- * @param[in]  Ucat  Cartesian velocity field used for derivative evaluation.
+ * @param[in]  Ucat  Ghosted Cartesian velocity field used for derivative evaluation.
  * @param[out] Visc  Output vector receiving the viscous RHS contribution.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
+PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucat, Vec Visc);
 
 /**
  * @brief Computes the convective contribution to the contravariant momentum RHS.
  *
  * This routine evaluates the advection operator on the current velocity state and
- * stores the contribution in `Conv` for subsequent combination with viscous and
- * body-force terms.
+ * stores the contribution in `Conv`, which it zeroes first, for subsequent combination
+ * with viscous and body-force terms.
  *
  * @param[in]  user  Block-level solver context containing metrics and numerics settings.
  * @param[in]  Ucont Contravariant velocity field used in face-normal flux construction.
