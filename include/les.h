@@ -79,7 +79,15 @@ PetscReal SymTensorContract(SymTensor a, SymTensor b);
  * @param[in] v Vector to apply it to.
  * @return The resulting vector.
  */
-Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v);
+static inline Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v)
+{
+    Cmpnts result;
+
+    result.x = t.xx * v.x + t.xy * v.y + t.xz * v.z;
+    result.y = t.xy * v.x + t.yy * v.y + t.yz * v.z;
+    result.z = t.xz * v.x + t.yz * v.y + t.zz * v.z;
+    return result;
+}
 
 /**
  * @brief Returns the squared Frobenius norm `t_ij t_ij`.

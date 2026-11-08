@@ -1,37 +1,17 @@
 #include "rhs.h"
-#include "poisson.h"   /* the face gradient shared with the projection */
-#include "verification_sources.h"
 #include "les.h"   /* SymTensor kernels for the gradient (Clark) closure term */
 
-/** @brief Owned-cell bounds of the residual: interior cells, excluding the dummy layers. */
-static inline void RHSInteriorBounds(const DMDALocalInfo *info, PetscInt lo[3], PetscInt hi[3])
+/** @brief Velocity at `c + p e_b + q e_n`, the Cartesian counterpart of PoissonOperator_AtBN(). */
+static PICURV_ALWAYS_INLINE Cmpnts RHSVelocityAtBN(const Cmpnts ***ucat, const PetscInt c[3],
+                                                   PetscInt b, PetscInt p, PetscInt n, PetscInt q)
 {
-    const PetscInt m[3] = {info->mx, info->my, info->mz};
-    const PetscInt start[3] = {info->xs, info->ys, info->zs};
-    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
-
-    for (PetscInt a = 0; a < 3; a++) {
-        lo[a] = (start[a] == 0) ? 1 : start[a];
-        hi[a] = (end[a] == m[a]) ? m[a] - 1 : end[a];
-    }
-}
-
-/** Cells whose `nvert` exceeds this are blanked inner-body cells, which convect as fluid. */
-#define RHS_INNER_BLANK 7.0
-
-/** @brief Whether a cell takes part in convection: fluid, or a blanked inner-body cell. */
-static inline PetscBool RHSConvectsAsFluid(PetscReal nvert)
-{
-    return (PetscBool)(nvert < 0.1 || nvert > RHS_INNER_BLANK);
+    return ucat[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
 }
 
 /** @brief Cartesian velocity at cell @p c displaced by @p d along axis @p n. */
 static inline Cmpnts RHSVelocityAt(const Cmpnts ***ucat, const PetscInt c[3], PetscInt n, PetscInt d)
 {
-    PetscInt cc[3] = {c[0], c[1], c[2]};
-
-    cc[n] += d;
-    return ucat[cc[2]][cc[1]][cc[0]];
+    return RHSVelocityAtBN(ucat, c, n, d, n, 0);
 }
 
 /**
@@ -90,7 +70,7 @@ static inline Cmpnts RHSConvectiveFaceFlux(const Cmpnts ***ucat, const PetscReal
     /* The cell below exists in the local array everywhere but at s = 0 on a bounded axis. */
     const PetscBool has_m = (PetscBool)(s > 0 || periodic);
     const PetscReal nv_m = has_m ? nvert[c[2] - (n == 2)][c[1] - (n == 1)][c[0] - (n == 0)] : 0.0;
-    const PetscBool full_seam = (PetscBool)(periodic && nv_m < 0.1 && nv_p < 0.1);
+    const PetscBool full_seam = (PetscBool)(periodic && nv_m < POISSON_SOLID_THRESHOLD && nv_p < POISSON_SOLID_THRESHOLD);
 
     if (s > 0 && s < m - 2 && RHSConvectsAsFluid(nv_p) && RHSConvectsAsFluid(nv_m)) {
         return central ? RHSCentralFlux(ucat, c, n, ucon) : RHSQuickFlux(ucat, c, n, ucon, -1, 2);
@@ -98,10 +78,10 @@ static inline Cmpnts RHSConvectiveFaceFlux(const Cmpnts ***ucat, const PetscReal
     if (central && (s == 0 || s == m - 2) && RHSConvectsAsFluid(nv_p) && RHSConvectsAsFluid(nv_0)) {
         return RHSCentralFlux(ucat, c, n, ucon);
     }
-    if (s < m - 2 && (s == 0 || nv_m > 0.1)) {
+    if (s < m - 2 && (s == 0 || nv_m > POISSON_SOLID_THRESHOLD)) {
         return RHSQuickFlux(ucat, c, n, ucon, (full_seam && s == 0) ? -1 : 0, 2);
     }
-    if (s > 0 && (s == m - 2 || nv_p > 0.1)) {
+    if (s > 0 && (s == m - 2 || nv_p > POISSON_SOLID_THRESHOLD)) {
         return RHSQuickFlux(ucat, c, n, ucon, -1, (full_seam && s == m - 2) ? 2 : 1);
     }
     return zero;
@@ -128,7 +108,7 @@ PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    RHSInteriorBounds(info, lo, hi);
+    GetOwnedInteriorCellBounds(info, lo, hi);
     PoissonOperator_PeriodicAxes(user, periodic);
     PetscCall(PreparePeriodicQuickStencilFields(user, Ucat, user->lNvert));
     PetscCall(VecSet(Conv, 0.0));
@@ -190,44 +170,24 @@ PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
         PetscCall(DMDAVecRestoreArray(user->fda, Fp[n], &fp[n]));
         PetscCall(DMRestoreLocalVector(user->fda, &Fp[n]));
     }
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Convective term calculated .\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Convective term calculated.\n");
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-/** @brief Whether a cell is a blanked solid cell, which one-sided viscous differences avoid. */
-static PICURV_ALWAYS_INLINE PetscBool RHSIsBlankedSolid(PetscReal nvert)
-{
-    return (PetscBool)(nvert > 0.5 && nvert < RHS_INNER_BLANK);
-}
-
-/** @brief Velocity at `c + p e_b + q e_n`, for the transverse stencils below. */
-static PICURV_ALWAYS_INLINE Cmpnts RHSVelocityAtBN(const Cmpnts ***ucat, const PetscInt c[3],
-                                                   PetscInt b, PetscInt p, PetscInt n, PetscInt q)
-{
-    return ucat[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
-}
-
-/** @brief Solid field at `c + p e_b + q e_n`. */
-static PICURV_ALWAYS_INLINE PetscReal RHSNvertAtBN(const PetscReal ***nvert, const PetscInt c[3],
-                                                   PetscInt b, PetscInt p, PetscInt n, PetscInt q)
-{
-    return nvert[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
-}
-
-/** @brief `(u(c+hi e_b+e_n) + u(c+hi e_b) - u(c+lo e_b+e_n) - u(c+lo e_b)) * weight`. */
+/** @brief `(u(c+hi e_b+e_n) + u(c+hi e_b) - u(c+lo e_b+e_n) - u(c+lo e_b)) * weight`, for @p diff's rows and weight. */
 static PICURV_ALWAYS_INLINE Cmpnts RHSTransverseVelocityDifference(const Cmpnts ***ucat, const PetscInt c[3],
-                                                                   PetscInt n, PetscInt b, PetscInt lo,
-                                                                   PetscInt hi, PetscReal weight)
+                                                                   PetscInt n, PetscInt b,
+                                                                   PoissonTransverseDifference diff)
 {
-    const Cmpnts a1 = RHSVelocityAtBN(ucat, c, b, hi, n, 1), a0 = RHSVelocityAtBN(ucat, c, b, hi, n, 0);
-    const Cmpnts b1 = RHSVelocityAtBN(ucat, c, b, lo, n, 1), b0 = RHSVelocityAtBN(ucat, c, b, lo, n, 0);
+    const Cmpnts a1 = RHSVelocityAtBN(ucat, c, b, diff.hi, n, 1), a0 = RHSVelocityAtBN(ucat, c, b, diff.hi, n, 0);
+    const Cmpnts b1 = RHSVelocityAtBN(ucat, c, b, diff.lo, n, 1), b0 = RHSVelocityAtBN(ucat, c, b, diff.lo, n, 0);
     Cmpnts       d;
 
-    d.x = (a1.x + a0.x - b1.x - b0.x) * weight;
-    d.y = (a1.y + a0.y - b1.y - b0.y) * weight;
-    d.z = (a1.z + a0.z - b1.z - b0.z) * weight;
+    d.x = (a1.x + a0.x - b1.x - b0.x) * diff.weight;
+    d.y = (a1.y + a0.y - b1.y - b0.y) * diff.weight;
+    d.z = (a1.z + a0.z - b1.z - b0.z) * diff.weight;
     return d;
 }
 
@@ -239,11 +199,13 @@ static PICURV_ALWAYS_INLINE Cmpnts RHSTransverseVelocityDifference(const Cmpnts 
 static PICURV_ALWAYS_INLINE Cmpnts RHSTransverseFaceDifference(const Cmpnts ***ucat, const PetscReal ***nvert,
                                                                const PetscInt c[3], PetscInt n, PetscInt b)
 {
-    if (RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, 1, n, 0)) || RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, 1, n, 1)))
-        return RHSTransverseVelocityDifference(ucat, c, n, b, -1, 0, 0.5);
-    if (RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, -1, n, 0)) || RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, -1, n, 1)))
-        return RHSTransverseVelocityDifference(ucat, c, n, b, 0, 1, 0.5);
-    return RHSTransverseVelocityDifference(ucat, c, n, b, -1, 1, 0.25);
+    static const PoissonTransverseDifference lower = {-1, 0, 0.5}, upper = {0, 1, 0.5}, central = {-1, 1, 0.25};
+
+    if (RHSIsBlankedSolid(PoissonOperator_AtBN(nvert, c, b, 1, n, 0)) || RHSIsBlankedSolid(PoissonOperator_AtBN(nvert, c, b, 1, n, 1)))
+        return RHSTransverseVelocityDifference(ucat, c, n, b, lower);
+    if (RHSIsBlankedSolid(PoissonOperator_AtBN(nvert, c, b, -1, n, 0)) || RHSIsBlankedSolid(PoissonOperator_AtBN(nvert, c, b, -1, n, 1)))
+        return RHSTransverseVelocityDifference(ucat, c, n, b, upper);
+    return RHSTransverseVelocityDifference(ucat, c, n, b, central);
 }
 
 /**
@@ -345,7 +307,7 @@ static PICURV_ALWAYS_INLINE void RHSViscousFluxesAlong(const UserCtx *user, cons
         for (PetscInt j = flo[1]; j < hi[1]; j++) {
             for (PetscInt i = flo[0]; i < hi[0]; i++) {
                 const PetscInt c[3] = {i, j, k};
-                double         nu = 1./ren, nu_t = 0;
+                PetscReal      nu = 1./ren, nu_t = 0;
                 Cmpnts         d[3];
 
                 if (les) {
@@ -371,7 +333,7 @@ static PICURV_ALWAYS_INLINE void RHSViscousFluxesAlong(const UserCtx *user, cons
  *          the header declaration in `include/rhs.h`.
  * @see ComputeViscous()
  */
-PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
+PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucat, Vec Visc)
 {
     const SimCtx        *simCtx = user->simCtx;
     const DMDALocalInfo *info = &user->info;
@@ -387,8 +349,7 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    (void)Ucont;
-    RHSInteriorBounds(info, lo, hi);
+    GetOwnedInteriorCellBounds(info, lo, hi);
     PetscCall(VecSet(Visc, 0.0));
     for (PetscInt n = 0; n < 3; n++) {
         PetscCall(DMGetLocalVector(user->fda, &Fp[n]));
@@ -439,37 +400,26 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
         PetscCall(DMDAVecRestoreArray(user->fda, Fp[n], &fp[n]));
         PetscCall(DMRestoreLocalVector(user->fda, &Fp[n]));
     }
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Viscous terms calculated .\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Viscous terms calculated.\n");
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `ComputeBodyForces()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeBodyForces().
+ * @details A body force added here follows the contract in include/BodyForces.h: this runs once
+ *          per residual evaluation, not once per step, so a force that carries state across calls
+ *          (a filter, ramp, moving average, or integral term) gates its update on `simCtx->step`.
+ * @see ComputeBodyForces()
  */
 PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 {
-	PetscErrorCode ierr;
     PetscFunctionBeginUser;
-	PROFILE_HELPER_BEGIN;
-
-    // --- 1. Apply momentum source for driven channel/pipe flows ---
-    // This function will internally check if a driven flow BC is active.
-    ierr = ComputeDrivenChannelFlowSource(user, Rct); CHKERRQ(ierr);
-
-    // --- 2. (Future Extension) Apply gravitational force ---
-    // if (user->simCtx->gravityEnabled) {
-    //     ierr = ApplyGravitationalForce(user, Rhs); CHKERRQ(ierr);
-    // }
-    //
-    // Adding a body force here: see the contract in include/BodyForces.h.
-    // In particular, this function runs once per RESIDUAL EVALUATION, not once
-    // per timestep, so any force carrying state across calls (a filter, ramp,
-    // moving average, or integral term) must gate its update on simCtx->step.
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0); 
+    PROFILE_FUNCTION_BEGIN;
+    /* The driven channel/pipe momentum source; it does nothing unless a driven face is active. */
+    PetscCall(ComputeDrivenChannelFlowSource(user, Rct));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -485,7 +435,7 @@ static PetscErrorCode RHSContravariantSpatialTerms(UserCtx *user, Vec Conv, Vec 
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    RHSInteriorBounds(&user->info, lo, hi);
+    GetOwnedInteriorCellBounds(&user->info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&csi));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&eta));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&zet));
@@ -558,7 +508,7 @@ static PetscErrorCode RHSFaceTermsWithPressureGradient(UserCtx *user, Vec Rct, V
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    RHSInteriorBounds(info, interior_lo, interior_hi);
+    GetOwnedInteriorCellBounds(info, interior_lo, interior_hi);
     PoissonOperator_PeriodicAxes(user, periodic);
     PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
@@ -622,7 +572,7 @@ static PetscErrorCode RHSZeroInactiveRows(UserCtx *user, Vec Rhs)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    RHSInteriorBounds(&user->info, lo, hi);
+    GetOwnedInteriorCellBounds(&user->info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
     PetscCall(DMDAVecGetArray(user->fda, Rhs, &rhs));
     for (PetscInt k = lo[2]; k < hi[2]; k++) {
@@ -631,12 +581,12 @@ static PetscErrorCode RHSZeroInactiveRows(UserCtx *user, Vec Rhs)
                 if (two_d == 1)      rhs[k][j][i].x = 0.0;
                 else if (two_d == 2) rhs[k][j][i].y = 0.0;
                 else if (two_d == 3) rhs[k][j][i].z = 0.0;
-                if (nvert[k][j][i] > 0.1) {
+                if (nvert[k][j][i] > POISSON_SOLID_THRESHOLD) {
                     rhs[k][j][i].x = 0.0; rhs[k][j][i].y = 0.0; rhs[k][j][i].z = 0.0;
                 }
-                if (nvert[k][j][i+1] > 0.1) rhs[k][j][i].x = 0.0;
-                if (nvert[k][j+1][i] > 0.1) rhs[k][j][i].y = 0.0;
-                if (nvert[k+1][j][i] > 0.1) rhs[k][j][i].z = 0.0;
+                if (nvert[k][j][i+1] > POISSON_SOLID_THRESHOLD) rhs[k][j][i].x = 0.0;
+                if (nvert[k][j+1][i] > POISSON_SOLID_THRESHOLD) rhs[k][j][i].y = 0.0;
+                if (nvert[k+1][j][i] > POISSON_SOLID_THRESHOLD) rhs[k][j][i].z = 0.0;
             }
         }
     }
@@ -659,12 +609,14 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Computing RHS (FormFunction1)...\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Computing RHS...\n",
               user->simCtx->rank, user->_this);
-    /* Work vectors from fda's pool, zeroed as fresh vectors would be: the residual is evaluated
-       many times per step, and allocating them each time costs more than the zeroing. */
-    PetscCall(DMGetLocalVector(user->fda, &Conv)); PetscCall(VecZeroEntries(Conv));
-    PetscCall(DMGetLocalVector(user->fda, &Visc)); PetscCall(VecZeroEntries(Visc));
+    /* Work vectors from fda's pool: the residual is evaluated many times per step, and
+       allocating them each time costs more than zeroing them. ComputeConvection() and
+       ComputeViscous() zero their own outputs; the rest are zeroed here, as fresh vectors
+       would be. */
+    PetscCall(DMGetLocalVector(user->fda, &Conv));
+    PetscCall(DMGetLocalVector(user->fda, &Visc));
     PetscCall(DMGetLocalVector(user->fda, &Rct));  PetscCall(VecZeroEntries(Rct));
 
     /* Cartesian velocity, with its periodic copies and ghosts, from the contravariant flux. */
@@ -677,7 +629,9 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, Conv));
     if (!user->simCtx->invicid) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating viscous terms...\n");
-        PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, Visc));
+        PetscCall(ComputeViscous(user, user->lUcat, Visc));
+    } else {
+        PetscCall(VecZeroEntries(Visc));
     }
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Converting Cartesian RHS to Contravariant RHS...\n");
     PetscCall(RHSContravariantSpatialTerms(user, Conv, Visc, Rct));
@@ -688,7 +642,6 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Adding pressure gradient term to RHS...\n");
     PetscCall(RHSFaceTermsWithPressureGradient(user, Rct, Rhs));
     PetscCall(RHSZeroInactiveRows(user, Rhs));
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Final cleanup and edge-cases complete .\n");
 
     PetscCall(DMRestoreLocalVector(user->fda, &Rct));
     PetscCall(DMRestoreLocalVector(user->fda, &Visc));

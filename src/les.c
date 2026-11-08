@@ -220,24 +220,6 @@ PetscReal SymTensorContract(SymTensor a, SymTensor b)
 }
 
 /**
- * @brief Implementation of \ref SymTensorTimesVector().
- * @details Full API contract is documented with the header declaration in
- *          `include/les.h`.
- * @see SymTensorTimesVector()
- */
-Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v)
-{
-    PROFILE_HELPER_BEGIN;
-    Cmpnts result;
-
-    result.x = t.xx * v.x + t.xy * v.y + t.xz * v.z;
-    result.y = t.xy * v.x + t.yy * v.y + t.yz * v.z;
-    result.z = t.xz * v.x + t.yz * v.y + t.zz * v.z;
-    PROFILE_HELPER_END;
-    return result;
-}
-
-/**
  * @brief Implementation of \ref SymTensorNormSq().
  * @details Full API contract is documented with the header declaration in
  *          `include/les.h`.
