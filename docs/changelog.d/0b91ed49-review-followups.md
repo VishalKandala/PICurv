@@ -1,0 +1,5 @@
+- Follow-ups to the cleanup review, where noise-level result changes were accepted for simpler code:
+  - one PICGRID reader, `picurv_cli/picgrid.py`, now serves the conductor and every generator, and grid staging refuses a non-finite coordinate;
+  - `particles_per_cell`, source constants, inlet fluctuation `length_scales` and `time_scale`, and the reducer friction `value` refuse inf and nan; an infinite `particles_per_cell` is reported instead of ending in an OverflowError;
+  - Brownian increments come from the shared keyed normal pairs in `expression.c`: still keyed on (seed, PID, step), but a different realization of the same distribution, so trajectories differ from earlier builds while statistics agree (MSD within 0.11% of the Einstein relation at 50,000 particles, against 0.08% before);
+  - a recipe ensemble of a dimensionalized post run is no longer unscaled and rescaled; this also fixes homogeneous profiles of an ensemble pairing an ordinary field with a particle-sampled one, whose occupied-state mean was left scaled.
