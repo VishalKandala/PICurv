@@ -1091,7 +1091,7 @@ typedef struct SimCtx {
     PetscReal walltimeGuardEWMASeconds;
     PetscReal walltimeGuardLatestStepSeconds;
     PetscBool runtimeMemoryLogEnabled;               /**< Enable the rank-reduced runtime memory log (log_dir/Runtime_Memory.csv). */
-    PetscBool runtimeMemoryLogStarted;               /**< True after rank 0 writes the log header. */
+    PetscBool runtimeMemoryLogStarted;               /**< Rank 0 only: true once this run has written its first sample (and, in a continuation, the marker before it). */
     PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
     PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */
     PetscReal lastStepWallSeconds;                   /**< Slowest rank's wall time of the last completed step (0 before one). */

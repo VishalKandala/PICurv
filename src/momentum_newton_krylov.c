@@ -144,28 +144,23 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
 
 /**
  * @brief Opens one of the block's Newton CSV records on rank 0, or returns NULL.
- * @details A fresh run's first step truncates the file; the header is written to an empty file,
- *          and a continued run's first step marks the seam. A failure only warns: these files
- *          are diagnostics, and must not change the solve's error behaviour.
+ * @details PicurvOpenRunCsv() owns the lifecycle: a fresh run's first step truncates the file,
+ *          the header is written to an empty file, and a continued run's first step marks the
+ *          seam. A failure only warns: these files are diagnostics, and must not change the
+ *          solve's error behaviour.
  */
 static FILE *MomentumNewtonKrylov_OpenCsv(const MomentumNewtonKrylovContext *ctx, const char *kind, const char *header)
 {
     PROFILE_HELPER_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
-    char path[PETSC_MAX_PATH_LEN + 128];
-    const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
-    FILE *file;
+    char name[128];
+    FILE *file = NULL;
 
-    if (PetscSNPrintf(path, sizeof(path), "%s/Momentum_Solver_Newton_Krylov_%s_Block_%d.csv",
-                      simCtx->log_dir, kind, (int)ctx->user->_this)) { PROFILE_HELPER_END; return NULL; }
-    file = fopen(path, (first_step && !simCtx->continueMode) ? "w" : "a");
-    if (!file) {
-        LOG(GLOBAL, LOG_WARNING, "Could not open Newton %s log '%s'.\n", kind, path);
-        PROFILE_HELPER_END;
-        return NULL;
+    if (PetscSNPrintf(name, sizeof(name), "Momentum_Solver_Newton_Krylov_%s_Block_%d.csv", kind, (int)ctx->user->_this) ||
+        PicurvOpenRunCsv(simCtx, simCtx->log_dir, name, header, PICURV_CSV_TRUNCATE_ON_FRESH,
+                         (PetscBool)(simCtx->step == simCtx->StartStep + 1), PETSC_FALSE, &file)) {
+        file = NULL;
     }
-    if (ftell(file) == 0) (void)fprintf(file, "%s\n", header);
-    if (simCtx->continueMode && first_step) (void)fprintf(file, "# Continuation from step %d\n", (int)simCtx->StartStep);
     PROFILE_HELPER_END;
     return file;
 }

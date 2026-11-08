@@ -822,22 +822,14 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
     monitor->log_to_console = (PetscBool)(simCtx->ps_ksp_pic_monitor_true_residual && get_log_level() >= LOG_INFO);
     monitor->file_handle = NULL;
     if (simCtx->rank == 0) {
-        char filename[PETSC_MAX_PATH_LEN + 128];
+        char filename[128];
 
         PetscCall(PetscSNPrintf(filename, sizeof(filename),
-                                "%s/Poisson_Solver_Convergence_History_Block_%" PetscInt_FMT ".csv", simCtx->log_dir, bi));
-        monitor->file_handle = fopen(filename, (first_step && !simCtx->continueMode) ? "w" : "a");
-        PetscCheck(monitor->file_handle, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
-                   "Could not open KSP monitor log file: %s", filename);
+                                "Poisson_Solver_Convergence_History_Block_%" PetscInt_FMT ".csv", bi));
         /* true_norm and relative_norm are empty unless pic_true_residual asked for them. */
-        if (ftell(monitor->file_handle) == 0) {
-            PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
-                                   "step,block,iter,unpreconditioned_norm,true_norm,relative_norm\n"));
-        }
-        if (simCtx->continueMode && first_step) {
-            PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
-                                   "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep));
-        }
+        PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, filename,
+                                   "step,block,iter,unpreconditioned_norm,true_norm,relative_norm",
+                                   PICURV_CSV_TRUNCATE_ON_FRESH, first_step, PETSC_TRUE, &monitor->file_handle));
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

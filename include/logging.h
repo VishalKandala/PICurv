@@ -827,9 +827,9 @@ PetscErrorCode DualMonitorDestroy(void **ctx);
 /**
  * @brief Logs continuity metrics for a single block to a file.
  *
- * This function should be called for each block, once per timestep. It opens a
- * central log file in append mode. To ensure the header is written only once,
- * it checks if it is processing block 0 on the simulation's start step.
+ * This function should be called for each block, once per timestep. Rank 0 appends one row
+ * per block to `<log_dir>/Continuity_Metrics.csv` (see PicurvOpenDiagnosticsCsv()); only
+ * block 0 may write a continued run's continuation marker, so the marker appears once.
  *
  * @param user A pointer to the UserCtx for the specific block whose metrics
  *             are to be logged. The function accesses both global (SimCtx)
@@ -921,8 +921,8 @@ PetscErrorCode ProfilingResetTimestepCounters(void);
 /**
  * @brief Logs the performance summary for the current timestep and resets timers.
  *
- * Depending on the configured profiling timestep mode, this function writes
- * per-step profiling rows to the configured profiling log file:
+ * Depending on the configured profiling timestep mode, rank 0 writes per-step profiling rows to
+ * `<log_dir>/Profiling_Timestep_Summary.csv`, opened at its first row (see PicurvOpenRunCsv()):
  * - `off`: writes nothing
  * - `selected`: writes only functions marked for per-step reporting
  * - `all`: writes every instrumented function that ran in the timestep
@@ -942,8 +942,8 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step);
  * @brief Append a reduced runtime memory sample to the configured memory log.
  *
  * The log is intentionally compact: every rank samples process/PETSc allocator
- * memory, one max reduction summarizes the job, and rank 0 appends one
- * terminal-readable row.
+ * memory, one max reduction summarizes the job, and rank 0 appends one CSV row to
+ * `<log_dir>/Runtime_Memory.csv`, which is appended to and never truncated.
  *
  * @param simCtx The simulation context holding log directory and memory log settings.
  * @param step The solver/post step associated with the sample.
@@ -1144,31 +1144,69 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
 PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user);
 
 
+/** @brief What a run's first write does to an existing CSV record (see PicurvOpenRunCsv()). */
+typedef enum {
+    PICURV_CSV_APPEND = 0,       /**< Every run appends: earlier runs' rows are kept. */
+    PICURV_CSV_TRUNCATE_ON_FRESH /**< A fresh run's first write empties the file; a continued run appends. */
+} PicurvCsvLifecycle;
+
 /**
- * @brief Opens one of the run's CSV records (diagnostics or solver history) for appending.
+ * @brief Opens one of the run's CSV records (diagnostics, solver history, profiling) for writing.
  *
- * Every per-step file the solver writes shares this lifecycle rather than a schema: it
- * lives in the run's analysis directory (`simCtx->analysis_dir`, diagnostics) or log
- * directory (`simCtx->log_dir`, solver histories), is appended to across a run, carries
- * its column header (starting `step,`) only once, and marks with a
- * `# Continuation from step N` comment the seam where a continuation resumed, so a reader
- * can tell a restart from a discontinuity in the data. This owns that lifecycle; the
- * caller owns the columns.
+ * The record lives in `dir`: the run's analysis directory (`simCtx->analysis_dir`) or log
+ * directory (`simCtx->log_dir`). This owns the file's lifecycle; the caller owns the columns:
+ * - `header` (starting `step,` or `section,`) is written whenever the file is empty, so it
+ *   appears once, at the top;
+ * - on the run's first write (`first_write`), a `PICURV_CSV_TRUNCATE_ON_FRESH` record is
+ *   emptied first unless the run is a continuation (`simCtx->continueMode`), and a
+ *   continuation writes `# Continuation from step <StartStep>`, so a reader can tell a resumed
+ *   run from a discontinuity in the data. Every other call appends.
  *
- * Call on rank 0 only - the file is a serial artifact, and a collective write to it
- * would interleave. The caller closes the handle.
+ * The caller says which write is the run's first: for a record written every step from step
+ * `StartStep + 1`, the first call in that step; for one written at other times, its own
+ * started flag (Runtime_Memory.csv keeps `simCtx->runtimeMemoryLogStarted`). A file several
+ * calls write in one step passes `first_write` only to the first of them.
+ *
+ * Call on rank 0 only - the file is a serial artifact, and a collective write to it would
+ * interleave. The caller closes the handle.
+ *
+ * @param[in]  simCtx      Simulation context supplying the continuation state and `StartStep`.
+ * @param[in]  dir         Directory of the file.
+ * @param[in]  filename    Basename of the CSV, including the extension.
+ * @param[in]  header      Column header written to an empty file, without a trailing newline.
+ * @param[in]  lifecycle   Whether a fresh run's first write empties the file.
+ * @param[in]  first_write Whether this is the run's first write to the file.
+ * @param[in]  required    PETSC_TRUE: a file that cannot be opened is an error. PETSC_FALSE: it
+ *                         is a warning and `*file` is NULL, for a diagnostic whose loss must not
+ *                         stop or change the run.
+ * @param[out] file        Open handle positioned at the end of the file; NULL only when
+ *                         `required` is false and the file could not be opened.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if a required file cannot be opened.
+ */
+PetscErrorCode PicurvOpenRunCsv(const SimCtx *simCtx, const char *dir, const char *filename, const char *header,
+                                PicurvCsvLifecycle lifecycle, PetscBool first_write, PetscBool required,
+                                FILE **file);
+
+/**
+ * @brief Opens a per-step diagnostics CSV: PicurvOpenRunCsv() with the common settings.
+ *
+ * For a record written every step and kept across runs (`PICURV_CSV_APPEND`, required): the
+ * run's first write is the call in step `StartStep + 1` that passes `mark_continuation`.
  *
  * @param[in]  simCtx            Simulation context supplying the step and continuation state.
  * @param[in]  dir               Directory of the file (`simCtx->analysis_dir` or `simCtx->log_dir`).
  * @param[in]  filename          Basename of the CSV, including the extension.
- * @param[in]  header            Column header written when the file is created, without a
- *                               trailing newline.
- * @param[in]  mark_continuation Whether this call may write the continuation marker (on the
- *                               first step a continuation produces); a file several calls
- *                               write in one step lets only the first of them mark it.
+ * @param[in]  header            Column header written to an empty file, without a trailing newline.
+ * @param[in]  mark_continuation Whether this call may write the continuation marker; a file
+ *                               several calls write in one step lets only the first of them.
  * @param[out] file              Open append handle, never NULL on success.
  * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if the file cannot be opened.
  */
-PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *dir, const char *filename,
-                                        const char *header, PetscBool mark_continuation, FILE **file);
+static inline PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *dir, const char *filename,
+                                                      const char *header, PetscBool mark_continuation, FILE **file)
+{
+    const PetscBool first_write =
+        (PetscBool)(simCtx && mark_continuation && simCtx->step == simCtx->StartStep + 1);
+    return PicurvOpenRunCsv(simCtx, dir, filename, header, PICURV_CSV_APPEND, first_write, PETSC_TRUE, file);
+}
 #endif // LOGGING_H

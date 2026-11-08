@@ -777,8 +777,9 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
                                               const PetscReal *trial_ratio, PetscReal smoothed_ratio,
                                               const char *status)
 {
-    static PetscBool continuation_marked = PETSC_FALSE;
-    const PetscBool  first_row = (PetscBool)(simCtx->step == simCtx->StartStep + 1 && !continuation_marked);
+    /* A step's first row is its first trial's (pseudo_iter 1), so the run's first write is that
+       row in step StartStep + 1. */
+    const PetscBool first_row = (PetscBool)(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1);
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
@@ -786,15 +787,10 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
         char  name[128];
         FILE *f = NULL;
         PetscCall(PetscSNPrintf(name, sizeof(name), "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%" PetscInt_FMT ".csv", bi));
-        if (first_row && !simCtx->continueMode) {
-            char path[PETSC_MAX_PATH_LEN + 160];
-            PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->log_dir, name));
-            (void)remove(path); /* A fresh run starts its history afresh. */
-        }
-        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, name,
-                                           "step,pseudo_iter,dtau,cfl_eff,delta_norm,delta_rel,residual_norm,residual_rel,"
-                                           "trial_ratio,smoothed_ratio,status,dtau_after,cfl_eff_after",
-                                           first_row, &f));
+        PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, name,
+                                   "step,pseudo_iter,dtau,cfl_eff,delta_norm,delta_rel,residual_norm,residual_rel,"
+                                   "trial_ratio,smoothed_ratio,status,dtau_after,cfl_eff_after",
+                                   PICURV_CSV_TRUNCATE_ON_FRESH, first_row, PETSC_TRUE, &f));
         fprintf(f, "%d,%d,%.6e,%.4f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%s,%.6e,%.4f\n",
                 (int)simCtx->step, (int)pseudo_iter, (double)dtau, (double)(dtau * lambda_max),
                 (double)delta[bi], (double)delta_rel[bi], (double)resid[bi], (double)resid_rel[bi],
@@ -802,7 +798,6 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
                 (double)dtau_after, (double)(dtau_after * lambda_max));
         fclose(f);
     }
-    if (first_row) continuation_marked = PETSC_TRUE;
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
