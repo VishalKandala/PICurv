@@ -10,8 +10,8 @@
 static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec lcount, Vec gradient);
 
 /**
- * @brief Internal helper implementation: `UpdateParticleField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateParticleField().
+ * @see UpdateParticleField()
  */
 PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal dt,
@@ -36,8 +36,8 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
 }
 
 /**
- * @brief Internal helper implementation: `UpdateFieldForAllParticles()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateFieldForAllParticles().
+ * @see UpdateFieldForAllParticles()
  */
 PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_id)
 {
@@ -235,126 +235,53 @@ PetscErrorCode UpdateAllParticleFields(UserCtx *user)
  */
 PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    DM             da = user->da;
-    PetscInt       i, j, k, xs, ys, zs, xm, ym, zm, xe, ye, ze;
-	PetscInt       lxs, lys, lzs, lxe, lye, lze;
-
-    // Pointers for 3D grid access
-    PetscReal      ***diff_arr; // Output: Diffusivity field
-    PetscReal      ***nut_arr;  // Input:  Eddy Viscosity field (optional)
-
-    // Physics parameters
-    PetscReal      nu_molecular, gamma_molecular;
-    PetscReal      nu_turbulent, gamma_turbulent;
-    PetscReal      Sc, Sct;
-    PetscBool      use_turbulence_model;
+    const SimCtx       *simCtx = user->simCtx;
+    const DMDALocalInfo info = user->info;
+    // Grid uses indices 1 to M-2 for physical cells; index 0 and M-1 are boundary holders.
+    const PetscInt      lo[3] = {PetscMax(info.xs, 1), PetscMax(info.ys, 1), PetscMax(info.zs, 1)};
+    const PetscInt      hi[3] = {PetscMin(info.xs + info.xm, info.mx - 1), PetscMin(info.ys + info.ym, info.my - 1),
+                                 PetscMin(info.zs + info.zm, info.mz - 1)};
+    PetscReal        ***diff_arr = NULL;
+    const PetscReal  ***nut_arr = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
     if (VerificationDiffusivityOverrideActive(user->simCtx)) {
-        ierr = ApplyVerificationDiffusivityOverride(user); CHKERRQ(ierr);
+        PetscCall(ApplyVerificationDiffusivityOverride(user));
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
-    // ------------------------------------------------------------------------
-    // 1. Parameter Setup & Safety Checks
-    // ------------------------------------------------------------------------
-    
-    // Determine Molecular Viscosity (nu = 1/Re)
-    // Guard against division by zero if Re is not set or infinite (inviscid)
-    if (user->simCtx->ren > 1.0e-12) {
-        nu_molecular = 1.0 / user->simCtx->ren;
-    } else {
-        nu_molecular = 0.0;
-    }
+    // Gamma = nu / Sc + nu_t / Sc_t, with nu = 1/Re (0 when Re is unset or not positive) and the
+    // Schmidt numbers 1 and 0.7 when unset. The eddy viscosity enters only with LES; a dynamic
+    // model can give a slightly negative one, which is clipped to 0 so the Brownian amplitude
+    // sqrt(2 Gamma dt) stays real.
+    const PetscReal nu_molecular    = (simCtx->ren > 1.0e-12) ? 1.0 / simCtx->ren : 0.0;
+    const PetscReal Sc              = (simCtx->schmidt_number > 1.0e-6) ? simCtx->schmidt_number : 1.0;
+    const PetscReal Sct             = (simCtx->Turbulent_schmidt_number > 1.0e-6) ? simCtx->Turbulent_schmidt_number : 0.7;
+    const PetscReal gamma_molecular = nu_molecular / Sc;
+    const PetscBool use_turbulence_model = simCtx->les ? PETSC_TRUE : PETSC_FALSE;
 
-    // Set Schmidt Numbers (Default to 1.0 if not provided to prevent NaN)
-    Sc  = (user->simCtx->schmidt_number > 1.0e-6) ? user->simCtx->schmidt_number : 1.0;
-    Sct = (user->simCtx->Turbulent_schmidt_number > 1.0e-6) ? user->simCtx->Turbulent_schmidt_number : 0.7;
-
-    // Pre-calculate molecular component
-    gamma_molecular = nu_molecular / Sc;
-
-    // Check if a turbulence model is active
-    use_turbulence_model = user->simCtx->les ? PETSC_TRUE : PETSC_FALSE;
-
-    // ------------------------------------------------------------------------
-    // 2. Data Access
-    // ------------------------------------------------------------------------
-    
-    // Get local grid boundaries
-	DMDALocalInfo info;
-    info = user->info;
-
-	xs = info.xs; ys = info.ys; zs = info.zs;
-	xm = info.xm; ym = info.ym; zm = info.zm;
-	xe = xs + xm; ye = ys + ym; ze = zs + zm;
-
-	lxs = (xs == 0)? xs + 1 : xs;
-	lys = (ys == 0)? ys + 1 : ys;
-	lzs = (zs == 0)? zs + 1 : zs;
-	lxe = (xe == info.mx)? xe - 1 : xe;
-	lye = (ye == info.my)? ye - 1 : ye;
-	lze = (ze == info.mz)? ze - 1 : ze;
-
-    // Get write access to the output Diffusivity array
-    ierr = DMDAVecGetArray(da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
-
-    // Get read access to Eddy Viscosity only if turbulence is active
-    if (use_turbulence_model) {
-        ierr = DMDAVecGetArrayRead(da, user->Nu_t, &nut_arr); CHKERRQ(ierr);
-    }
-
-    // ------------------------------------------------------------------------
-    // 3. Calculation Loop
-    // ------------------------------------------------------------------------
-
-    for (k = lzs; k < lze; k++) {
-        for (j = lys; j < lye; j++) {
-            for (i = lxs; i < lxe; i++) {
-                
-                gamma_turbulent = 0.0;
-
-                if (use_turbulence_model) {
-                    // Fetch local eddy viscosity
-                    nu_turbulent = nut_arr[k][j][i];
-
-                    // NUMERICAL SAFETY: 
-                    // Some turbulence models (dynamic SGS) can locally produce 
-                    // slightly negative viscosity. We clamp this to 0 to prevent
-                    // negative diffusivity, which crashes the Langevin sqrt().
-                    if (nu_turbulent < 0.0) {
-                        nu_turbulent = 0.0;
-                    }
-
-                    gamma_turbulent = nu_turbulent / Sct;
-                }
-
-                // Sum components
+    PetscCall(DMDAVecGetArray(user->da, user->Diffusivity, &diff_arr));
+    if (use_turbulence_model) PetscCall(DMDAVecGetArrayRead(user->da, user->Nu_t, (void *)&nut_arr));
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                PetscReal gamma_turbulent = 0.0;
+                if (use_turbulence_model) gamma_turbulent = PetscMax(nut_arr[k][j][i], 0.0) / Sct;
                 diff_arr[k][j][i] = gamma_molecular + gamma_turbulent;
             }
         }
     }
+    if (use_turbulence_model) PetscCall(DMDAVecRestoreArrayRead(user->da, user->Nu_t, (void *)&nut_arr));
+    PetscCall(DMDAVecRestoreArray(user->da, user->Diffusivity, &diff_arr));
 
-    // ------------------------------------------------------------------------
-    // 4. Cleanup & Synchronization
-    // ------------------------------------------------------------------------
-
-    // Restore arrays
-    if (use_turbulence_model) {
-        ierr = DMDAVecRestoreArrayRead(da, user->Nu_t, &nut_arr); CHKERRQ(ierr);
-    }
-    ierr = DMDAVecRestoreArray(da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
-
-    // Update Ghost Points
-    // This is required because downstream operations (Drift Gradient Calculation 
-    // and Particle Interpolation) will need access to the halo regions of this field.
+    // The diffusivity gradient and the particle interpolation read the periodic dummy cells and
+    // the ghosts.
     const FieldId periodic_fields[] = {FIELD_ID_DIFFUSIVITY};
-    ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
-	ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
+    PetscCall(SynchronizePeriodicCellFields(user, 1, periodic_fields));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -432,8 +359,8 @@ static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec 
 }
 
 /**
- * @brief Internal helper implementation: `ComputeEulerianDiffusivityGradient()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeEulerianDiffusivityGradient().
+ * @see ComputeEulerianDiffusivityGradient()
  */
 PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
 {
