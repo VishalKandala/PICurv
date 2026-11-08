@@ -32,22 +32,10 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
 
     info = user->info;
 
-    // Get local and global grid dimensions
-    PetscInt xs = info.xs, xe = info.xs + info.xm;
-    PetscInt ys = info.ys, ye = info.ys + info.ym;
-    PetscInt zs = info.zs, ze = info.zs + info.zm;
-    PetscInt mx = info.mx, my = info.my, mz = info.mz;
-
-    // Determine loop bounds to compute for interior cells only, matching the code's convention.
-    // Start at index 1 if the process owns the global boundary at index 0.
-    PetscInt is = (xs == 0) ? 1 : xs;
-    PetscInt js = (ys == 0) ? 1 : ys;
-    PetscInt ks = (zs == 0) ? 1 : zs;
-
-    // Stop one cell short if the process owns the global boundary at the max index.
-    PetscInt ie = (xe == mx) ? xe - 1 : xe;
-    PetscInt je = (ye == my) ? ye - 1 : ye;
-    PetscInt ke = (ze == mz) ? ze - 1 : ze;
+    // Interior cells only: the dummy layers at index 0 and m-1 are excluded.
+    PetscInt lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    PetscInt is = lo[0], js = lo[1], ks = lo[2], ie = hi[0], je = hi[1], ke = hi[2];
 
     // Loop over the locally owned INTERIOR cells.
     for (PetscInt k = ks; k < ke; k++) {
@@ -92,22 +80,10 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 
     info = user->info;
     
-    // Get local and global grid dimensions
-    PetscInt xs = info.xs, xe = info.xs + info.xm;
-    PetscInt ys = info.ys, ye = info.ys + info.ym;
-    PetscInt zs = info.zs, ze = info.zs + info.zm;
-    PetscInt mx = info.mx, my = info.my, mz = info.mz;
-
-    // Determine loop bounds to compute for interior cells only, matching the code's convention.
-    // Start at index 1 if the process owns the global boundary at index 0.
-    PetscInt is = (xs == 0) ? 1 : xs;
-    PetscInt js = (ys == 0) ? 1 : ys;
-    PetscInt ks = (zs == 0) ? 1 : zs;
-
-    // Stop one cell short if the process owns the global boundary at the max index.
-    PetscInt ie = (xe == mx) ? xe - 1 : xe;
-    PetscInt je = (ye == my) ? ye - 1 : ye;
-    PetscInt ke = (ze == mz) ? ze - 1 : ze;
+    // Interior cells only: the dummy layers at index 0 and m-1 are excluded.
+    PetscInt lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    PetscInt is = lo[0], js = lo[1], ks = lo[2], ie = hi[0], je = hi[1], ke = hi[2];
 
     // Loop over the locally owned INTERIOR cells.
     for (PetscInt k = ks; k < ke; k++) {

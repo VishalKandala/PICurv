@@ -501,9 +501,9 @@ static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec 
     const PetscInt      xs = info.xs, xe = info.xs + info.xm;
     const PetscInt      ys = info.ys, ye = info.ys + info.ym;
     const PetscInt      zs = info.zs, ze = info.zs + info.zm;
-    const PetscInt      lxs = (xs == 0) ? 1 : xs, lxe = (xe == mx) ? mx - 1 : xe;
-    const PetscInt      lys = (ys == 0) ? 1 : ys, lye = (ye == my) ? my - 1 : ye;
-    const PetscInt      lzs = (zs == 0) ? 1 : zs, lze = (ze == mz) ? mz - 1 : ze;
+    PetscInt            lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    const PetscInt      lxs = lo[0], lxe = hi[0], lys = lo[1], lye = hi[1], lzs = lo[2], lze = hi[2];
     const PetscReal  ***nvert;
     PetscReal        ***x;
     PetscReal           local[2] = {0.0, 0.0}, global[2];
@@ -592,9 +592,9 @@ static PetscErrorCode PoissonMultigrid_Interpolate(Mat P, Vec X, Vec F)
     const PetscInt xs = info.xs, xe = info.xs + info.xm;
     const PetscInt ys = info.ys, ye = info.ys + info.ym;
     const PetscInt zs = info.zs, ze = info.zs + info.zm;
-    const PetscInt lxs = (xs == 0) ? 1 : xs, lxe = (xe == mx) ? mx - 1 : xe;
-    const PetscInt lys = (ys == 0) ? 1 : ys, lye = (ye == my) ? my - 1 : ye;
-    const PetscInt lzs = (zs == 0) ? 1 : zs, lze = (ze == mz) ? mz - 1 : ze;
+    PetscInt       lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    const PetscInt lxs = lo[0], lxe = hi[0], lys = lo[1], lye = hi[1], lzs = lo[2], lze = hi[2];
 
     PetscCall(DMGetLocalVector(coarse->da, &lX));
     PetscCall(DMGlobalToLocalBegin(coarse->da, X, INSERT_VALUES, lX));

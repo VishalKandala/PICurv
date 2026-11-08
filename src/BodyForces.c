@@ -65,12 +65,9 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     // --- Step 4: Setup for calculation ---
     DMDALocalInfo info = user->info;
     PetscInt i, j, k;
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
-    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
-    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+    PetscInt lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    PetscInt lxs = lo[0], lys = lo[1], lzs = lo[2], lxe = hi[0], lye = hi[1], lze = hi[2];
 
     Cmpnts ***rct, ***csi, ***eta, ***zet;
     PetscReal ***nvert;

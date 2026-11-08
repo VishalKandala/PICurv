@@ -1969,12 +1969,9 @@ static PetscErrorCode MeasureDrivenFluxes(UserCtx *user, char direction,
     ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
 
     // --- Define local loop bounds ---
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
-    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
-    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+    PetscInt lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    PetscInt lxs = lo[0], lys = lo[1], lzs = lo[2], lxe = hi[0], lye = hi[1], lze = hi[2];
 
     // --- Initialize local accumulators ---
     PetscReal localCurrentBoundaryFlux = 0.0;
@@ -2315,12 +2312,9 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
     
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
-    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
-    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+    PetscInt lo[3], hi[3];
+    GetOwnedInteriorCellBounds(&info, lo, hi);
+    PetscInt lxs = lo[0], lys = lo[1], lzs = lo[2], lxe = hi[0], lye = hi[1], lze = hi[2];
 
     // --- Apply correction to the appropriate face and velocity component ---
     switch (face_id) {
