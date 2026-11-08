@@ -3662,13 +3662,13 @@ def resolve_scalar_transport(case_cfg: dict, solver_cfg: dict, warn: bool = Fals
             continue
         raw, label = (node[key], f"case.yml {case_label}") if in_case else \
                      (legacy[key], f"solver.yml scalar_transport.{key}")
-        try:
-            value = _to_finite_float(raw, label) if key == "iem_constant" else float(raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label} must be numeric.") from exc
         # iem_constant = 0 switches micromixing off; the Schmidt numbers divide.
-        if value < 0.0 or (value == 0.0 and key != "iem_constant"):
-            raise ValueError(f"{label} must be {'non-negative' if key == 'iem_constant' else 'positive'}.")
+        if key == "iem_constant":
+            value = _to_finite_float(raw, label, nonnegative=True)
+        else:
+            value = _to_float(raw, label)
+            if value <= 0.0:
+                raise ValueError(f"{label} must be positive.")
         if not in_case and warn:
             print(f"[WARNING] solver.yml scalar_transport.{key} is deprecated; set it in case.yml "
                   f"as {case_label}.", file=sys.stderr)
@@ -4290,9 +4290,10 @@ def normalize_post_reducers_config(post_cfg: dict) -> dict:
                     raise ValueError(f"{label}: friction_velocity '{friction}' needs a positive 'value'.")
                 task["value"] = float(value)
             if name == "cross_section":
-                task["fold"] = bool(entry.get("fold", True))
+                task["fold"] = _to_bool(entry.get("fold", True), f"reducers.tasks[{index}].fold")
             if name == "wall_profile" and entry.get("half_height") is not None:
-                task["half_height"] = float(entry["half_height"])
+                task["half_height"] = _to_finite_float(entry["half_height"], f"reducers.tasks[{index}].half_height",
+                                                       positive=True)
         tasks.append(task)
     return {"tasks": tasks}
 
@@ -8286,18 +8287,29 @@ def _to_float(value, field_name: str) -> float:
         raise ValueError(f"'{field_name}' must be numeric (got {value!r}).")
 
 
-def _to_finite_float(value, field_name: str) -> float:
+def _to_finite_float(value, field_name: str, *, positive: bool = False, nonnegative: bool = False,
+                     strict: bool = False) -> float:
     """!
-    @brief Convert a non-boolean YAML scalar to a finite float.
+    @brief Convert a non-boolean YAML scalar to a finite float, optionally of one sign.
     @param[in] value Raw YAML scalar.
     @param[in] field_name User-facing configuration path.
+    @param[in] positive Whether zero and negative values are refused.
+    @param[in] nonnegative Whether negative values are refused.
+    @param[in] strict Whether only a YAML number is accepted; otherwise a numeric string is parsed.
     @return Finite floating-point value.
+    @throws ValueError naming `field_name` for a boolean, non-number, non-finite or wrongly signed value.
     """
     if isinstance(value, bool):
         raise ValueError(f"'{field_name}' must be numeric, not boolean.")
+    if strict and not isinstance(value, (int, float)):
+        raise ValueError(f"'{field_name}' must be a number (got {value!r}).")
     parsed = _to_float(value, field_name)
     if not math.isfinite(parsed):
         raise ValueError(f"'{field_name}' must be finite (got {value!r}).")
+    if positive and parsed <= 0.0:
+        raise ValueError(f"'{field_name}' must be positive (got {value!r}).")
+    if nonnegative and parsed < 0.0:
+        raise ValueError(f"'{field_name}' must be non-negative (got {value!r}).")
     return parsed
 
 def _to_bool(value, field_name: str) -> bool:
@@ -14574,14 +14586,12 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     if unknown:
         raise ValueError(f"{where}: {unknown} are not constraints of this target; it takes {sorted(allowed)}.")
     if "scale" in constraints:
-        scale = constraints["scale"]
-        if isinstance(scale, bool) or not isinstance(scale, (int, float)):
-            raise ValueError(f"{where}.scale must be a number.")
+        scale = _to_finite_float(constraints["scale"], f"{where}.scale", strict=True)
         if resolved["data"] is not None:
             if scale <= 0:
                 raise ValueError(f"{where}.scale must be positive for a profile of speeds.")
-            resolved["data_scale"] = float(scale)
-        resolved["expressions"] = [f"({text})*({float(scale)!r})" for text in resolved["expressions"]]
+            resolved["data_scale"] = scale
+        resolved["expressions"] = [f"({text})*({scale!r})" for text in resolved["expressions"]]
     if "bulk_velocity" in constraints and "flow_rate" in constraints:
         raise ValueError(f"{where} gives either bulk_velocity or flow_rate.")
     for target in ("bulk_velocity", "flow_rate"):
@@ -14751,8 +14761,8 @@ def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
         raise ValueError(f"{where} takes particles_per_cell and optionally fields.")
     language = load_shared_module("source_expressions")
     per_cell = spec["particles_per_cell"]
-    if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool) and per_cell <= 0:
-        raise ValueError(f"{where}.particles_per_cell must be positive (got {per_cell}).")
+    if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool):
+        _to_finite_float(per_cell, f"{where}.particles_per_cell", positive=True)
     text = _source_text(per_cell, _source_constants({}, case_cfg, where, language), ("t",),
                         f"{where}.particles_per_cell", language)
     fields = normalize_particle_fields(spec["fields"], case_cfg, f"{where}.fields") if spec.get("fields") else []
@@ -16220,13 +16230,7 @@ def resolve_les_diagnostics(case_cfg: dict, monitor_cfg: dict, warn: bool = Fals
             raise ValueError(f"{label}.cadence must be a positive integer.")
         resolved["cadence"] = value["cadence"]
     if "yoshizawa_ci" in value:
-        try:
-            ci = _to_finite_float(value["yoshizawa_ci"], f"{label}.yoshizawa_ci")
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label}.yoshizawa_ci must be numeric.") from exc
-        if ci < 0.0:
-            raise ValueError(f"{label}.yoshizawa_ci must be non-negative.")
-        resolved["yoshizawa_ci"] = ci
+        resolved["yoshizawa_ci"] = _to_finite_float(value["yoshizawa_ci"], f"{label}.yoshizawa_ci", nonnegative=True)
     if monitor_value is None and warn:
         print("[WARNING] case.yml models.physics.turbulence.les.diagnostics is deprecated; "
               "set it in monitor.yml as diagnostics.les.", file=sys.stderr)

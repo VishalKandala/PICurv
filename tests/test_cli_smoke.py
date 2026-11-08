@@ -4811,6 +4811,8 @@ def _reducer_recipe(**task):
         ({"friction_velocity": "body_force"}, "positive 'value'"),
         ({"friction_velocity": "guess"}, "'friction_velocity' must be one of"),
         ({"task": "cross_section"}, "keeping 2 direction"),
+        ({"half_height": -0.5}, "'reducers.tasks[0].half_height' must be positive"),
+        ({"half_height": True}, "'reducers.tasks[0].half_height' must be numeric"),
     ],
 )
 def test_post_reducer_validation_rejects(task, fragment):
@@ -4823,6 +4825,19 @@ def test_post_reducer_validation_rejects(task, fragment):
     with pytest.raises(ValueError) as excinfo:
         picurv.normalize_post_reducers_config(_reducer_recipe(**task))
     assert fragment in str(excinfo.value)
+
+
+def test_post_reducer_fold_is_read_as_a_boolean():
+    """!
+    @brief `fold: "false"` turns folding off rather than reading as a non-empty string; a non-boolean is refused.
+    """
+    picurv = load_picurv_module()
+    recipe = _reducer_recipe(task="cross_section", wall_axis="i", fold="false")
+    recipe["field_statistics"]["homogeneous"] = ["k"]
+    assert picurv.normalize_post_reducers_config(recipe)["tasks"][0]["fold"] is False
+    recipe["reducers"]["tasks"][0]["fold"] = "sometimes"
+    with pytest.raises(ValueError, match="'reducers.tasks\\[0\\].fold' must be boolean"):
+        picurv.normalize_post_reducers_config(recipe)
 
 
 def test_post_reducers_leave_the_recipe_identity_and_finalize_after_fields(tmp_path):

@@ -141,6 +141,8 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, None, {"source": {"type": "field_slice", "field_file": "u.dat"}}, "only an inlet reads it"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "file", "path": "inlet.picslice"},
             "constraints": {"scale": -1.0}}, None, "must be positive"),
+    (None, {"handler": "prescribed_velocity", "source": DUCT, "constraints": {"scale": float("inf")}}, None,
+     "scale' must be finite"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "generated", "generator": "square_duct_poiseuille"}},
      None, "is retired"),
     (None, {"handler": "prescribed_velocity", "source": {"expression": {"u_xi": "1"}}}, None,
