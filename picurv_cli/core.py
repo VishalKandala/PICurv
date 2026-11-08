@@ -8297,63 +8297,6 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
 
     raise ValueError(f"Unsupported grid.mode '{grid_mode}' for inlet profile validation.")
 
-def materialize_inlet_profiles(run_dir: str, case_cfg: dict, case_path: str,
-                                                   profile_grid_dims: list = None) -> list:
-    """!
-    @brief Generate dimensional PICSLICE artifacts for field_slice inlet profile sources.
-    @param[in] run_dir Run/precompute directory root.
-    @param[in] case_cfg Parsed case.yml.
-    @param[in] case_path Path to case.yml for relative grid/source resolution.
-    @param[in] profile_grid_dims Optional pre-resolved block node dimensions.
-    @return List of generated profile summaries.
-    """
-    prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
-    if not any(
-        (profile_data_source(bc) or {}).get("type") in PROFILE_SOURCE_TYPES[1:]
-        for block in prepared_blocks for bc in block
-    ):
-        return []
-    if profile_grid_dims is None:
-        profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
-
-    profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
-    target_grid = None
-    summaries = []
-    for block_idx, block in enumerate(prepared_blocks):
-        for bc in block:
-            source = profile_data_source(bc) or {}
-            if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
-                continue
-            face = bc["face"]
-            dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
-            face_token = _face_artifact_token(face)
-            output_path = os.path.join(
-                profile_dir,
-                f"inlet_profile_block{block_idx}_{face_token}.sliced.dimensional.picslice",
-            )
-            if target_grid is None:
-                target_grid = resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
-            summary = generate_field_slice_picslice(
-                output_path,
-                dims,
-                source,
-                target_grid,
-                face,
-                block_idx,
-                case_path,
-            )
-            summary.update({"block": block_idx, "face": face})
-            summaries.append(summary)
-            print(
-                f"[SUCCESS] Materialized inlet profile for block {block_idx}, face {face}: "
-                f"{os.path.relpath(output_path)} dims={summary['dims']}"
-            )
-
-    if summaries:
-        info_path = write_profile_info(profile_dir, summaries)
-        print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
-    return summaries
-
 def _to_float(value, field_name: str) -> float:
     """!
     @brief Convert a YAML scalar to float with a clear error message.
@@ -14456,7 +14399,6 @@ FACE_SOURCE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"r"}
 SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"),
                  "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
-_SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
 #: A call to a random draw in expression text.
 EXPRESSION_DRAW = re.compile(r"\b(uniform|normal)\s*\(")
 

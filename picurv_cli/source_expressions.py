@@ -57,7 +57,6 @@ EULERIAN_EXPRESSION_NAMES = frozenset({"x", "y", "z", "xi", "eta", "zeta", "i", 
 #: Variables a particle initial-value expression may use: physical coordinates, domain-
 #: normalized coordinates, particle identity, and physical time.
 PARTICLE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta", "pid"})
-ALLOWED_NAMES = set(ALLOWED_FUNCTIONS) | EULERIAN_EXPRESSION_NAMES | {"pi"}
 _DECIMAL_LITERAL = re.compile(r"^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 ALLOWED_AST_NODES = (
     ast.Expression,
@@ -184,14 +183,6 @@ def _check_expression_node(node, names, indices, random) -> None:
         return
     for child in ast.iter_child_nodes(node):
         _check_expression_node(child, names, indices, random)
-
-
-def _validate_expression(expression: str) -> None:
-    """!
-    @brief Reject Eulerian expression syntax outside the supported language.
-    @param[in] expression User expression.
-    """
-    validate_expression(expression, EULERIAN_EXPRESSION_NAMES, random=False)
 
 
 class _LogicalRewriter(ast.NodeTransformer):
@@ -461,7 +452,6 @@ def lower_value(spec, names=PARTICLE_EXPRESSION_NAMES, random=True, where="value
     @param[in] where Configuration path, for diagnostics.
     @return Validated expression text.
     """
-    params = {}
     if isinstance(spec, bool):
         raise ValueError(f"{where} must be a number, an expression, or a mapping.")
     if isinstance(spec, (int, float)):
