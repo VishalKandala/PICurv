@@ -1,0 +1,1 @@
+- A run with a recorded inlet (`repeat` or several frames) no longer aborts at shutdown on optimized PETSc builds. The unit tests now run with PETSc's allocation coalescing, as optimized builds do, so a mismatched free fails there too.

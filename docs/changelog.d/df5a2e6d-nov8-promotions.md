@@ -1,0 +1,1 @@
+- `prescribed_velocity` and particle injection at an inlet are supported, backed by new duct, recording, restart and 1e8-particle layout measurements; the inlet `fluctuations` option stays experimental. The IEM linear-reconstruction record now reports a small resolved residual: the reconstruction removes about 97% of the stepped mean's excess diffusion, not all of it.
