@@ -58,7 +58,7 @@ def params(seed=12345, k0=2.0, k_cut=3.0):
 def fixture_staged_case(tmp_path):
     """! @brief Generate an IC and stage it as PICGRID plus PETSc binary. @param[in] tmp_path Temp dir. @return Staged paths and the IC summary. """
     nodes = cartesian_nodes()
-    full, summary = IC.generate_spectral_random_velocity(nodes, params())
+    full, summary = IC.generate_spectral_velocity(nodes, params())
     grid_path = write_picgrid(tmp_path / "grid.run", nodes)
     field_path = str(tmp_path / "ufield00000_0.dat")
     IC.write_petsc_vec_binary(field_path, full)
@@ -127,7 +127,7 @@ def test_subtract_mean_domain_removes_the_zero_mode(tmp_path):
     nodes = cartesian_nodes()
     offset = {**params(), "random": {"distribution": "gaussian", "mean": [2.0, -1.0, 0.5]},
               "remove_mean": False}
-    full, _ = IC.generate_spectral_random_velocity(nodes, offset)
+    full, _ = IC.generate_spectral_velocity(nodes, offset)
     grid_path = write_picgrid(tmp_path / "grid.run", nodes)
     field_path = str(tmp_path / "ufield00000_0.dat")
     IC.write_petsc_vec_binary(field_path, full)

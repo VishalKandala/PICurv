@@ -26,7 +26,7 @@ def read_picgrid(path: str):
     if len(lines) < 3 or lines[0] != "PICGRID":
         raise ValueError("grid must begin with the canonical PICGRID header.")
     if int(lines[1]) != 1:
-        raise ValueError("ic.gen currently supports single-block PICGRID files only.")
+        raise ValueError("ic.gen supports single-block PICGRID files only.")
     dims = tuple(int(value) for value in lines[2].split())
     if len(dims) != 3 or min(dims) < 2:
         raise ValueError(f"invalid PICGRID dimensions {dims}.")
@@ -78,10 +78,38 @@ def _finite_number(value, path, *, positive=False, nonnegative=False):
     return parsed
 
 
-def validate_spectral_random_velocity_params(raw):
+def _validate_seed_spectrum(seed, spectrum, where="params"):
     """!
-    @brief Validate the composable spectral random-velocity schema.
-    @param[in] raw Raw parameter mapping.
+    @brief Validate the seed and the spectrum every spectral perturbation takes.
+    @param[in] seed Raw seed.
+    @param[in] spectrum Raw spectrum mapping.
+    @param[in] where Configuration path holding both, for errors.
+    @return `(seed, normalized spectrum)`.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)):
+        raise ValueError(f"{where}.seed must be an integer.")
+    if not isinstance(spectrum, dict):
+        raise ValueError(f"{where}.spectrum must be a mapping.")
+    spectrum_type = str(spectrum.get("type", "white")).lower()
+    if spectrum_type == "white":
+        if set(spectrum) - {"type"}:
+            raise ValueError("white spectrum supports only type.")
+        return int(seed), {"type": "white"}
+    if spectrum_type == "k4_exponential":
+        if set(spectrum) - {"type", "k0", "k_cut"} or "k0" not in spectrum or "k_cut" not in spectrum:
+            raise ValueError("k4_exponential spectrum requires only type, k0, and k_cut.")
+        return int(seed), {
+            "type": "k4_exponential",
+            "k0": _finite_number(spectrum["k0"], f"{where}.spectrum.k0", positive=True),
+            "k_cut": _finite_number(spectrum["k_cut"], f"{where}.spectrum.k_cut", positive=True),
+        }
+    raise ValueError(f"{where}.spectrum.type must be 'white' or 'k4_exponential'.")
+
+
+def validate_periodic_spectral_params(raw):
+    """!
+    @brief Validate `spectral_velocity` in a periodic box: no `wall_axes`.
+    @param[in] raw Raw parameter mapping, without `wall_axes`.
     @return Normalized parameter mapping.
     """
     if not isinstance(raw, dict):
@@ -92,39 +120,18 @@ def validate_spectral_random_velocity_params(raw):
         raise ValueError(f"spectral_velocity has unsupported parameter(s): {unknown}.")
     if str(raw.get("field", "Ucat")).lower() != "ucat":
         raise ValueError("spectral_velocity supports only params.field: Ucat.")
-    seed = raw.get("seed", 12345)
-    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)):
-        raise ValueError("spectral_velocity params.seed must be an integer.")
+    seed, normalized_spectrum = _validate_seed_spectrum(raw.get("seed", 12345), raw.get("spectrum", {}))
 
     random_cfg = raw.get("random", {})
     if not isinstance(random_cfg, dict) or set(random_cfg) - {"distribution", "mean"}:
         raise ValueError("params.random supports only distribution and mean.")
     distribution = str(random_cfg.get("distribution", "gaussian")).lower()
     if distribution != "gaussian":
-        raise ValueError("params.random.distribution currently supports only 'gaussian'.")
+        raise ValueError("params.random.distribution supports only 'gaussian'.")
     mean = random_cfg.get("mean", [0.0, 0.0, 0.0])
     if not isinstance(mean, list) or len(mean) != 3:
         raise ValueError("params.random.mean must be a three-component list.")
     mean = [_finite_number(value, f"params.random.mean[{index}]") for index, value in enumerate(mean)]
-
-    spectrum = raw.get("spectrum", {})
-    if not isinstance(spectrum, dict):
-        raise ValueError("params.spectrum must be a mapping.")
-    spectrum_type = str(spectrum.get("type", "white")).lower()
-    if spectrum_type == "white":
-        if set(spectrum) - {"type"}:
-            raise ValueError("white spectrum supports only type.")
-        normalized_spectrum = {"type": "white"}
-    elif spectrum_type == "k4_exponential":
-        if set(spectrum) - {"type", "k0", "k_cut"} or "k0" not in spectrum or "k_cut" not in spectrum:
-            raise ValueError("k4_exponential spectrum requires only type, k0, and k_cut.")
-        normalized_spectrum = {
-            "type": "k4_exponential",
-            "k0": _finite_number(spectrum["k0"], "params.spectrum.k0", positive=True),
-            "k_cut": _finite_number(spectrum["k_cut"], "params.spectrum.k_cut", positive=True),
-        }
-    else:
-        raise ValueError("params.spectrum.type must be 'white' or 'k4_exponential'.")
 
     projection = raw.get("projection", {"type": "none"})
     if not isinstance(projection, dict) or set(projection) - {"type", "operator"}:
@@ -160,7 +167,7 @@ def validate_spectral_random_velocity_params(raw):
     remove_mean = raw.get("remove_mean", True)
     if not isinstance(remove_mean, bool):
         raise ValueError("params.remove_mean must be boolean.")
-    return {"field": "Ucat", "seed": int(seed), "random": {"distribution": distribution, "mean": mean},
+    return {"field": "Ucat", "seed": seed, "random": {"distribution": distribution, "mean": mean},
             "spectrum": normalized_spectrum, "projection": normalized_projection,
             "normalization": normalized_normalization, "remove_mean": remove_mean}
 
@@ -293,9 +300,9 @@ def _public_diagnostics(result):
     return {key: value for key, value in result.items() if not key.startswith("_")}
 
 
-def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kinematic_viscosity):
+def compute_periodic_spectral_diagnostics(field, params, lengths_xyz, kinematic_viscosity):
     """!
-    @brief Compute the random provider's diagnostics: the shared ones plus generation audits.
+    @brief Compute a periodic box's diagnostics: the shared ones plus generation audits.
     @param[in] field Physical-cell velocity field.
     @param[in] params Normalized generator parameters.
     @param[in] lengths_xyz Physical box lengths in Cartesian order.
@@ -317,15 +324,14 @@ def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kin
     return result
 
 
-def generate_spectral_random_velocity(nodes, raw_params, context=None):
+def generate_periodic_spectral_velocity(nodes, params, context=None):
     """!
-    @brief Generate a configurable spectral random Ucat field and diagnostics.
+    @brief Generate a periodic box's spectral random Ucat field and diagnostics.
     @param[in] nodes PICGRID node-coordinate array.
-    @param[in] raw_params Raw structured provider parameters.
+    @param[in] params Parameters normalized by validate_periodic_spectral_params().
     @param[in] context Conductor-derived diagnostic context.
     @return Full periodic-dummy field and diagnostic summary.
     """
-    params = validate_spectral_random_velocity_params(raw_params)
     spectral = _shared("periodic_spectral")
     cells, lengths_xyz = spectral.validate_spectral_grid(nodes, subject="spectral_velocity without walls requires")
     continuum, discrete, spacing = spectral.spectral_symbols(cells, lengths_xyz)
@@ -363,7 +369,7 @@ def generate_spectral_random_velocity(nodes, raw_params, context=None):
     full = physical[np.ix_(*wrapped)]
     kinematic_viscosity = _finite_number((context or {}).get("kinematic_viscosity", 0.0),
                                           "context.kinematic_viscosity", nonnegative=True)
-    summary = compute_spectral_random_velocity_diagnostics(physical, params, lengths_xyz, kinematic_viscosity)
+    summary = compute_periodic_spectral_diagnostics(physical, params, lengths_xyz, kinematic_viscosity)
     summary.update({"grid_cells_storage_kji": list(cells), "box_lengths_xyz": list(lengths_xyz),
                     "vector_shape": list(full.shape), "scalar_count": int(full.size),
                     "petsc_shape": list(full.shape), "petsc_scalar_count": int(full.size)})
@@ -634,7 +640,7 @@ def validate_spectral_velocity_params(raw):
     wall_only = sorted(set(raw) & (WALL_SPECTRAL_PARAMS - {"field", "seed", "spectrum", "normalization", "wall_axes"}))
     if wall_only:
         raise ValueError(f"spectral_velocity params {wall_only} need wall_axes.")
-    return dict(validate_spectral_random_velocity_params({k: v for k, v in raw.items() if k != "wall_axes"}),
+    return dict(validate_periodic_spectral_params({k: v for k, v in raw.items() if k != "wall_axes"}),
                 wall_axes=[])
 
 
@@ -657,11 +663,10 @@ def validate_wall_spectral_params(raw):
             or len(set(walls)) != len(walls)
             or stream not in ("i", "j", "k") or stream in walls):
         raise ValueError("wall_axes must name a channel's one or a duct's two axes; streamwise_axis another.")
-    # Reuse DIT's spectral/seed validation; the envelope shapes the vector potential,
-    # not a promised isotropic velocity spectrum after the curl and wall envelope.
-    common = validate_spectral_random_velocity_params({
-        "seed": raw.get("seed", 12345), "spectrum": raw.get("spectrum", {"type": "white"})})
-    if common["seed"] < 0:
+    # The envelope shapes the vector potential, not a promised isotropic velocity spectrum
+    # after the curl and wall envelope.
+    seed, spectrum = _validate_seed_spectrum(raw.get("seed", 12345), raw.get("spectrum", {"type": "white"}))
+    if seed < 0:
         raise ValueError("seed must be non-negative.")
     modes = raw.get("wall_modes", 3)
     if isinstance(modes, bool) or not isinstance(modes, int) or modes < 1:
@@ -672,7 +677,7 @@ def validate_wall_spectral_params(raw):
         raise ValueError("spectral_velocity with walls needs normalization: {type: component_rms, target: ...}: "
                          "the curl of the vector potential has no amplitude of its own.")
     target = _finite_number(normalization["target"], "normalization.target", positive=True)
-    return {"field": "Ucat", "seed": common["seed"], "spectrum": common["spectrum"],
+    return {"field": "Ucat", "seed": seed, "spectrum": spectrum,
             "wall_axes": walls, "streamwise_axis": stream, "wall_modes": modes,
             "normalization": {"type": "component_rms", "target": target},
             **({"initial_spectra": raw["initial_spectra"]} if "initial_spectra" in raw else {})}
@@ -698,6 +703,58 @@ def cartesian_flux_derivative(values, widths, axis, periodic):
     flux = np.concatenate((boundary, faces, boundary), axis=0)
     derivative = np.diff(flux, axis=0) / widths.reshape((-1,) + (1,)*(moved.ndim-1))
     return np.moveaxis(derivative, 0, storage_axis)
+
+
+def discrete_curl(potential, widths, periodic):
+    """!
+    @brief Cell-centred curl of a vector potential, its derivatives cartesian_flux_derivative()'s.
+    @details Tensor-product derivatives commute, so the result is in the nullspace of
+             discrete_divergence() on the same grid.
+    @param[in] potential Cell-centred vector potential in k/j/i/component order.
+    @param[in] widths Physical cell widths per Cartesian axis.
+    @param[in] periodic Cartesian axes whose boundary faces wrap.
+    @return Cell-centred velocity in k/j/i/component order.
+    """
+    def derivative(values, axis):
+        """!
+        @brief One derivative under the grid's widths and boundary topology.
+        @param[in] values Scalar component.
+        @param[in] axis Cartesian derivative axis.
+        @return Cell-centred derivative.
+        """
+        return cartesian_flux_derivative(values, widths[axis], axis, axis in periodic)
+    return np.stack([derivative(potential[..., (a+2) % 3], (a+1) % 3)
+                     - derivative(potential[..., (a+1) % 3], (a+2) % 3) for a in range(3)], axis=-1)
+
+
+def discrete_divergence(velocity, widths, periodic):
+    """!
+    @brief Cell divergence of a cell-centred velocity, under cartesian_flux_derivative().
+    @param[in] velocity Cell-centred velocity in k/j/i/component order.
+    @param[in] widths Physical cell widths per Cartesian axis.
+    @param[in] periodic Cartesian axes whose boundary faces wrap.
+    @return Cell-centred divergence.
+    """
+    return sum(cartesian_flux_derivative(velocity[..., a], widths[a], a, a in periodic) for a in range(3))
+
+
+def cell_volumes(widths):
+    """!
+    @brief Cell volumes of a separable grid.
+    @param[in] widths Physical cell widths per Cartesian axis.
+    @return Volumes in storage (k, j, i) order.
+    """
+    return widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
+
+
+def volume_weighted_rms(field, volume):
+    """!
+    @brief Component rms of a cell-centred vector field, each cell weighted by its volume.
+    @param[in] field Cell-centred vector field in k/j/i/component order.
+    @param[in] volume Cell volumes from cell_volumes().
+    @return sqrt(sum V |u|^2 / (3 sum V)).
+    """
+    return np.sqrt(np.sum(volume*np.sum(field**2, axis=-1))/(3*np.sum(volume)))
 
 
 def with_dummy_layers(field, periodic):
@@ -738,8 +795,7 @@ def wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodi
     @param[in] planar_axis Optional periodic axis the perturbation must not vary along or
                point along: only the potential's component on it is kept, at zero wavenumber
                on it, so the curl lies in the other two axes' plane.
-    @return Cell-centred velocity in k/j/i/component order, and the divergence operator it
-            is discretely free of.
+    @return Cell-centred velocity in k/j/i/component order, free of discrete_divergence().
     """
     shape = list(cells)
     for a in walls:
@@ -781,17 +837,7 @@ def wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodi
         # developed flow's at y+ ~ 13 on the Re_tau = 180 channel).
         basis = np.sin(np.pi*t[:, None]*np.arange(1, wall_modes+1)) * np.sin(np.pi*t[:, None])
         potential = np.moveaxis(np.tensordot(basis, potential, axes=(1, 2-a)), 0, 2-a)
-    def derivative(v, a):
-        """!
-        @brief Apply the wall-seed divergence operator to one component.
-        @param[in] v Scalar component of the potential or velocity.
-        @param[in] a Cartesian derivative axis.
-        @return Derivative using the grid widths and boundary topology.
-        """
-        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
-    velocity = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
-                         - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
-    return velocity, derivative
+    return discrete_curl(potential, widths, periodic)
 
 
 def generate_spectral_velocity(nodes, raw_params, context=None):
@@ -805,35 +851,34 @@ def generate_spectral_velocity(nodes, raw_params, context=None):
     params = validate_spectral_velocity_params(raw_params)
     if params["wall_axes"]:
         return generate_wall_spectral_velocity(nodes, params)
-    return generate_spectral_random_velocity(nodes, {k: v for k, v in params.items() if k != "wall_axes"}, context)
+    return generate_periodic_spectral_velocity(nodes, {k: v for k, v in params.items() if k != "wall_axes"}, context)
 
 
-def generate_wall_spectral_velocity(nodes, raw_params):
+def generate_wall_spectral_velocity(nodes, params):
     """!
     @brief Generate a seeded discrete-curl perturbation, a velocity fluctuation with no added mean.
     @param[in] nodes PICGRID node coordinates in k/j/i/component order.
-    @param[in] raw_params Raw wall-seed parameters.
+    @param[in] params Parameters normalized by validate_wall_spectral_params().
     @return Full Ucat array with dummies and diagnostic summary.
 
     Single-block Cartesian Ucat, stored k/j/i/component with one dummy layer.
     No MPI state is generated: runtime owns scatter, wall repair and reconstruction.
     Periodic axes are uniform; wall axes may stretch. The curl reads one neighbor.
     """
-    params = validate_wall_spectral_params(raw_params)
     walls = ["ijk".index(a) for a in params["wall_axes"]]
     periodic = [a for a in range(3) if a not in walls]
     cells, lengths = _shared("periodic_spectral").validate_spectral_grid(nodes, periodic, subject="spectral_velocity requires")
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
     widths = [np.diff(a) for a in axes]
     centers = [0.5*(a[:-1]+a[1:]) for a in axes]
-    velocity, derivative = wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodic,
-                                                  params["seed"], params["spectrum"], params["wall_modes"])
-    volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
-    rms = np.sqrt(np.sum(volume*np.sum(velocity**2, axis=-1))/(3*np.sum(volume)))
+    velocity = wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodic,
+                                      params["seed"], params["spectrum"], params["wall_modes"])
+    volume = cell_volumes(widths)
+    rms = volume_weighted_rms(velocity, volume)
     if not np.isfinite(rms) or rms <= 0:
         raise ValueError("selected spectrum contains no active perturbation modes.")
     velocity *= params["normalization"]["target"]/rms
-    divergence = sum(derivative(velocity[..., a], a) for a in range(3))
+    divergence = discrete_divergence(velocity, widths, periodic)
     perturbation_means = np.sum(velocity*volume[..., None], axis=(0,1,2))/np.sum(volume)
     component_rms = [float(np.sqrt(np.sum(volume*velocity[..., a]**2)/np.sum(volume))) for a in range(3)]
     full = with_dummy_layers(velocity, periodic)
@@ -902,15 +947,15 @@ def validate_stability_mode_params(raw):
     if noise is not None:
         if not isinstance(noise, dict) or set(noise) - STABILITY_NOISE_PARAMS or "rms" not in noise:
             raise ValueError(f"noise needs rms and accepts: {', '.join(sorted(STABILITY_NOISE_PARAMS))}.")
-        common = validate_spectral_random_velocity_params({
-            "seed": noise.get("seed", 12345), "spectrum": noise.get("spectrum", {"type": "white"})})
+        seed, spectrum = _validate_seed_spectrum(noise.get("seed", 12345), noise.get("spectrum", {"type": "white"}),
+                                                 "noise")
         modes_across = noise.get("wall_modes", 8)
         if isinstance(modes_across, bool) or not isinstance(modes_across, int) or modes_across < 1:
             raise ValueError("noise.wall_modes must be a positive integer.")
         if not isinstance(noise.get("planar", False), bool):
             raise ValueError("noise.planar must be true or false.")
         params["noise"] = {"rms": _finite_number(noise["rms"], "noise.rms", positive=True),
-                           "seed": common["seed"], "spectrum": common["spectrum"],
+                           "seed": seed, "spectrum": spectrum,
                            "wall_modes": modes_across, "planar": noise.get("planar", False)}
     if "initial_spectra" in raw:
         params["initial_spectra"] = raw["initial_spectra"]
@@ -995,15 +1040,6 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
     velocity = np.zeros((*cells, 3))
     velocity[..., stream] += profile(centers[cross]).reshape(shape)
 
-    def derivative(v, a):
-        """!
-        @brief Apply the discrete divergence operator of this field's topology.
-        @param[in] v Scalar field component.
-        @param[in] a Cartesian derivative axis.
-        @return Cell-centred derivative.
-        """
-        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
-
     s_shape = [1, 1, 1]; s_shape[2-stream] = cells[2-stream]
     s = (centers[stream] - axes[stream][0]).reshape(s_shape)
     mode_summaries = []
@@ -1019,8 +1055,7 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
                      + 1j*np.interp(centers[cross], y_eig, phi.imag)).reshape(shape)
         potential = np.zeros((*cells, 3))
         potential[..., normal] = np.real(phi_cells*np.exp(1j*(alpha*s + mode["phase"])))
-        field = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
-                          - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
+        field = discrete_curl(potential, widths, periodic)
         # The streamwise fluctuation of one sinusoid peaks at sqrt(2) times its rms along s.
         peak = np.max(np.sqrt(2.0*np.mean(field[..., stream]**2, axis=(2-stream, 2-normal))))
         field *= mode["amplitude"]*delta_u/peak
@@ -1035,11 +1070,10 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
     noise_rms = None
     if "noise" in params:
         noise = params["noise"]
-        perturbation, _ = wall_seed_perturbation(
+        perturbation = wall_seed_perturbation(
             cells, lengths, axes, widths, centers, [cross], periodic, noise["seed"], noise["spectrum"],
             noise["wall_modes"], planar_axis=normal if noise["planar"] else None)
-        volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
-        rms = np.sqrt(np.sum(volume*np.sum(perturbation**2, axis=-1))/(3*np.sum(volume)))
+        rms = volume_weighted_rms(perturbation, cell_volumes(widths))
         if not np.isfinite(rms) or rms <= 0:
             raise ValueError("noise spectrum contains no active perturbation modes.")
         velocity += perturbation*noise["rms"]*delta_u/rms
@@ -1054,7 +1088,7 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
         c, _ = rayleigh_unstable_mode(y_scan, u_scan, 2*np.pi*n/lengths[stream])
         scan.append({"harmonic": n, "growth_rate": float(2*np.pi*n/lengths[stream]*c.imag) if c is not None else 0.0})
     fastest = max(scan, key=lambda entry: entry["growth_rate"]) if scan else None
-    divergence = sum(derivative(velocity[..., a], a) for a in range(3))
+    divergence = discrete_divergence(velocity, widths, periodic)
     full = with_dummy_layers(velocity, periodic)
     return full, {"generator": "stability_mode_velocity", "field": "Ucat", "params": params,
         "vector_shape": list(full.shape), "scalar_count": int(full.size),

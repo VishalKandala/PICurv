@@ -9473,7 +9473,7 @@ BC_PARAM_QUANTITIES = {
     "apply_trim": NOT_A_QUANTITY,
 }
 
-#: Initial-condition generator parameters (`properties.initial_conditions.params`), by
+#: Initial-condition generator parameters (the `params` of a `{generator, params}` source term), by
 #: generator. Nested mappings use dotted names.
 IC_PARAM_QUANTITIES = {
     "ic_gen": {
@@ -14875,7 +14875,7 @@ def case_injects_particles(case_cfg: dict) -> bool:
                for block in blocks for entry in block)
 
 
-def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
+def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict, where: str) -> dict:
     """!
     @brief Convert a provider's validated physical parameters to solver units.
     @details Providers work on the staged nondimensional grid, so every dimensional
@@ -14884,6 +14884,7 @@ def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dic
     @param[in] generator Provider identifier.
     @param[in] params Validated parameter mapping in physical units.
     @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @param[in] where Configuration path of the parameter mapping.
     @return A copy of the mapping with dimensional values in solver units.
     """
     converted = copy.deepcopy(params)
@@ -14896,17 +14897,19 @@ def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dic
             holder = holder.get(parent) if isinstance(holder, dict) else None
         if isinstance(holder, dict) and leaf in holder:
             holder[leaf] = quantity_to_solver_units(
-                holder[leaf], quantity, scales, f"initial_conditions.params.{name}")
+                holder[leaf], quantity, scales, f"{where}.{name}")
     return converted
 
 
-def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
+def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks, scales: dict,
+                                      provider_context=None) -> dict:
     """!
     @brief Validate `resampled_velocity` parameters and convert them to the provider contract.
     @details The provider brings an external triply periodic velocity field onto the case's
              grid. Its box must be the case's box; the source's container, layout, and sample
              positions are declared because no standard format records them all.
     @param[in] params Raw provider parameters, physical units.
+    @param[in] where Configuration path of `params`.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales.
     @param[in] provider_context Optional conductor-derived provider context.
@@ -14946,7 +14949,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
     if not isinstance(box, list) or len(box) != 3:
         raise ValueError(f"{name} requires params.box_length: the source's periods along x, y, z, "
                          "in physical length.")
-    box = [_to_finite_float(value, f"initial_conditions.params.box_length[{index}]")
+    box = [_to_finite_float(value, f"{where}.box_length[{index}]")
            for index, value in enumerate(box)]
     if any(value <= 0 for value in box):
         raise ValueError(f"{name} params.box_length values must be positive.")
@@ -14954,7 +14957,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
     offset = offset if isinstance(offset, list) else [offset, offset, offset]
     if len(offset) != 3:
         raise ValueError(f"{name} params.sample_offset is one number or three, along x, y, z.")
-    offset = [_to_finite_float(value, f"initial_conditions.params.sample_offset[{index}]")
+    offset = [_to_finite_float(value, f"{where}.sample_offset[{index}]")
               for index, value in enumerate(offset)]
     if any(value < 0.0 or value >= 1.0 for value in offset):
         raise ValueError(f"{name} params.sample_offset is a fraction of the source spacing in [0, 1): "
@@ -15003,7 +15006,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
                          f"{sorted(expected[filter_type]) or 'no parameters'}.")
     normalized_filter = {"type": filter_type}
     for key in expected[filter_type]:
-        value = _to_finite_float(filter_cfg[key], f"initial_conditions.params.filter.{key}")
+        value = _to_finite_float(filter_cfg[key], f"{where}.filter.{key}")
         if value <= 0:
             raise ValueError(f"{name} filter.{key} must be positive.")
         normalized_filter[key] = value
@@ -15019,7 +15022,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
                   "projection": projection, "remove_mean": remove_mean}
     if cells is not None:
         normalized["cells"] = list(cells)
-    resolved = ic_provider_params_to_solver_units(name, normalized, scales)
+    resolved = ic_provider_params_to_solver_units(name, normalized, scales, where)
     resolved["velocity_divisor"] = float(scales["velocity_ref"])
     return {"kind": name, "label": name,
             "field_name": field_name, "field_code": field_code,
@@ -15091,9 +15094,9 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     where = "properties.initial_conditions.source"
     spec = ic["source"]
     project = isinstance(spec, dict) and "sum" in spec
-    spec, field_term = _split_initial_field_term(spec, where, case_cfg)
+    spec, field_term, field_where = _split_initial_field_term(spec, where, case_cfg)
     field = None if field_term is None else _resolve_initial_field_term(
-        field_term, where, prepared_blocks, scales, provider_context)
+        field_term, field_where, prepared_blocks, scales, provider_context)
     source = {"frame": "cartesian", "expressions": [], "constants": {}, "data": None} if spec is None else \
         resolve_velocity_source(spec, case_cfg or {}, where, allow_normal=False)
     constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
@@ -15158,21 +15161,23 @@ def _split_initial_field_term(spec, where: str, case_cfg, strict: bool = True):
     @param[in] where Configuration path of the source.
     @param[in] case_cfg Case configuration holding `sources:`, or None.
     @param[in] strict Whether a malformed source raises; when false the first field term is taken.
-    @return `(source specification or None when only a field term remains, field term or None)`.
+    @return `(source specification or None when only a field term remains, field term or None,
+            the field term's configuration path or None)`.
     """
     is_field = lambda term: isinstance(term, dict) and ("generator" in term or "type" in term)
-    _, value, terms = expand_source(spec, case_cfg, where, strict=strict)
+    value_where, value, terms = expand_source(spec, case_cfg, where, strict=strict)
     if is_field(value):
-        return None, value
+        return None, value, value_where
     if terms is None or isinstance(spec, str):
-        return spec, None
+        return spec, None, None
     # Unknown term names stay names: resolve_velocity_source() reports them.
-    resolved = [expand_source(term, case_cfg, term_where, strict=False)[1] for term_where, term in terms]
-    fields = [term for term in resolved if is_field(term)]
+    resolved = [expand_source(term, case_cfg, term_where, strict=False)[:2] for term_where, term in terms]
+    fields = [(term_where, value) for term_where, value in resolved if is_field(value)]
     if len(fields) > 1 and strict:
         raise ValueError(f"{where}.sum: a sum takes at most one generator or file term.")
-    rest = [term for (_, term), value in zip(terms, resolved) if not is_field(value)]
-    return ({"sum": rest} if rest else None), (fields[0] if fields else None)
+    rest = [term for (_, term), (_, value) in zip(terms, resolved) if not is_field(value)]
+    field_where, field = fields[0] if fields else (None, None)
+    return ({"sum": rest} if rest else None), field, field_where
 
 
 def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales: dict, provider_context) -> dict:
@@ -15189,8 +15194,8 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
         unknown = sorted(set(term) - {"generator", "params"})
         if unknown:
             raise ValueError(f"{where}: unknown keys {unknown}; a generator term takes generator and params.")
-        return _resolve_initial_generator(term["generator"], term.get("params") or {}, prepared_blocks, scales,
-                                          provider_context)
+        return _resolve_initial_generator(term["generator"], term.get("params") or {}, f"{where}.params",
+                                          prepared_blocks, scales, provider_context)
     if term["type"] != "file":
         raise ValueError(f"{where}: a '{term['type']}' data source is a face's normal-speed profile, "
                          "so only an inlet reads it; an initial condition takes type: file.")
@@ -15199,7 +15204,7 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
         raise ValueError(f"{where}: unknown keys {unknown}; a file term takes field, path, and source_case or "
                          "velocity_scale and length_scale.")
     if prepared_blocks and len(prepared_blocks) > 1:
-        raise ValueError("File-backed initial conditions currently support single-block cases only.")
+        raise ValueError("File-backed initial conditions support single-block cases only.")
     path = term.get("path")
     if not isinstance(path, str) or not path.strip():
         raise ValueError(f"{where}.path is required for a file term.")
@@ -15209,11 +15214,14 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
             "scales": dict(scales)}
 
 
-def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict, provider_context) -> dict:
+def _resolve_initial_generator(generator, params, where: str, prepared_blocks, scales: dict,
+                               provider_context) -> dict:
     """!
     @brief Resolve a named initial-field generator and its parameters into a staging contract.
     @param[in] generator Generator name.
     @param[in] params Generator parameters.
+    @param[in] where Configuration path of `params`: under the initial condition's source, or
+               `sources.<name>.params`.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales.
     @param[in] provider_context Optional conductor-derived provider context.
@@ -15221,13 +15229,25 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
     """
     generator = str(generator).strip().lower().replace("-", "_").replace(" ", "_")
     if not isinstance(params, dict):
-        raise ValueError("initial_conditions.params must be a mapping.")
+        raise ValueError(f"{where} must be a mapping.")
     for key in RETIRED_INITIAL_CONDITION_DESTINATION_KEYS:
         if key in params:
-            raise ValueError(retired_destination_message("initial_conditions.params", key))
+            raise ValueError(retired_destination_message(where, key))
+
+    def validated(validate):
+        """!
+        @brief Run one of `ic.gen`'s validators, naming the parameters' path in its refusal.
+        @param[in] validate Validator taking the raw parameters.
+        @return Normalized parameters.
+        """
+        try:
+            return validate(params)
+        except ValueError as exc:
+            raise ValueError(f"{where}: {exc}") from None
+
     if generator == "ic_gen":
         if prepared_blocks and len(prepared_blocks) > 1:
-            raise ValueError("File-backed initial conditions currently support single-block cases only.")
+            raise ValueError("File-backed initial conditions support single-block cases only.")
         script = params.get("script")
         if script is None:
             raise ValueError("generator 'ic_gen' runs your own script, and its [expression] config is retired. Write "
@@ -15235,16 +15255,16 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
                              "{components: contravariant, expression: {u_xi, u_eta, u_zeta}} for Ucont. In a source, "
                              "xi, eta and zeta are arc-length fractions, not index fractions, and i, j, k do not exist.")
         if not isinstance(script, str) or not script.strip():
-            raise ValueError("initial_conditions.params.script must be a non-empty path.")
+            raise ValueError(f"{where}.script must be a non-empty path.")
         field_name, field_code = normalize_initial_condition_field(params.get("field"))
         config_file = params.get("config_file")
         if not isinstance(config_file, str) or not config_file.strip():
-            raise ValueError("initial_conditions.params.config_file is required for generator 'ic_gen'.")
+            raise ValueError(f"{where}.config_file is required for generator 'ic_gen'.")
         cli_args = params.get("cli_args", [])
         if cli_args is None:
             cli_args = []
         if not isinstance(cli_args, list):
-            raise ValueError("initial_conditions.params.cli_args must be a list.")
+            raise ValueError(f"{where}.cli_args must be a list.")
         return {
             "kind": "ic_gen", "label": "ic_gen",
             "field_name": field_name, "field_code": field_code,
@@ -15258,7 +15278,7 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
         raise ValueError(f"initial_conditions generator '{generator}' is retired: use generator: spectral_velocity "
                          f"with params.wall_axes: {RETIRED_SPECTRAL_IC_PROVIDERS[generator]}.")
     if generator == "spectral_velocity":
-        normalized = load_ic_generator_module().validate_spectral_velocity_params(params)
+        normalized = validated(load_ic_generator_module().validate_spectral_velocity_params)
         if not prepared_blocks or len(prepared_blocks) != 1:
             raise ValueError("spectral_velocity requires exactly one block with resolved boundaries.")
         faces = prepared_blocks[0]
@@ -15289,11 +15309,11 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
                              "six faces; give wall_axes for a channel or duct.")
         return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
-                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales, where),
                 "provider_context": dict(provider_context or {})}
 
     if generator == "stability_mode_velocity":
-        normalized = load_ic_generator_module().validate_stability_mode_params(params)
+        normalized = validated(load_ic_generator_module().validate_stability_mode_params)
         if not prepared_blocks or len(prepared_blocks) != 1:
             raise ValueError("stability_mode_velocity requires exactly one block with resolved boundaries.")
         face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
@@ -15313,11 +15333,11 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
         context.update({"length_ref": scales["length_ref"], "velocity_ref": scales["velocity_ref"]})
         return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
-                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales, where),
                 "provider_context": context}
 
     if generator == "resampled_velocity":
-        return resolve_resampled_velocity_params(params, prepared_blocks, scales, provider_context)
+        return resolve_resampled_velocity_params(params, where, prepared_blocks, scales, provider_context)
 
     raise ValueError(f"initial_conditions generator '{generator}' is not one of: "
                      f"{sorted(_PYTHON_INITIAL_CONDITION_PROVIDERS)}.")

@@ -288,6 +288,27 @@ def test_invalid_sums_are_refused(terms, message):
         resolve_initial(case)
 
 
+@pytest.mark.parametrize("source, sources, path", [
+    ({"sum": [DUCT, dict(DUCT_SEED, params=dict(DUCT_SEED["params"], seed="one"))]}, None,
+     "properties.initial_conditions.source.sum[1].params: params.seed must be an integer"),
+    ({"sum": [DUCT, "seed"]}, {"seed": dict(DUCT_SEED, params=dict(DUCT_SEED["params"], wall_modes=0))},
+     "sources.seed.params: wall_modes must be a positive integer"),
+    ({"generator": "ic_gen", "params": {"field": "Ucat", "script": "", "config_file": "c"}}, None,
+     "properties.initial_conditions.source.params.script must be a non-empty path"),
+])
+def test_a_generator_refusal_names_its_parameters_path(source, sources, path):
+    """!
+    @brief A generator's parameters are refused at the path the case writes them, inline or named.
+    @param[in] source Initial-condition source.
+    @param[in] sources `sources:` mapping, or None.
+    @param[in] path The refusal's expected opening.
+    """
+    case, _, _ = load_configs(sources=sources, initial_conditions={"source": source})
+    with pytest.raises(ValueError) as caught:
+        resolve_initial(case)
+    assert str(caught.value).startswith(path)
+
+
 def test_a_lone_generator_is_a_source_and_is_not_projected():
     """!
     @brief A generator alone is staged as it writes it: nothing is added and no projection runs
