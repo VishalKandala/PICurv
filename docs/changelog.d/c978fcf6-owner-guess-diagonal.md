@@ -1,0 +1,1 @@
+- A particle that leaves a rank across an edge or corner is now tried first against the diagonal neighbour it moved toward, instead of falling through to a scan of every rank's box. Owners and results are unchanged; only seeding, restarts without cell IDs and boundary retries take this path.
