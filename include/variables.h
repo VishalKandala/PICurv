@@ -243,11 +243,17 @@ typedef struct Particle {
     PetscReal psi;
 } Particle;
 
-/** @brief Stores the MPI ranks of neighboring subdomains. */
+/** @brief Index in RankNeighbors::rank of the neighbour offset (di, dj, dk), each -1, 0 or 1. */
+#define RANK_NEIGHBOR_INDEX(di, dj, dk) (9 * ((dk) + 1) + 3 * ((dj) + 1) + ((di) + 1))
+
+/**
+ * @brief The MPI ranks of the subdomains around this one, across faces, edges and corners.
+ * @details In DMDAGetNeighbors() order, indexed by RANK_NEIGHBOR_INDEX(); entry 13 is this rank.
+ *          A neighbour across a periodic axis is the wrapped rank (this rank when the axis has
+ *          one rank); one beyond a non-periodic boundary is MPI_PROC_NULL.
+ */
 typedef struct RankNeighbors {
-    PetscMPIInt rank_xm, rank_xp;
-    PetscMPIInt rank_ym, rank_yp;
-    PetscMPIInt rank_zm, rank_zp;
+    PetscMPIInt rank[27];
 } RankNeighbors;
 
 /** @brief A lean struct to hold the global cell ownership range for a single MPI rank. */

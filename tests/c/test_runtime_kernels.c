@@ -1625,12 +1625,22 @@ static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     PetscCall(ComputeAndStoreNeighborRanks(user));
 
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xm, "single-rank xm neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xp, "single-rank xp neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_ym, "single-rank ym neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_yp, "single-rank yp neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zm, "single-rank zm neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zp, "single-rank zp neighbor should be null"));
+    /* A non-periodic single-rank grid: no face, edge or corner neighbour, and itself at the centre. */
+    for (PetscInt n = 0; n < 27; ++n) {
+        PetscCall(PicurvAssertIntEqual(n == RANK_NEIGHBOR_INDEX(0, 0, 0) ? 0 : MPI_PROC_NULL, user->neighbors.rank[n],
+                                       "single-rank neighbours should be null except the rank itself"));
+    }
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+
+    /* Periodic in x: the rank is its own neighbour across both x faces, and nothing else exists. */
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 6, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(ComputeAndStoreNeighborRanks(user));
+    for (PetscInt n = 0; n < 27; ++n) {
+        const PetscBool along_x = (PetscBool)(n == RANK_NEIGHBOR_INDEX(-1, 0, 0) || n == RANK_NEIGHBOR_INDEX(0, 0, 0) ||
+                                              n == RANK_NEIGHBOR_INDEX(1, 0, 0));
+        PetscCall(PicurvAssertIntEqual(along_x ? 0 : MPI_PROC_NULL, user->neighbors.rank[n],
+                                       "x-periodic single-rank neighbours should wrap to the rank along x only"));
+    }
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

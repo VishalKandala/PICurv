@@ -985,6 +985,11 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 
 /**
  * @brief Select the rank whose gathered bounding box is the best owner candidate for a particle.
+ * @details Tries this rank, then the neighbour across the face, edge or corner the particle
+ *          left by (from the stored DMDAGetNeighbors() ranks, wrapped on periodic axes), then,
+ *          because the bounding boxes of curvilinear subdomains overlap, the face neighbours
+ *          on each axis it left by, and finally every rank. The guess only picks where the
+ *          walk runs next; the walk decides the owner.
  * @note Testing status:
  *       The current direct surface reaches this helper through orchestrator
  *       tests, but direction-complete immediate-neighbor coverage and the
@@ -996,105 +1001,75 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
                                                  const BoundingBox *bboxlist,
                                                  PetscMPIInt *guess_rank_out)
 {
-    PetscMPIInt     rank, size;
-    const RankNeighbors *neighbors = &user->neighbors; // Use a direct pointer for clarity
-    const BoundingBox   *localBBox = &user->bbox;
+    PetscMPIInt          rank, size;
+    const PetscMPIInt   *neighbor;
+    const BoundingBox   *localBBox;
 
     PetscFunctionBeginUser;
 
     PROFILE_HELPER_BEGIN;
 
-    // --- 1. Input Validation and Setup ---
     if (!user || !particle || !guess_rank_out || !bboxlist) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null pointer provided to GuessParticleOwnerWithBBox.");
     }
-    if (!localBBox|| !neighbors) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Required user->bboxl or user->neighbors is not initialized.");
-    }
-
+    neighbor  = user->neighbors.rank;
+    localBBox = &user->bbox;
     rank = user->simCtx->rank;
     size = user->simCtx->size;
-    
+
     *guess_rank_out = MPI_PROC_NULL; // Default to "not found"
 
     // The caller reports the guess's result in the particle's locate line.
-    // --- Step 0: Check if the particle is inside the CURRENT rank's bounding box FIRST. ---
-    // This handles the common case of initial placement where a particle is "lost" but physically local.
+    // --- 1. This rank: initial placement leaves particles "lost" that are physically local ---
     if (IsParticleInBox(localBBox, &particle->loc)) {
-      *guess_rank_out = rank;
-
-      PROFILE_FUNCTION_END;
-      PetscFunctionReturn(0); // Found it, we're done.
+        *guess_rank_out = rank;
+        PROFILE_HELPER_END;
+        PetscFunctionReturn(0);
     }
-    // --- 2. Fast Path: Check Immediate Neighbors Based on Exit Direction ---
-    
-    // Determine likely exit direction(s) to prioritize neighbor check
-    PetscBool exit_xm = particle->loc.x < localBBox->min_coords.x;
-    PetscBool exit_xp = particle->loc.x > localBBox->max_coords.x;
-    PetscBool exit_ym = particle->loc.y < localBBox->min_coords.y;
-    PetscBool exit_yp = particle->loc.y > localBBox->max_coords.y;
-    PetscBool exit_zm = particle->loc.z < localBBox->min_coords.z;
-    PetscBool exit_zp = particle->loc.z > localBBox->max_coords.z;
 
-    // The neighbour across the face, edge or corner it left by: this rank's process-grid
-    // coordinates stepped by the exit direction on every axis, in FindOwnerOfCell's numbering.
-    {
-        const PetscInt  *procs = user->RankCellInfoProcs;
-        const PetscBool  low[3] = {exit_xm, exit_ym, exit_zm}, high[3] = {exit_xp, exit_yp, exit_zp};
-        PetscInt         c[3] = {rank % procs[0], (rank / procs[0]) % procs[1], rank / (procs[0] * procs[1])};
-        PetscBool        exists = PETSC_TRUE;
-        for (PetscInt d = 0; d < 3; ++d) {
-            c[d] += high[d] ? 1 : (low[d] ? -1 : 0);
-            if (c[d] < 0 || c[d] >= procs[d]) {
-                if (user->boundary_faces[2 * d].mathematical_type != PERIODIC) exists = PETSC_FALSE;
-                c[d] = (c[d] + procs[d]) % procs[d];
-            }
-        }
-        if (exists) {
-            const PetscMPIInt across = (PetscMPIInt)(c[0] + procs[0] * (c[1] + procs[1] * c[2]));
-            if (across != rank && IsParticleInBox(&bboxlist[across], &particle->loc)) {
-                *guess_rank_out = across;
-                PROFILE_FUNCTION_END;
+    // --- 2. The neighbour across the face, edge or corner it left by ---
+    const PetscBool low[3]  = {particle->loc.x < localBBox->min_coords.x, particle->loc.y < localBBox->min_coords.y,
+                               particle->loc.z < localBBox->min_coords.z};
+    const PetscBool high[3] = {particle->loc.x > localBBox->max_coords.x, particle->loc.y > localBBox->max_coords.y,
+                               particle->loc.z > localBBox->max_coords.z};
+    PetscInt step[3];
+    for (PetscInt d = 0; d < 3; ++d) step[d] = high[d] ? 1 : (low[d] ? -1 : 0);
+    const PetscMPIInt across = neighbor[RANK_NEIGHBOR_INDEX(step[0], step[1], step[2])];
+    if (across != MPI_PROC_NULL && across != rank && IsParticleInBox(&bboxlist[across], &particle->loc)) {
+        *guess_rank_out = across;
+        PROFILE_HELPER_END;
+        PetscFunctionReturn(0);
+    }
+
+    // --- 3. Bounding boxes of curvilinear subdomains overlap, so a face neighbour may hold a
+    //        particle that left across an edge or corner. A face neighbour that is the one
+    //        tried above, which it is when only one axis was left by, is not tried again. ---
+    for (PetscInt d = 0; d < 3; ++d) {
+        for (PetscInt side = -1; side <= 1; side += 2) {
+            PetscInt offset[3] = {0, 0, 0};
+            if (!((side < 0) ? low[d] : high[d])) continue;
+            offset[d] = side;
+            const PetscMPIInt face = neighbor[RANK_NEIGHBOR_INDEX(offset[0], offset[1], offset[2])];
+            if (face != MPI_PROC_NULL && face != across && IsParticleInBox(&bboxlist[face], &particle->loc)) {
+                *guess_rank_out = face;
+                PROFILE_HELPER_END;
                 PetscFunctionReturn(0);
             }
         }
     }
 
-    if (exit_xm && neighbors->rank_xm != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xm], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_xm;
-    } else if (exit_xp&& neighbors->rank_xp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_xp;
-    } else if (exit_ym && neighbors->rank_ym != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_ym], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_ym;
-    } else if (exit_yp && neighbors->rank_yp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_yp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_yp;
-    } else if (exit_zm && neighbors->rank_zm != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_zm], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_zm;
-    } else if (exit_zp && neighbors->rank_zp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_zp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_zp;
-    }
-    // Bounding boxes of curvilinear subdomains overlap, so a face neighbour may hold a particle
-    // that left across an edge; any other owner is found by the scan below.
-
-    if (*guess_rank_out != MPI_PROC_NULL) {
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0); // Found it, we're done.
-    }
-
-    // --- 3. Robust Fallback: Check All Other Ranks ---
-    // If we get here, the particle was not in any of the immediate face neighbors' boxes.
+    // --- 4. Every other rank ---
     for (PetscMPIInt r = 0; r < size; ++r) {
-        if (r == rank) continue; // Don't check ourselves.
-
+        if (r == rank) continue;
         if (IsParticleInBox(&bboxlist[r], &particle->loc)) {
             *guess_rank_out = r;
-            PROFILE_FUNCTION_END;
-            PetscFunctionReturn(0); // Found it, we're done.
+            PROFILE_HELPER_END;
+            PetscFunctionReturn(0);
         }
     }
 
     // Not in any rank's bounding box: guess_rank_out stays MPI_PROC_NULL, signaling failure to the caller.
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

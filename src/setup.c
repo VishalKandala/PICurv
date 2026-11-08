@@ -3131,87 +3131,23 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
     // neighbor_ranks_ptr will point to an internal PETSc array of 27 ranks.
     ierr = DMDAGetNeighbors(user->da, &neighbor_ranks_ptr); CHKERRQ(ierr);
 
-    // Log the raw values from DMDAGetNeighbors for boundary-relevant directions for debugging
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "[Rank %d]Raw DMDAGetNeighbors: xm_raw=%d, xp_raw=%d, ym_raw=%d, yp_raw=%d, zm_raw=%d, zp_raw=%d. MPI_PROC_NULL is %d.\n",
-                   rank,
-                   neighbor_ranks_ptr[12], neighbor_ranks_ptr[14],
-                   neighbor_ranks_ptr[10], neighbor_ranks_ptr[16],
-                   neighbor_ranks_ptr[4],  neighbor_ranks_ptr[22],
-                   (int)MPI_PROC_NULL);
-
-    // PETSc standard indices for 3D face neighbors from the 27-point stencil:
-    // Index = k_offset*9 + j_offset*3 + i_offset (where offsets -1,0,1 map to 0,1,2)
-    // Center: (i_off=1, j_off=1, k_off=1) => 1*9 + 1*3 + 1 = 13
-    // X-min:  (i_off=0, j_off=1, k_off=1) => 1*9 + 1*3 + 0 = 12
-    // X-plus: (i_off=2, j_off=1, k_off=1) => 1*9 + 1*3 + 2 = 14
-    // Y-min:  (i_off=1, j_off=0, k_off=1) => 1*9 + 0*3 + 1 = 10
-    // Y-plus: (i_off=1, j_off=2, k_off=1) => 1*9 + 2*3 + 1 = 16
-    // Z-min:  (i_off=1, j_off=1, k_off=0) => 0*9 + 1*3 + 1 = 4
-    // Z-plus: (i_off=1, j_off=1, k_off=2) => 2*9 + 1*3 + 1 = 22
-
     if (neighbor_ranks_ptr[13] != rank) {
         LOG_ALLOW(GLOBAL, LOG_WARNING, "Rank %d: DMDAGetNeighbors center index (13) is %d, expected current rank %d. Neighbor indexing might be non-standard or DMDA small.\n",
                   rank, neighbor_ranks_ptr[13], rank);
-        // This warning is important. If the center isn't the current rank, the offsets are likely wrong.
-        // However, PETSc should ensure this unless the DM is too small for a 3x3x3 stencil.
     }
 
-    // Assign and sanitize each neighbor rank
-    PetscMPIInt temp_neighbor;
-
-    temp_neighbor = neighbor_ranks_ptr[12]; // xm
-    if (temp_neighbor < 0  || temp_neighbor >= size) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid xm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_xm = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_xm = temp_neighbor;
+    // All 27 entries, in DMDAGetNeighbors order (RANK_NEIGHBOR_INDEX). PETSc wraps a neighbour
+    // across a DM_BOUNDARY_PERIODIC axis and marks one beyond any other boundary with a negative
+    // rank, stored as MPI_PROC_NULL.
+    for (PetscInt n = 0; n < 27; ++n) {
+        const PetscMPIInt neighbor = neighbor_ranks_ptr[n];
+        user->neighbors.rank[n] = (neighbor < 0 || neighbor >= size) ? MPI_PROC_NULL : neighbor;
     }
 
-    temp_neighbor = neighbor_ranks_ptr[14]; // xp
-    if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid xp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_xp = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_xp = temp_neighbor;
-    }
-
-    temp_neighbor = neighbor_ranks_ptr[10]; // ym
-    if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid ym neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_ym = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_ym = temp_neighbor;
-    }
-
-    temp_neighbor = neighbor_ranks_ptr[16]; // yp
-    if (temp_neighbor < 0 || temp_neighbor >= size) {
-        // The log for index 16 was "zm" in your output, should be yp
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid yp neighbor (raw index 16) %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_yp = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_yp = temp_neighbor;
-    }
-
-    temp_neighbor = neighbor_ranks_ptr[4]; // zm
-    if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid zm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_zm = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_zm = temp_neighbor;
-    }
-
-    temp_neighbor = neighbor_ranks_ptr[22]; // zp
-    if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid zp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
-        user->neighbors.rank_zp = MPI_PROC_NULL;
-    } else {
-        user->neighbors.rank_zp = temp_neighbor;
-    }
-
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "[Rank %d] Stored user->neighbors: xm=%d, xp=%d, ym=%d, yp=%d, zm=%d, zp=%d\n", rank,
-              user->neighbors.rank_xm, user->neighbors.rank_xp,
-              user->neighbors.rank_ym, user->neighbors.rank_yp,
-              user->neighbors.rank_zm, user->neighbors.rank_zp);
+    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "[Rank %d] Stored face neighbours: xm=%d, xp=%d, ym=%d, yp=%d, zm=%d, zp=%d\n", rank,
+              user->neighbors.rank[RANK_NEIGHBOR_INDEX(-1, 0, 0)], user->neighbors.rank[RANK_NEIGHBOR_INDEX(1, 0, 0)],
+              user->neighbors.rank[RANK_NEIGHBOR_INDEX(0, -1, 0)], user->neighbors.rank[RANK_NEIGHBOR_INDEX(0, 1, 0)],
+              user->neighbors.rank[RANK_NEIGHBOR_INDEX(0, 0, -1)], user->neighbors.rank[RANK_NEIGHBOR_INDEX(0, 0, 1)]);
     PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); // Ensure logs are flushed
 
     // Note: neighbor_ranks_ptr memory is managed by PETSc, do not free it.
