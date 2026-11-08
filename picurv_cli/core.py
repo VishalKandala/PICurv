@@ -8882,6 +8882,12 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 for key in ("source", "constraints"):
                     if key in bc:
                         raise ValueError(f"{where}.{key} is only read by the 'prescribed_velocity' and 'moving' handlers.")
+            if bc.get("fluctuations") is not None:
+                if bc_type != "INLET" or handler != "prescribed_velocity":
+                    raise ValueError(f"{where}.fluctuations: only a prescribed_velocity INLET adds synthetic fluctuations.")
+                prepared_entry["fluctuations"] = normalize_inlet_fluctuations(
+                    bc["fluctuations"], case_cfg, f"{where}.fluctuations",
+                    (bi,) if isinstance((case_cfg.get("boundary_conditions") or [None])[0], list) else ())
             if bc.get("particles") is not None:
                 if bc_type != "INLET":
                     raise ValueError(f"{where}.particles: only an INLET face injects particles.")
@@ -9077,9 +9083,13 @@ _CASE_SCHEMA = {
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
     ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy", "source", "constraints",
-                                    "particles"},
+                                    "particles", "fluctuations"},
     ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params", "particle_policy", "source",
-                                          "constraints", "particles"},
+                                          "constraints", "particles", "fluctuations"},
+    ("boundary_conditions", "[]", "fluctuations"): {"reynolds_stress", "length_scales", "time_scale"},
+    ("boundary_conditions", "[]", "[]", "fluctuations"): {"reynolds_stress", "length_scales", "time_scale"},
+    ("boundary_conditions", "[]", "fluctuations", "reynolds_stress"): {"uu", "vv", "ww", "uv", "uw", "vw"},
+    ("boundary_conditions", "[]", "[]", "fluctuations", "reynolds_stress"): {"uu", "vv", "ww", "uv", "uw", "vw"},
     ("boundary_conditions", "[]", "params"): None,
     ("boundary_conditions", "[]", "[]", "params"): None,
     ("boundary_conditions", "[]", "constraints"): None,
@@ -9372,6 +9382,7 @@ DIFFUSIVITY = (1, 1, 0)
 PRESSURE = (0, 2, 1)
 DENSITY = (0, 0, 1)
 DYNAMIC_VISCOSITY = (1, 1, 1)
+VELOCITY_SQUARED = (0, 2, 0)
 
 #: Where an input's conversion to solver units happens. `cli` converts the value while
 #: writing the control file; `c` converts it in the runtime (programmatic grid bounds,
@@ -9455,6 +9466,12 @@ INPUT_QUANTITIES = {
     ("case", "boundary_conditions", "[]", "[]", "constraints"): (VELOCITY, "evaluator"),
     # Particles per cubic metre, and field values in their physical units; the runtime converts.
     ("case", "boundary_conditions", "[]", "particles"): (None, "evaluator"),
+    ("case", "boundary_conditions", "[]", "fluctuations", "reynolds_stress"): (VELOCITY_SQUARED, "evaluator"),
+    ("case", "boundary_conditions", "[]", "[]", "fluctuations", "reynolds_stress"): (VELOCITY_SQUARED, "evaluator"),
+    ("case", "boundary_conditions", "[]", "fluctuations", "length_scales"): (LENGTH, "cli"),
+    ("case", "boundary_conditions", "[]", "[]", "fluctuations", "length_scales"): (LENGTH, "cli"),
+    ("case", "boundary_conditions", "[]", "fluctuations", "time_scale"): (TIME, "cli"),
+    ("case", "boundary_conditions", "[]", "[]", "fluctuations", "time_scale"): (TIME, "cli"),
     ("case", "boundary_conditions", "[]", "[]", "particles"): (None, "evaluator"),
     # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
     ("case", "models", "physics", "turbulence", "les"): UNITLESS,
@@ -14818,6 +14835,51 @@ def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
 PARTICLE_CELL_SEEDED_MODES = (0, 1)
 
 
+#: Reynolds-stress components an inlet's fluctuations take, in the order the runtime reads them:
+#: the diagonal (uu, vv, ww), then the off-diagonal (uv, uw, vw), each a Cartesian-frame source.
+INLET_FLUCTUATION_STRESSES = (("uu", "vv", "ww"), ("uv", "uw", "vw"))
+
+
+def normalize_inlet_fluctuations(spec, case_cfg: dict, where: str, block_path: tuple = ()) -> dict:
+    """!
+    @brief Validate an inlet's synthetic fluctuations: Reynolds stresses, two integral lengths, a time scale.
+    @details The stresses are physical expressions over the face's variables, without `t`: the runtime
+             evaluates them once, and divides them by the square of the reference velocity. The lengths
+             run along the face's two tangential grid axes, in that order, and with the time are
+             converted to solver units here. An omitted stress component is zero.
+    @param[in] spec The mapping.
+    @param[in] case_cfg Case configuration holding `constants:` and the reference scales.
+    @param[in] where Configuration path of the mapping.
+    @param[in] block_path `(block,)` for a multi-block case's entry, else empty.
+    @return `{"stress": [[diagonal texts], [off-diagonal texts]], "length_scales": [a, b], "time_scale": t}`.
+    @throws ValueError on a missing or invalid value.
+    """
+    if not isinstance(spec, dict) or set(spec) - {"reynolds_stress", "length_scales", "time_scale"} or \
+            {"reynolds_stress", "length_scales", "time_scale"} - set(spec):
+        raise ValueError(f"{where} takes reynolds_stress, length_scales and time_scale.")
+    stresses = spec["reynolds_stress"]
+    if not isinstance(stresses, dict) or not stresses or set(stresses) - {c for g in INLET_FLUCTUATION_STRESSES for c in g}:
+        raise ValueError(f"{where}.reynolds_stress maps uu, vv, ww, uv, uw and vw to expressions; omitted ones are zero.")
+    language = load_source_expressions()
+    constants = _source_constants({}, case_cfg, where, language)
+    names = set(FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
+    stress = [[_source_text(stresses.get(name, 0.0), constants, names, f"{where}.reynolds_stress.{name}", language)
+               for name in group] for group in INLET_FLUCTUATION_STRESSES]
+    lengths = spec["length_scales"]
+    if (not isinstance(lengths, list) or len(lengths) != 2 or
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0 for v in lengths)):
+        raise ValueError(f"{where}.length_scales is two positive lengths, along the face's first and second "
+                         "tangential grid axes.")
+    time_scale = spec["time_scale"]
+    if isinstance(time_scale, bool) or not isinstance(time_scale, (int, float)) or not time_scale > 0:
+        raise ValueError(f"{where}.time_scale must be a positive time.")
+    scales = resolve_reference_scales(case_cfg)
+    path = ("case", "boundary_conditions", "[]") + (("[]",) if block_path else ()) + ("fluctuations",)
+    return {"stress": stress,
+            "length_scales": to_solver_units([float(v) for v in lengths], path + ("length_scales",), scales),
+            "time_scale": to_solver_units(float(time_scale), path + ("time_scale",), scales)}
+
+
 def case_seeds_particles(case_cfg: dict) -> bool:
     """!
     @brief Whether the case seeds particles at t = 0, read from the inputs alone, with no grid.
@@ -17264,6 +17326,18 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 control_lines.extend(velocity_source_control_lines(
                     f"-face_source_{entry['params']['source_id']}", entry["source"],
                     f"boundary_conditions[{block_index}] {entry['face']}.source"))
+            if "fluctuations" in entry:
+                prefix, fluct = f"-face_source_{entry['params']['source_id']}", entry["fluctuations"]
+                where = f"boundary_conditions[{block_index}] {entry['face']}.fluctuations"
+                control_lines.append(f"{prefix}_fluct true")
+                for group, texts in enumerate(fluct["stress"]):
+                    control_lines.append(f"{prefix}_fluct_stress_{group}_frame cartesian")
+                    for component, text in enumerate(texts):
+                        control_lines.append(f"{prefix}_fluct_stress_{group}_expr_{component} \"{expression_control_value(text, where)}\"")
+                control_lines.append(f"{prefix}_fluct_length {fluct['length_scales'][0]!r},{fluct['length_scales'][1]!r}")
+                control_lines.append(f"{prefix}_fluct_time {fluct['time_scale']!r}")
+    if any("fluctuations" in entry for block in prepared_blocks for entry in block):
+        control_lines.append("-inflow_fluctuations true")
     inlets = [entry for block in prepared_blocks for entry in block if "particles" in entry]
     if inlets:
         control_lines.append(f"-particle_inlet_count {len(inlets)}")

@@ -32,6 +32,7 @@ typedef enum {
     FIELD_ID_CS,
     FIELD_ID_U_TAU,
     FIELD_ID_NU_WALL,
+    FIELD_ID_INFLOW_FLUCTUATION,
     FIELD_ID_DIFFUSIVITY,
     FIELD_ID_DIFFUSIVITY_GRADIENT,
     FIELD_ID_CSI,
@@ -112,7 +113,8 @@ typedef enum {
     FIELD_AVAILABILITY_TURBULENCE   = 1u << 1,
     FIELD_AVAILABILITY_LES_DYNAMIC  = 1u << 2,
     FIELD_AVAILABILITY_PARTICLES    = 1u << 4,
-    FIELD_AVAILABILITY_WALL_MODEL   = 1u << 5
+    FIELD_AVAILABILITY_WALL_MODEL   = 1u << 5,
+    FIELD_AVAILABILITY_INFLOW_FLUCTUATION = 1u << 6
 } FieldAvailability;
 
 /** @brief Operations supported by a catalog entry. */

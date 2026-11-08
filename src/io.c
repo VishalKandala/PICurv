@@ -82,6 +82,7 @@ PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *
     if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if ((availability & FIELD_AVAILABILITY_PARTICLES) && !ParticlesEnabled(simCtx)) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if ((availability & FIELD_AVAILABILITY_WALL_MODEL) && !simCtx->wallfunction) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_INFLOW_FLUCTUATION) && !simCtx->inflowFluctuations) { PROFILE_HELPER_END; return PETSC_FALSE; }
     PROFILE_HELPER_END;
     return PETSC_TRUE;
 }
@@ -310,7 +311,8 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
                                                PetscReal *physical_time,
                                                PetscInt *particle_count,
                                                PetscBool *particles_saved,
-                                               PetscBool *les_saved)
+                                               PetscBool *les_saved,
+                                               PetscBool *inflow_saved)
 {
     char metadata_path[PETSC_MAX_PATH_LEN];
     char commit_path[PETSC_MAX_PATH_LEN];
@@ -327,6 +329,7 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     PetscReal saved_time = 0.0;
     PetscBool saved_particles = PETSC_FALSE;
     PetscBool saved_les = PETSC_FALSE;
+    PetscBool saved_inflow = PETSC_FALSE;
     PetscBool found = PETSC_FALSE;
     FILE *commit_file = NULL;
 
@@ -409,6 +412,8 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_les", &saved_les, &found));
     PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Checkpoint '%s' does not record LES-state availability.", metadata_path);
+    /* Absent from checkpoints written before inlets had synthetic fluctuations: none saved. */
+    PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_inflow_fluctuation", &saved_inflow, NULL));
     for (PetscInt payload = 0; payload < payload_count; ++payload) {
         char option_name[96];
         char relative_path[PETSC_MAX_PATH_LEN];
@@ -445,6 +450,7 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     if (particle_count) *particle_count = saved_particle_count;
     if (particles_saved) *particles_saved = saved_particles;
     if (les_saved) *les_saved = saved_les;
+    if (inflow_saved) *inflow_saved = saved_inflow;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1387,6 +1393,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     PetscReal checkpoint_time = 0.0;
     PetscBool particles_saved = PETSC_FALSE;
     PetscBool les_saved = PETSC_FALSE;
+    PetscBool inflow_saved = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1402,7 +1409,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
                                              checkpoint_directory, sizeof(checkpoint_directory)));
     PetscCall(ValidateCheckpointBundle(simCtx, user - user->_this,
                                        checkpoint_directory, ti, &checkpoint_time, NULL,
-                                       &particles_saved, &les_saved));
+                                       &particles_saved, &les_saved, &inflow_saved));
     PetscCheck(!(ParticlesEnabled(simCtx) && !strcmp(simCtx->particleRestartMode, "load")) || particles_saved,
                PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Particle restart_mode=load was requested, but checkpoint step %" PetscInt_FMT
@@ -1439,6 +1446,9 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
         if (descriptor->availability & FIELD_AVAILABILITY_WALL_MODEL) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_TURBULENCE) &&
             !(simCtx->les && les_saved)) continue;
+        /* An inlet whose checkpoint holds no filter state starts its filter afresh. */
+        if ((descriptor->availability & FIELD_AVAILABILITY_INFLOW_FLUCTUATION) && !inflow_saved) continue;
+        if (descriptor->availability & FIELD_AVAILABILITY_INFLOW_FLUCTUATION) simCtx->inflowFluctuationsRestored = PETSC_TRUE;
         PetscCall(FieldGetView(user, descriptor->id, &view));
         PetscCall(ReadFieldData(user, descriptor->canonical_name, view.global_vec, "dat"));
         /* A dimensionalizing post-processor scales each field as it is loaded, so a field
@@ -1629,7 +1639,7 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
     PetscCall(ResolveCheckpointStepDirectory(source_path, ti,
                                              checkpoint_directory, sizeof(checkpoint_directory)));
     PetscCall(ValidateCheckpointBundle(simCtx, user, checkpoint_directory, ti,
-                                       &checkpoint_time, NULL, NULL, NULL));
+                                       &checkpoint_time, NULL, NULL, NULL, NULL));
     PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta",
                             checkpoint_directory));
 
@@ -1877,7 +1887,7 @@ PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt 
                                              checkpoint_directory, sizeof(checkpoint_directory)));
     PetscCall(ValidateCheckpointBundle(simCtx, user - user->_this,
                                        checkpoint_directory, ti, NULL, particle_count,
-                                       &particles_saved, NULL));
+                                       &particles_saved, NULL, NULL));
     PetscCheck(particles_saved, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Checkpoint step %" PetscInt_FMT " contains no particle state.", ti);
     PROFILE_HELPER_END;
@@ -2297,6 +2307,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            "-checkpoint_particles %s\n"
                            "-checkpoint_particle_count %" PetscInt_FMT "\n"
                            "-checkpoint_les %s\n"
+                           "-checkpoint_inflow_fluctuation %s\n"
                            "-checkpoint_payload_count %" PetscInt_FMT "\n",
                            PICURV_CHECKPOINT_FORMAT, PICURV_CHECKPOINT_VERSION,
                            PICURV_RELEASE_VERSION, PICURV_GIT_COMMIT, PICURV_BUILD_DIRTY,
@@ -2305,6 +2316,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            ParticlesEnabled(simCtx) ? "true" : "false",
                            particle_count,
                            simCtx->les ? "true" : "false",
+                           simCtx->inflowFluctuations ? "true" : "false",
                            payload_count) > 0,
                    PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                    "Unable to write checkpoint metadata '%s'.", metadata_path);
@@ -2527,7 +2539,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     if (final_exists) {
         PetscReal saved_time = 0.0;
         PetscCall(ValidateCheckpointBundle(simCtx, user, final_directory, simCtx->step,
-                                           &saved_time, NULL, NULL, NULL));
+                                           &saved_time, NULL, NULL, NULL, NULL));
         PetscCheck(PetscAbsReal(saved_time - simCtx->ti) <=
                    10.0 * PETSC_MACHINE_EPSILON * PetscMax(1.0, PetscAbsReal(simCtx->ti)),
                    PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,

@@ -722,3 +722,59 @@ def test_a_recording_shorter_than_a_fresh_run_is_a_problem(tmp_path):
     (tmp_path / "steady.picslice").write_text("PICSLICE\n1\n2 2\n" + "1.0\n" * 4, encoding="utf-8")
     assert problem({"type": "file", "path": "steady.picslice"}) is None
     assert problem({"type": "file", "path": "absent.picslice"}) is None
+
+
+FLUCTUATIONS = {"reynolds_stress": {"uu": "0.01*(1 - r)", "ww": 0.04, "uw": -0.005},
+                "length_scales": [0.25, 0.125], "time_scale": 0.5}
+
+
+def test_inlet_fluctuations_are_resolved_in_solver_units():
+    """!
+    @brief Stresses stay physical expressions, the runtime dividing them by U_ref^2; lengths and time
+           are converted here; omitted stress components are zero.
+    """
+    case, solver, monitor = load_configs(
+        inlet={"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+               "fluctuations": FLUCTUATIONS})
+    case["properties"]["scaling"] = {"length_ref": 0.5, "velocity_ref": 2.0}
+    validate(case, solver, monitor)
+    entry = CORE.validate_and_prepare_boundary_conditions(case)[0][4]
+    fluct = entry["fluctuations"]
+    assert fluct["stress"] == [["0.01*(1 - r)", "0.0", "0.04"], ["0.0", "-0.005", "0.0"]]
+    assert fluct["length_scales"] == pytest.approx([0.5, 0.25])
+    assert fluct["time_scale"] == pytest.approx(0.5 * 2.0 / 0.5)
+
+
+@pytest.mark.parametrize("inlet, message", [
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, time_scale=0)}, "positive time"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, length_scales=[1.0])}, "two positive lengths"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, reynolds_stress={"uu": "0.01*t"})}, "reynolds_stress.uu"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, reynolds_stress={"uz": 0.1})}, "maps uu, vv, ww"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": {"reynolds_stress": {"uu": 0.01}}}, "takes reynolds_stress, length_scales and time_scale"),
+])
+def test_invalid_inlet_fluctuations_are_refused(inlet, message):
+    """!
+    @brief Each fluctuation key is checked, and the stresses take no `t`: the runtime evaluates them once.
+    @param[in] inlet The inlet entry.
+    @param[in] message Pattern the refusal must match.
+    """
+    case, _, _ = load_configs(inlet=inlet)
+    with pytest.raises(ValueError, match=message):
+        CORE.validate_and_prepare_boundary_conditions(case)
+
+
+def test_only_a_prescribed_velocity_inlet_fluctuates():
+    """!
+    @brief A wall, or an inlet of another handler, refuses fluctuations.
+    """
+    case, _, _ = load_configs(inlet={"handler": "prescribed_velocity",
+                                     "source": {"components": "normal", "expression": 1.0}})
+    wall = next(bc for bc in case["boundary_conditions"] if bc["type"] == "WALL")
+    wall["fluctuations"] = FLUCTUATIONS
+    with pytest.raises(ValueError, match="only a prescribed_velocity INLET"):
+        CORE.validate_and_prepare_boundary_conditions(case)

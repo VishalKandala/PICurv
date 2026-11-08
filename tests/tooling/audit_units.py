@@ -133,7 +133,7 @@ def dimension_name(core, dimension) -> str:
     @return Constant name, e.g. `VELOCITY`.
     """
     for name in ("DIMENSIONLESS", "LENGTH", "VELOCITY", "TIME", "WAVENUMBER", "VOLUME_FLUX",
-                 "DIFFUSIVITY", "PRESSURE", "DENSITY", "DYNAMIC_VISCOSITY"):
+                 "DIFFUSIVITY", "PRESSURE", "DENSITY", "DYNAMIC_VISCOSITY", "VELOCITY_SQUARED"):
         if getattr(core, name) == dimension:
             return name
     raise ValueError(f"dimension {dimension} has no named constant")

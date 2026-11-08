@@ -176,6 +176,11 @@
       "owner": "45_Particle_Initialization_and_Restart::p45_inject_sec",
       "reason": "Lowers an INLET entry's particles to a number density in t and field expressions. Both are values, not a selector; the fields go through normalize_particle_fields."
     },
+    "picurv_cli.core::normalize_inlet_fluctuations": {
+      "classification": "parameter_of_entry",
+      "owner": "boundary.handler::prescribed_velocity",
+      "reason": "Lowers a prescribed_velocity INLET entry's fluctuations to Reynolds-stress expressions, two integral lengths and a time scale. There is one method, the digital filter, so nothing is selected; a second inflow generator is the point at which this becomes a registered family."
+    },
     "picurv_cli.core::normalize_post_field_statistics_config": {
       "classification": "not_public",
       "reason": "Normalizes the field_statistics block of post.yml: window names, outputs, and formats. The selectable sets inside it are separate surfaces - POST_FIELD_STATISTICS_OUTPUTS is a registered capability family and POST_FIELD_STATISTICS_FORMATS is classified as a parameter of it. This function validates the block's shape, which is structure rather than a choice."

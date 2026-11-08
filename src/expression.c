@@ -627,6 +627,17 @@ static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstru
     const uint64_t hash = PicurvMix64(PicurvDrawHash(key->seed, space, stream, key->pid, key->salt)
                                       ^ (uint64_t)instruction->op);
     if (instruction->op == OP_UNIFORM) { PROFILE_HELPER_END; return PicurvUnitFromHash(hash); }
+    PROFILE_HELPER_END;
+    return PicurvNormalFromHash(hash);
+}
+
+/**
+ * @brief Implementation of \ref PicurvNormalFromHash().
+ * @see PicurvNormalFromHash()
+ */
+PetscReal PicurvNormalFromHash(uint64_t hash)
+{
+    PROFILE_HELPER_BEGIN;
     /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
     const PetscReal u1 = 1.0 - PicurvUnitFromHash(hash);
     const PetscReal u2 = PicurvUnitFromHash(PicurvMix64(hash ^ 0xD1B54A32D192ED03ULL));

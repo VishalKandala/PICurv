@@ -1348,6 +1348,131 @@ static PetscErrorCode TestSourceDrawsAreKeyedOnTheGrid(void)
 }
 
 /**
+ * @brief A filtered inflow draw at face cell (g0, g1) of -Zeta: the separable kernel applied to
+ *        the keyed normals on a lattice padded by the half-widths.
+ */
+static PetscReal InflowOracle(PetscInt64 seed, PetscInt c, PetscInt g0, PetscInt g1, PetscInt64 step,
+                              const PetscInt cells[2], const PetscInt half[2], PetscReal *const kernel[2])
+{
+    PetscReal sum = 0.0;
+    for (PetscInt k1 = -half[1]; k1 <= half[1]; ++k1)
+    for (PetscInt k0 = -half[0]; k0 <= half[0]; ++k0) {
+        const PetscInt64 id = ((PetscInt64)BC_FACE_NEG_Z * (cells[1] + 2 * half[1]) + (g1 + k1 + half[1])) * (cells[0] + 2 * half[0])
+                              + (g0 + k0 + half[0]);
+        sum += kernel[0][k0 + half[0]] * kernel[1][k1 + half[1]]
+               * PicurvNormalFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INFLOW, (uint64_t)c, id, step));
+    }
+    return sum;
+}
+
+/**
+ * @brief Tests that an inlet's synthetic fluctuation is the digital filter of draws keyed on the
+ *        grid, scaled by the Cholesky factor of the Reynolds stresses, on any decomposition.
+ * @details The oracle rebuilds the kernels from the grid spacing, filters the keyed normals at
+ *          each owned inlet cell, and checks the state in the dummy plane and the boundary
+ *          velocity at the first step and after one time-filter update. Lengths are chosen so
+ *          the halo passes the face's closed edges.
+ */
+static PetscErrorCode TestInletFluctuationIsTheFilteredKeyedDraw(void)
+{
+    const char *options = "-source_random_seed 91\n"
+                          "-inflow_fluctuations true\n"
+                          "-face_source_0_fluct true\n"
+                          "-face_source_0_fluct_stress_0_frame cartesian\n"
+                          "-face_source_0_fluct_stress_0_expr_0 0.04\n"
+                          "-face_source_0_fluct_stress_0_expr_1 0.01\n"
+                          "-face_source_0_fluct_stress_0_expr_2 0.09\n"
+                          "-face_source_0_fluct_stress_1_frame cartesian\n"
+                          "-face_source_0_fluct_stress_1_expr_0 0.01\n"
+                          "-face_source_0_fluct_stress_1_expr_1 0.0\n"
+                          "-face_source_0_fluct_stress_1_expr_2 0.005\n"
+                          "-face_source_0_fluct_length 0.25,0.13\n"
+                          "-face_source_0_fluct_time 0.05\n";
+    const PetscReal length[2] = {0.25, 0.13}, T = 0.05;
+    SimCtx         *simCtx = NULL;
+    UserCtx        *user = NULL;
+    char            tmpdir[PETSC_MAX_PATH_LEN];
+    PetscReal       worst = 0.0, moved = 0.0;
+    PetscInt        compared = 0;
+    PetscReal      *kernel[2] = {NULL, NULL};
+    PetscInt        half[2];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt   nodes[3] = {info->mx, info->my, info->mz};
+    const PetscInt   cells[2] = {nodes[0] - 2, nodes[1] - 2};
+    const PetscReal  U_ref = simCtx->scaling.U_ref, U2 = U_ref * U_ref;
+    const PetscReal  decay = PetscExpReal(-PETSC_PI * simCtx->dt / (2.0 * T)), gain = PetscSqrtReal(1.0 - decay * decay);
+    /* A = chol(R / U_ref^2) for R = [[0.04, 0.01, 0], [0.01, 0.01, 0.005], [0, 0.005, 0.09]]. */
+    PetscReal        A[3][3] = {{0.0}};
+    A[0][0] = 0.2 / U_ref;
+    A[1][0] = 0.01 / U2 / A[0][0];
+    A[1][1] = PetscSqrtReal(0.01 / U2 - A[1][0] * A[1][0]);
+    A[2][1] = 0.005 / U2 / A[1][1];
+    A[2][2] = PetscSqrtReal(0.09 / U2 - A[2][1] * A[2][1]);
+
+    /* The unit box: h = 1 / cells, n = L / h, weights exp(-pi |k| / n) to a unit sum of squares. */
+    for (PetscInt d = 0; d < 2; ++d) {
+        const PetscReal n = length[d] * (PetscReal)cells[d];
+        PetscReal       norm = 0.0;
+        half[d] = PetscMax(1, (PetscInt)PetscCeilReal(2.0 * n));
+        PetscCall(PetscMalloc1(2 * half[d] + 1, &kernel[d]));
+        for (PetscInt k = -half[d]; k <= half[d]; ++k) {
+            kernel[d][k + half[d]] = PetscExpReal(-PETSC_PI * PetscAbsReal((PetscReal)k) / n);
+            norm += kernel[d][k + half[d]] * kernel[d][k + half[d]];
+        }
+        for (PetscInt k = 0; k <= 2 * half[d]; ++k) kernel[d][k] /= PetscSqrtReal(norm);
+    }
+    PetscCall(PicurvAssertBool((PetscBool)(half[0] > cells[0] / 2), "the halo passes a closed edge of the face"));
+
+    PetscReal *previous = NULL;
+    PetscCall(PetscCalloc1(3 * info->xm * info->ym, &previous));
+    for (PetscInt pass = 0; pass < 2; ++pass) {
+        if (pass == 1) {
+            simCtx->step = 1;
+            PetscCall(BoundarySystem_ExecuteStep(user));
+        }
+        if (info->zs != 0) continue;
+        const Cmpnts ***state = NULL, ***ubcs = NULL;
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->InflowFluctuation, (void *)&state));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, (void *)&ubcs));
+        for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, nodes[1] - 1); ++j)
+        for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, nodes[0] - 1); ++i) {
+            PetscReal *psi = &previous[3 * ((i - info->xs) + info->xm * (j - info->ys))];
+            for (PetscInt c = 0; c < 3; ++c) {
+                const PetscReal draw = InflowOracle(91, c, i - 1, j - 1, pass, cells, half, kernel);
+                psi[c] = (pass == 0) ? draw : decay * psi[c] + gain * draw;
+            }
+            const PetscReal found[3] = {state[0][j][i].x, state[0][j][i].y, state[0][j][i].z};
+            const PetscReal u[3] = {ubcs[0][j][i].x, ubcs[0][j][i].y, ubcs[0][j][i].z - 1.5 / U_ref};
+            for (PetscInt c = 0; c < 3; ++c) {
+                const PetscReal expected = A[c][0] * psi[0] + A[c][1] * psi[1] + A[c][2] * psi[2];
+                worst = PetscMax(worst, PetscAbsReal(found[c] - psi[c]));
+                worst = PetscMax(worst, PetscAbsReal(u[c] - expected));
+                if (pass == 1) moved += PetscAbsReal(u[c]);
+            }
+            compared++;
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, (void *)&ubcs));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->InflowFluctuation, (void *)&state));
+    }
+    PetscCall(PetscFree(previous));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &worst, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &moved, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &compared, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual(2 * cells[0] * cells[1], compared, "every inlet cell was compared on each pass"));
+    PetscCall(PicurvAssertRealNear(0.0, worst, 1.0e-12, "the state and inlet velocity are the filtered keyed draw"));
+    PetscCall(PicurvAssertBool((PetscBool)(moved > 0.0), "the inlet carries a fluctuation"));
+    for (PetscInt d = 0; d < 2; ++d) PetscCall(PetscFree(kernel[d]));
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that a face that is not an INLET refuses to inject.
  */
 static PetscErrorCode TestInjectionRefusesAFaceThatIsNotAnInlet(void)
@@ -1473,6 +1598,7 @@ int main(int argc, char **argv)
         {"injection-follows-flux-and-is-keyed-on-the-grid", TestInjectionFollowsFluxAndIsKeyedOnTheGrid},
         {"injection-refuses-a-face-that-is-not-an-inlet", TestInjectionRefusesAFaceThatIsNotAnInlet},
         {"source-draws-are-keyed-on-the-grid", TestSourceDrawsAreKeyedOnTheGrid},
+        {"inlet-fluctuation-is-the-filtered-keyed-draw", TestInletFluctuationIsTheFilteredKeyedDraw},
         {"iem-reconstruction-across-seams", TestIEMReconstructionAcrossSeams},
     };
 

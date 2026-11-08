@@ -582,6 +582,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 8: Turbulence Modeling (LES) ---
     simCtx->les = NO_LES_MODEL;
     simCtx->wallfunction = 0; simCtx->les_gradient_model = 0;
+    simCtx->inflowFluctuations = PETSC_FALSE; simCtx->inflowFluctuationsRestored = PETSC_FALSE;
     ierr = LESConfigSetDefaults(&simCtx->les_config); CHKERRQ(ierr);
 
     // --- Group 9: Particle / DMSwarm Data & Settings ---
@@ -1097,6 +1098,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                    "solved for them. Use an LES closure, or run laminar.");
     }
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-inflow_fluctuations", &simCtx->inflowFluctuations, NULL); CHKERRQ(ierr);
     PetscCheck(simCtx->wallfunction >= WALL_FUNCTION_NONE && simCtx->wallfunction <= WALL_FUNCTION_CABOT,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-wallfunction must be 0 (none), 1 (log_law), 2 (werner), or 3 (cabot); received %" PetscInt_FMT ".",
@@ -2240,6 +2242,14 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_Wall); CHKERRQ(ierr);
                 ierr = VecSet(user->lNu_Wall, 0.0); CHKERRQ(ierr);
+            }
+            /* Inlet fluctuation filter state: its inlets write and read the global vector; the
+               local one exists because every catalogued field has both. */
+            if (simCtx->inflowFluctuations) {
+                ierr = DMCreateGlobalVector(user->fda, &user->InflowFluctuation); CHKERRQ(ierr);
+                ierr = VecSet(user->InflowFluctuation, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->fda, &user->lInflowFluctuation); CHKERRQ(ierr);
+                ierr = VecSet(user->lInflowFluctuation, 0.0); CHKERRQ(ierr);
             }
 	    // --- Group H: Particle Methods 	
 	    if(ParticlesEnabled(simCtx)){
@@ -4031,6 +4041,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
     if (user->Nu_Wall) { ierr = VecDestroy(&user->Nu_Wall); CHKERRQ(ierr); }
     if (user->lNu_Wall) { ierr = VecDestroy(&user->lNu_Wall); CHKERRQ(ierr); }
+    if (user->InflowFluctuation) { ierr = VecDestroy(&user->InflowFluctuation); CHKERRQ(ierr); }
+    if (user->lInflowFluctuation) { ierr = VecDestroy(&user->lInflowFluctuation); CHKERRQ(ierr); }
     if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }
     if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
 

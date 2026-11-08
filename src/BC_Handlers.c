@@ -302,6 +302,16 @@ typedef struct {
     PetscReal            factor;             /* Bulk-velocity rescaling of `velocity`. */
     PetscInt             evaluated_step;     /* Step the cache was last refreshed for. */
     PetscBool            built;
+    /* Synthetic fluctuations (digital filter, Xie & Castro 2008), added after `factor`. */
+    PetscBool            fluctuate;
+    PicurvVelocitySource stress[2];          /* Reynolds stresses [m^2/s^2]: (uu, vv, ww), then (uv, uw, vw). */
+    PetscReal            fluct_length[2];    /* Integral lengths along the tangential axes, solver units. */
+    PetscReal            fluct_time;         /* Integral time, solver units. */
+    PetscInt             half[2];            /* Filter half-widths along the tangential axes, in cells. */
+    PetscReal           *kernel[2];          /* Filter weights, 2 half + 1 per axis, unit sum of squares. */
+    PetscReal          (*lund)[6];           /* Per slot, the stresses' Cholesky factor in solver units: a11 a21 a22 a31 a32 a33. */
+    Cmpnts              *fluct;              /* Per slot, this step's fluctuation in solver units. */
+    PetscBool            fluct_started;      /* The filter has a previous state to continue from. */
 } InletPrescribedVelocityData;
 
 /** @brief Index of the owned slot (i, j, k) in a prescribed-velocity inlet's per-slot arrays. */
@@ -616,18 +626,20 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
     if (!data->built) return velocity;
     const Cmpnts v = data->velocity[PrescribedSlot(data, i, j, k)];
     const Cmpnts staged = data->profile ? data->profile[PrescribedSlot(data, i, j, k)] : velocity;
+    /* Fluctuations follow the bulk factor, which rescales only the mean. */
+    const Cmpnts fluct = data->fluct ? data->fluct[PrescribedSlot(data, i, j, k)] : velocity;
     if (data->source.frame != PICURV_SOURCE_FRAME_NORMAL) {
-        velocity.x = data->factor * v.x + staged.x;
-        velocity.y = data->factor * v.y + staged.y;
-        velocity.z = data->factor * v.z + staged.z;
+        velocity.x = data->factor * v.x + staged.x + fluct.x;
+        velocity.y = data->factor * v.y + staged.y + fluct.y;
+        velocity.z = data->factor * v.z + staged.z + fluct.z;
         return velocity;
     }
     const PetscReal area = sqrt(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
     if (area <= 0.0) return velocity;
     const PetscReal speed = data->factor * v.x + staged.x;
-    velocity.x = sign * speed * metric.x / area;
-    velocity.y = sign * speed * metric.y / area;
-    velocity.z = sign * speed * metric.z / area;
+    velocity.x = sign * speed * metric.x / area + fluct.x;
+    velocity.y = sign * speed * metric.y / area + fluct.y;
+    velocity.z = sign * speed * metric.z / area + fluct.z;
     return velocity;
 }
 
@@ -822,6 +834,29 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
     PetscCall(GetBCParamBool(user->boundary_faces[ctx->face_id].params, "source_repeat", &data->repeat, &found));
     data->factor = 1.0;
     data->evaluated_step = -1;
+    {
+        char      option[96], stress_prefix[96];
+        PetscInt  count = 2;
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_fluct", prefix));
+        PetscCall(PetscOptionsGetBool(NULL, NULL, option, &data->fluctuate, NULL));
+        if (data->fluctuate) {
+            PetscCheck(user->InflowFluctuation, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                       "Face %s adds fluctuations, but -inflow_fluctuations did not allocate their state.",
+                       BCFaceToString(ctx->face_id));
+            for (PetscInt g = 0; g < 2; ++g) {
+                PetscCall(PetscSNPrintf(stress_prefix, sizeof(stress_prefix), "%s_fluct_stress_%d", prefix, (int)g));
+                PetscCall(PicurvVelocitySourceCreate(stress_prefix, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE, &data->stress[g]));
+            }
+            PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_fluct_length", prefix));
+            PetscCall(PetscOptionsGetRealArray(NULL, NULL, option, data->fluct_length, &count, &found));
+            PetscCheck(found && count == 2 && data->fluct_length[0] > 0.0 && data->fluct_length[1] > 0.0,
+                       PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT, "%s needs two positive length scales.", option);
+            PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_fluct_time", prefix));
+            PetscCall(PetscOptionsGetReal(NULL, NULL, option, &data->fluct_time, &found));
+            PetscCheck(found && data->fluct_time > 0.0, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                       "%s needs a positive time scale.", option);
+        }
+    }
     if (data->source_file) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: prescribed velocity from %s%s.\n",
                   BCFaceToString(ctx->face_id), data->source_file, data->source.bulk ? ", rescaled to a target" : "");
@@ -831,6 +866,11 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
                   data->source.frame == PICURV_SOURCE_FRAME_NORMAL ? "normal" :
                   data->source.frame == PICURV_SOURCE_FRAME_CURVILINEAR ? "curvilinear" : "cartesian",
                   data->source.time_dependent ? ", time-dependent" : "", data->source.bulk ? ", bulk velocity" : "");
+    }
+    if (data->fluctuate) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: synthetic fluctuations, integral lengths %g and %g, time %g (solver units).\n",
+                  BCFaceToString(ctx->face_id), (double)data->fluct_length[0], (double)data->fluct_length[1],
+                  (double)data->fluct_time);
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1053,6 +1093,150 @@ PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
 }
 
 /**
+ * @brief Prepare an inlet's synthetic fluctuations once its slots exist: filter widths from the
+ *        face's mean spacing, and the Reynolds stresses' Cholesky factor at each slot.
+ * @details Collective over the block. The integral length L along a tangential axis spans
+ *          n = L / h cells, h the face's mean cell width along it, and the filter weights are
+ *          exp(-pi |k| / n) for |k| <= 2n, scaled to a unit sum of squares (Xie & Castro 2008),
+ *          so filtered unit-variance noise keeps unit variance. Every rank uses the same h.
+ */
+static PetscErrorCode BuildInletFluctuation(InletPrescribedVelocityData *data, UserCtx *user)
+{
+    PicurvSourceFaceSlots *slots = &data->slots;
+    const PetscInt         count = slots->n[0] * slots->n[1];
+    const PetscInt         tangential[2] = {slots->a, slots->b};
+    const PetscInt         nodes[3] = {user->info.mx, user->info.my, user->info.mz};
+    const PetscReal        L_ref = user->simCtx->scaling.L_ref, U2 = user->simCtx->scaling.U_ref * user->simCtx->scaling.U_ref;
+    PetscReal              sums[3] = {0.0, 0.0, (PetscReal)count};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    for (PetscInt s = 0; s < count; ++s) {
+        sums[0] += data->slots.values[s][PICURV_SOURCE_VAR_L_XI + tangential[0]] / L_ref;
+        sums[1] += data->slots.values[s][PICURV_SOURCE_VAR_L_XI + tangential[1]] / L_ref;
+    }
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, sums, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    for (PetscInt d = 0; d < 2; ++d) {
+        const PetscReal h = sums[d] / sums[2] / (PetscReal)(nodes[tangential[d]] - 2);
+        const PetscReal n = data->fluct_length[d] / h;
+        PetscReal       norm = 0.0;
+        data->half[d] = PetscMax(1, (PetscInt)PetscCeilReal(2.0 * n));
+        PetscCall(PetscMalloc1(2 * data->half[d] + 1, &data->kernel[d]));
+        for (PetscInt k = -data->half[d]; k <= data->half[d]; ++k) {
+            data->kernel[d][k + data->half[d]] = PetscExpReal(-PETSC_PI * PetscAbsReal((PetscReal)k) / n);
+            norm += data->kernel[d][k + data->half[d]] * data->kernel[d][k + data->half[d]];
+        }
+        for (PetscInt k = 0; k <= 2 * data->half[d]; ++k) data->kernel[d][k] /= PetscSqrtReal(norm);
+    }
+    PetscCall(PetscMalloc2(count, &data->lund, count, &data->fluct));
+    for (PetscInt s = 0; s < count; ++s) {
+        Cmpnts diag, cross;
+        PetscCall(PicurvVelocitySourceEvaluate(&data->stress[0], data->slots.values[s], NULL, data->slots.edges[s], &diag));
+        PetscCall(PicurvVelocitySourceEvaluate(&data->stress[1], data->slots.values[s], NULL, data->slots.edges[s], &cross));
+        /* Lund, Wu & Squires (1998): u' = A psi with A A^T = R. A stress tensor that is not
+           positive definite, such as zero at a wall, leaves the rows it cannot fill at zero. */
+        PetscReal *a = data->lund[s];
+        a[0] = PetscSqrtReal(PetscMax(diag.x / U2, 0.0));
+        a[1] = (a[0] > 0.0) ? cross.x / U2 / a[0] : 0.0;
+        a[2] = PetscSqrtReal(PetscMax(diag.y / U2 - a[1] * a[1], 0.0));
+        a[3] = (a[0] > 0.0) ? cross.y / U2 / a[0] : 0.0;
+        a[4] = (a[2] > 0.0) ? (cross.z / U2 - a[1] * a[3]) / a[2] : 0.0;
+        a[5] = PetscSqrtReal(PetscMax(diag.z / U2 - a[3] * a[3] - a[4] * a[4], 0.0));
+        data->fluct[s].x = data->fluct[s].y = data->fluct[s].z = 0.0;
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief This step's synthetic fluctuation at every owned slot of an inlet.
+ * @details Keyed unit normals on the owned face cells and a halo of the filter's half-width are
+ *          filtered along each tangential axis; a draw is a pure function of the seed, block,
+ *          component, face cell and step, so a rank computes its halo itself and the result does
+ *          not depend on the decomposition. A periodic tangential axis wraps the halo. The time
+ *          filter psi <- psi exp(-pi dt / 2T) + filtered sqrt(1 - exp(-pi dt / T)) keeps unit
+ *          variance; its state lives in the inlet's dummy plane of `InflowFluctuation`, which a
+ *          checkpoint carries, and starts from the filtered noise when there is none. A restored
+ *          state belongs to the restart step already, so the first pass after it only reads it.
+ */
+static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
+{
+    SimCtx                      *simCtx = user->simCtx;
+    const PicurvSourceFaceSlots *slots = &data->slots;
+    const PetscInt               n0 = slots->n[0], n1 = slots->n[1], h0 = data->half[0], h1 = data->half[1];
+    const PetscInt               w0 = n0 + 2 * h0, w1 = n1 + 2 * h1;
+    const PetscInt               nodes[3] = {user->info.mx, user->info.my, user->info.mz};
+    const PetscInt               cells[2] = {nodes[slots->a] - 2, nodes[slots->b] - 2};
+    const PetscBool              periodic[2] = {(PetscBool)(user->boundary_faces[2 * slots->a].mathematical_type == PERIODIC),
+                                                (PetscBool)(user->boundary_faces[2 * slots->b].mathematical_type == PERIODIC)};
+    const PetscBool              negative = (PetscBool)((PetscInt)face_id % 2 == 0);
+    const PetscReal              decay = PetscExpReal(-PETSC_PI * simCtx->dt / (2.0 * data->fluct_time));
+    const PetscReal              gain = PetscSqrtReal(1.0 - decay * decay);
+    const PetscBool              fresh = (PetscBool)(!data->fluct_started && !simCtx->inflowFluctuationsRestored);
+    /* A restored state is already this step's: the checkpoint was written after its update. */
+    const PetscBool              restored = (PetscBool)(!data->fluct_started && simCtx->inflowFluctuationsRestored);
+    PetscReal                   *noise = NULL, *rows = NULL, *psi = NULL;
+    Cmpnts                    ***state = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (n0 * n1 > 0) {
+        PetscCall(PetscMalloc3(w0 * w1, &noise, n0 * w1, &rows, 3 * n0 * n1, &psi));
+        for (PetscInt c = 0; c < 3 && !restored; ++c) {
+            for (PetscInt qq = 0; qq < w1; ++qq) {
+                for (PetscInt pp = 0; pp < w0; ++pp) {
+                    PetscInt g[2] = {slots->lo[0] - 1 - h0 + pp, slots->lo[1] - 1 - h1 + qq};
+                    for (PetscInt d = 0; d < 2; ++d) if (periodic[d]) g[d] = ((g[d] % cells[d]) + cells[d]) % cells[d];
+                    /* A face cell, or one of its halo beyond a closed edge, on a lattice padded by the half-widths. */
+                    const PetscInt64 id = ((PetscInt64)face_id * (cells[1] + 2 * h1) + (g[1] + h1)) * (cells[0] + 2 * h0) + (g[0] + h0);
+                    noise[pp + w0 * qq] = PicurvNormalFromHash(PicurvDrawHash((PetscInt64)simCtx->sourceRandomSeed,
+                                                                               PICURV_DRAW_SPACE_INFLOW,
+                                                                               (uint64_t)(3 * user->_this + c), id,
+                                                                               (PetscInt64)simCtx->step));
+                }
+            }
+            for (PetscInt qq = 0; qq < w1; ++qq) {
+                for (PetscInt p = 0; p < n0; ++p) {
+                    PetscReal sum = 0.0;
+                    for (PetscInt k = 0; k <= 2 * h0; ++k) sum += data->kernel[0][k] * noise[(p + k) + w0 * qq];
+                    rows[p + n0 * qq] = sum;
+                }
+            }
+            for (PetscInt q = 0; q < n1; ++q) {
+                for (PetscInt p = 0; p < n0; ++p) {
+                    PetscReal sum = 0.0;
+                    for (PetscInt k = 0; k <= 2 * h1; ++k) sum += data->kernel[1][k] * rows[p + n0 * (q + k)];
+                    psi[3 * (p + n0 * q) + c] = sum;
+                }
+            }
+        }
+        PetscCall(DMDAVecGetArray(user->fda, user->InflowFluctuation, &state));
+        for (PetscInt q = 0; q < n1; ++q) {
+            for (PetscInt p = 0; p < n0; ++p) {
+                const PetscInt   s = p + n0 * q;
+                PetscInt         idx[3];
+                idx[slots->normal] = negative ? 0 : nodes[slots->normal] - 1;
+                idx[slots->a] = slots->lo[0] + p;
+                idx[slots->b] = slots->lo[1] + q;
+                Cmpnts          *st = &state[idx[2]][idx[1]][idx[0]];
+                const PetscReal *f = &psi[3 * s];
+                if (fresh) { st->x = f[0]; st->y = f[1]; st->z = f[2]; }
+                else if (!restored) { st->x = decay * st->x + gain * f[0]; st->y = decay * st->y + gain * f[1]; st->z = decay * st->z + gain * f[2]; }
+                const PetscReal *a = data->lund[s];
+                data->fluct[s].x = a[0] * st->x;
+                data->fluct[s].y = a[1] * st->x + a[2] * st->y;
+                data->fluct[s].z = a[3] * st->x + a[4] * st->y + a[5] * st->z;
+            }
+        }
+        PetscCall(DMDAVecRestoreArray(user->fda, user->InflowFluctuation, &state));
+        PetscCall(PetscFree3(noise, rows, psi));
+    }
+    data->fluct_started = PETSC_TRUE;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Refresh the inlet velocity once per step: gather the slots on the first call, then
  *        re-evaluate and rescale only what depends on t.
  */
@@ -1083,6 +1267,7 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
         PetscCall(VecDestroy(&length));
         PetscCall(PetscMalloc1(data->slots.n[0] * data->slots.n[1], &data->velocity));
         if (data->source_file) PetscCall(OpenPrescribedProfile(data, user, ctx->face_id));
+        if (data->fluctuate) PetscCall(BuildInletFluctuation(data, user));
     }
     const PetscBool frames_vary = (PetscBool)(data->frames > 1);
     const PetscBool evaluate = (PetscBool)(first || data->source.time_dependent);
@@ -1118,6 +1303,7 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
     }
     data->built = PETSC_TRUE;
     if (rescale) PetscCall(PrescribedBulkFactor(data, user, ctx->face_id, physical_time, &data->factor));
+    if (data->fluctuate) PetscCall(StepInletFluctuation(data, user, ctx->face_id));
     data->evaluated_step = simCtx->step;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1138,6 +1324,13 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
         PetscCall(PetscFree2(data->bracket[0], data->bracket[1]));
         if (data->built) PetscCall(PicurvSourceFaceSlotsDestroy(&data->slots));
         PetscCall(PetscFree(data->velocity));
+        if (data->fluctuate) {
+            PetscCall(PicurvVelocitySourceDestroy(&data->stress[0]));
+            PetscCall(PicurvVelocitySourceDestroy(&data->stress[1]));
+            PetscCall(PetscFree(data->kernel[0]));
+            PetscCall(PetscFree(data->kernel[1]));
+            PetscCall(PetscFree2(data->lund, data->fluct));
+        }
         PetscCall(PetscFree(self->data));
     }
     PROFILE_HELPER_END;

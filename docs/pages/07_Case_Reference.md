@@ -1250,6 +1250,12 @@ reflects. `wrap` is accepted on `PERIODIC` faces only, and they accept nothing e
 Optional key `particles: {particles_per_cell, fields}` on an `INLET` face of block 0 injects
 particles every step, in proportion to the flow. See @ref p45_inject_sec.
 
+Optional key `fluctuations: {reynolds_stress, length_scales, time_scale}` on a
+`prescribed_velocity` `INLET` adds synthetic turbulence by digital filtering:
+`reynolds_stress` maps `uu vv ww uv uw vw` to [m^2/s^2] expressions without `t`,
+`length_scales` is two lengths [m] along the face's tangential axes, and `time_scale` is a
+time [s]. Its state is checkpointed. See @ref p44_cap_prescribed_velocity.
+
 Pulsatile expression example:
 
 ```yaml

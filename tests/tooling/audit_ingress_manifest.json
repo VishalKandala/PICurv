@@ -47,6 +47,7 @@
     "-im",
     "-imm",
     "-imp_stol",
+    "-inflow_fluctuations",
     "-inlet",
     "-interpolation_method",
     "-inv",
@@ -185,6 +186,9 @@
     "-%_%_expr_%",
     "-%_%_name",
     "-%_count",
+    "-%_fluct",
+    "-%_fluct_length",
+    "-%_fluct_time",
     "-particle_inlet_%_face",
     "-particle_inlet_%_particles_per_cell"
   ]

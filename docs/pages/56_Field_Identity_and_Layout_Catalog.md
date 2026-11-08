@@ -111,6 +111,10 @@ restart: the first boundary pass of a restarted run recomputes both from the res
 velocity field. `Utau` is written to checkpoints so postprocessing can read it; `NuWall`
 is not written at all, being rebuilt by every wall pass within a step.
 
+`InflowFluctuation` exists only when an inlet has `fluctuations` (`-inflow_fluctuations`). It holds
+each such inlet's digital-filter state in the inlet's dummy plane and is written to checkpoints and
+restored, so a restart continues the filter (@ref p44_cap_prescribed_velocity).
+
 @warning `CS` stores the LES model coefficient `C`, the factor multiplying
 `Delta^2 |S|` in the eddy viscosity. In the classical notation that is `Cs^2`, not
 `Cs`, and under `clipping.mode: none` it is signed, because a negative coefficient is
@@ -171,7 +175,7 @@ string comparison remains in the periodic field dispatcher.
 The catalog groups fields by layout as follows:
 
 - node-centered: `Coordinates`, `CellScalarAtCorner`, and `CellVectorAtCorner`;
-- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `Diffusivity`,
+- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `InflowFluctuation`, `Diffusivity`,
   `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `Phi`, `Psi`,
   `Nvert_o`, `ParticleCount`, `PostScalar`,
   `PostVector`, `Qcrit`, `SearchCellSize`, `DualPlaneNormalI`, `DualPlaneNormalJ`,

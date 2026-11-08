@@ -31,7 +31,8 @@ typedef enum {
     PICURV_DRAW_SPACE_PLACEMENT = 3,    /**< Seeding points; the salt is the rejection attempt. */
     PICURV_DRAW_SPACE_INLET = 4,        /**< Injection at an inlet: stream 0 counts per face cell, stream 1 distance in. */
     PICURV_DRAW_SPACE_GRID_FIELD = 5,   /**< A velocity or pressure source's default stream, per component. */
-    PICURV_DRAW_SPACE_GRID_NAMED_STREAM = 6 /**< `uniform(k)`/`normal(k)` in such a source: shared across components. */
+    PICURV_DRAW_SPACE_GRID_NAMED_STREAM = 6, /**< `uniform(k)`/`normal(k)` in such a source: shared across components. */
+    PICURV_DRAW_SPACE_INFLOW = 7        /**< Synthetic inflow noise: stream per block and component, salt the step. */
 } PicurvDrawSpace;
 
 /**
@@ -47,6 +48,13 @@ uint64_t PicurvMix64(uint64_t z);
  * @return A value in [0, 1).
  */
 PetscReal PicurvUnitFromHash(uint64_t hash);
+
+/**
+ * @brief A standard normal deviate from a hash, by Box-Muller from two uniforms it yields.
+ * @param[in] hash Hash bits; distinct bits give independent deviates.
+ * @return The deviate.
+ */
+PetscReal PicurvNormalFromHash(uint64_t hash);
 
 /**
  * @brief Hash that keys a draw: a pure function of its arguments, so a draw does not depend

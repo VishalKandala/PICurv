@@ -43,6 +43,7 @@ same triples, so input and output conversion share one vocabulary:
 | `VOLUME_FLUX` | (2, 1, 0) | `U L^2` | `Ucont`, `target_flux` |
 | `DIFFUSIVITY` | (1, 1, 0) | `U L` | `Nu_t`, `Diffusivity` |
 | `PRESSURE` | (0, 2, 1) | `rho U^2` | `P`, `Phi` |
+| `VELOCITY_SQUARED` | (0, 2, 0) | `U^2` | an inlet's `reynolds_stress` |
 | `INVERSE_TIME_SQUARED` | (-2, 2, 0) | `U^2/L^2` | Q-criterion |
 | `DIMENSIONLESS` | (0, 0, 0) | 1 | `Psi`, `CS`, `Nvert`, model constants |
 
@@ -84,6 +85,12 @@ particle `fields`.
 | `case.yml: boundary_conditions.[].[].source` | VELOCITY | evaluator | U |
 | `case.yml: boundary_conditions.[].particles` | PAYLOAD | evaluator | by payload field |
 | `case.yml: boundary_conditions.[].[].particles` | PAYLOAD | evaluator | by payload field |
+| `case.yml: boundary_conditions.[].fluctuations.length_scales` | LENGTH | cli | L |
+| `case.yml: boundary_conditions.[].fluctuations.reynolds_stress` | VELOCITY_SQUARED | evaluator | U^2 |
+| `case.yml: boundary_conditions.[].fluctuations.time_scale` | TIME | cli | L/U |
+| `case.yml: boundary_conditions.[].[].fluctuations.length_scales` | LENGTH | cli | L |
+| `case.yml: boundary_conditions.[].[].fluctuations.reynolds_stress` | VELOCITY_SQUARED | evaluator | U^2 |
+| `case.yml: boundary_conditions.[].[].fluctuations.time_scale` | TIME | cli | L/U |
 | `case.yml: grid.generator` | LENGTH | staging | L |
 | `case.yml: grid.programmatic_settings.xMaxs` | LENGTH | c | L |
 | `case.yml: grid.programmatic_settings.xMins` | LENGTH | c | L |
@@ -159,6 +166,7 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `ICsi` | Eulerian | `AREA` | L^2 |
 | `IEta` | Eulerian | `AREA` | L^2 |
 | `IZet` | Eulerian | `AREA` | L^2 |
+| `InflowFluctuation` | Eulerian | `DIMENSIONLESS` | 1 |
 | `JAj` | Eulerian | `INVERSE_VOLUME` | 1/L^3 |
 | `JCsi` | Eulerian | `AREA` | L^2 |
 | `JEta` | Eulerian | `AREA` | L^2 |

@@ -489,6 +489,12 @@ boundary_conditions:
     # constraints:                    # Optional, applied in this order:
     #   scale: 1.0                    #   multiplies the source
     #   bulk_velocity: "1.5*(1 + 0.2*sin(2*pi*t))"  # face-mean normal speed [m/s], number or expression in t
+    # fluctuations:                   # Optional: synthetic turbulence by digital filtering, added after the
+    #                                 #   constraints. -> -face_source_<id>_fluct*, -inflow_fluctuations
+    #   reynolds_stress: {uu: 0.01, vv: 0.004, ww: 0.004, uv: 0.0}  # [m^2/s^2], expressions without t;
+    #                                 #   uu vv ww uv uw vw, omitted ones 0
+    #   length_scales: [0.1, 0.1]     #   [m] along the face's tangential axes, here xi then zeta
+    #   time_scale: 0.05              #   [s]; the filter state is checkpointed
 
     # A source is expressions over x y z t [m, s] and the arc-length fractions xi eta zeta
     # (0 to 1 along each grid line) with line lengths L_xi L_eta L_zeta [m], in one frame:

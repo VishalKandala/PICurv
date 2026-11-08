@@ -1010,6 +1010,8 @@ typedef struct SimCtx {
     //================ Group 8: Turbulence Modeling (LES) ================
     PetscInt  les;                  ///< Active LES closure; an ::LESModelType value.
     PetscInt  wallfunction;         ///< Enable wall functions on WALL faces.
+    PetscBool inflowFluctuations;   ///< Some inlet adds synthetic fluctuations; their filter state is checkpointed.
+    PetscBool inflowFluctuationsRestored; ///< That state was read from the restart checkpoint.
     PetscInt  les_gradient_model;   ///< Add the Clark gradient (tensor-diffusivity) term to the viscous flux.
     LESConfig les_config;           ///< Parameters of the LES closure selected by `les`.
   
@@ -1158,6 +1160,7 @@ typedef struct UserCtx {
        flux to deliver the stress the model computed. Derived, rebuilt by every wall
        pass, and never restored from a checkpoint. */
     Vec       Nu_Wall, lNu_Wall;
+    Vec       InflowFluctuation, lInflowFluctuation; ///< Inlet fluctuation filter state in the inlet faces' dummy planes.
 
     // --- Primary Flow Fields (Global & Local Views) ---
     Vec Ucont, lUcont, Ucat, lUcat, P, lP, Phi, lPhi, Nvert, lNvert;

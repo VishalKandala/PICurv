@@ -73,6 +73,15 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC,
                 Nu_Wall, lNu_Wall,
                 FIELD_DIM_DIFFUSIVITY),
+    /* The synthetic-inflow time filter's state: three unit-variance components per inlet face
+       cell, stored in that face's dummy plane. It carries the inflow's memory, so a restart
+       reads it back. Only its inlets read it, through the global vector; the restart's ghost
+       refresh of the local copy is harmless. */
+    FIELD_ENTRY(FIELD_ID_INFLOW_FLUCTUATION, "InflowFluctuation", NULL, NULL, 3, FIELD_DM_FDA,
+                FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
+                FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_INFLOW_FLUCTUATION,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, InflowFluctuation, lInflowFluctuation,
+                FIELD_DIM_DIMENSIONLESS),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY, "Diffusivity", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Diffusivity, lDiffusivity,
