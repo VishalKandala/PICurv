@@ -1524,7 +1524,7 @@
         "threshold": "Observed order near 2; flow rate and recorded mean to solver tolerance; identical results from the sliced and file routes; restart to round-off.",
         "verdict": "met"
       },
-      "limitations": "One duct cross-section; three resolutions. The recording run of (d) aborted in finalize after its last step, a teardown defect in the recording's frame buffers, fixed at 6e85bc9c; every step's results were complete. On the 2x4x8 and 2x2x16 layouts the domain-mean pressure drifted (to 12.5 by step 200 on 2x2x16) and Poisson iterations rose, with velocity unaffected (GitHub #17); this record does not establish the pressure gauge's layout independence.",
+      "limitations": "One duct cross-section; three resolutions. The recording run of (d) aborted in finalize after its last step, a teardown defect in the recording's frame buffers, fixed at 6e85bc9c and confirmed on Grace's optimized build, where the same recording run now completes; every step's results were complete. On the 2x4x8 and 2x2x16 layouts the domain-mean pressure drifted (to 12.5 by step 200 on 2x2x16) and Poisson iterations rose, with velocity unaffected (GitHub #17). That drift was the pressure gauge, since fixed by projecting each pressure correction; this record's runs predate the fix.",
       "artifacts": []
     },
     {

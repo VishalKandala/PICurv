@@ -886,6 +886,10 @@ PetscErrorCode PoissonSolver_Multigrid(UserMG *usermg)
         PetscCall(PoissonMultigrid_OpenConvergenceLog(user->ksp, simCtx, bi));
         PetscCall(KSPSolve(user->ksp, user->B, user->Phi));
         PetscCall(PoissonMultigrid_CloseConvergenceLog(user->ksp));
+        /* KSPSolve projects only the right-hand side. The residual cannot see a constant in
+           Phi, so iterations near the round-off floor can leave one, and P += Phi would add it
+           up step after step. Projecting the solution the same way fixes the pressure gauge. */
+        PetscCall(MatNullSpaceRemove(user->nullsp, user->Phi));
 
         /* A non-finite residual or a preconditioner that could not be built leaves Phi
            meaningless, and the projection would carry it into the next momentum step,

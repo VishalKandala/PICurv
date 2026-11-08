@@ -124,6 +124,31 @@ Current implementation includes:
 - periodic-boundary pressure synchronization,
 - optional Poisson monitor logging via `monitor.yml -> solver_monitoring.poisson.pic_true_residual`.
 
+**The pressure level is fixed by projecting every correction.** No boundary condition fixes the
+pressure itself, so the pressure equation determines `P` only up to a constant. The operator
+carries that constant as its null space, which PETSc removes from the right-hand side; after each
+solve `PoissonSolver_Multigrid` removes it from `Phi` as well, subtracting the mean over the
+interior fluid cells, before `UpdatePressure` adds `Phi` to `P`. The residual cannot see a constant
+in `Phi`, so without this step a solve iterating at its round-off floor can return one, and
+`P += Phi` adds it up step after step: on 4 ranks in a 1 x 1 x 4 layout, a `flat_channel` duct's
+mean `P` reached 9.9 by step 200 against a spread of 1.29, while 2 x 2 x 1 reached -1e-2. With the
+projection both layouts hold the mean at 6e-16 or less, and the velocity is unchanged to 1e-12.
+`make unit-poisson-rhs` (`poisson-solver-multigrid-keeps-the-pressure-level`) checks it.
+
+**Near a steady state the relative tolerance becomes unreachable.** The solve stops when the
+residual falls below the larger of `relative_tolerance` times the right-hand side's norm and
+`absolute_tolerance`. The right-hand side is the divergence of the intermediate velocity, which
+shrinks toward round-off as the flow settles, so the relative test asks for less than double
+precision can deliver, and only `absolute_tolerance` can end the solve. Set below the residual's
+round-off floor, it never does: each step then runs to `max_iterations`. In a duct on Grace the
+iterations per step rose from 6-7 to 14-15 and then to the cap of 100 once the residual stalled
+near 5e-10; a 4-rank `flat_channel` with `absolute_tolerance: 1.0e-14` ran at the cap from about
+step 50, while its maximum divergence in `Continuity_Metrics.csv` stayed at 4e-15 to 7e-15.
+The floor is in the solver units of the right-hand
+side, so it moves with the grid, `dt` and the reference scales, and no single value suits every
+case: raise `absolute_tolerance` until a settled run stops well short of `max_iterations`, and
+confirm in `Continuity_Metrics.csv` that `max_divergence` stays acceptable.
+
 **A pressure solve that cannot be completed stops the run.** If PETSc reports a
 non-finite residual (`DIVERGED_NANORINF`) or a preconditioner it could not build
 (`DIVERGED_PC_FAILED`), the solver aborts at that step with the KSP reason, because the

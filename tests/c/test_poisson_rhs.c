@@ -700,6 +700,49 @@ static PetscErrorCode TestPoissonSolverMultigridProjectsToDivergenceFree(void)
 }
 
 /**
+ * @brief Tests that the multigrid solve returns Phi without a constant, so P keeps its level.
+ * @details The residual cannot see a constant in Phi, so nothing in the Krylov iteration removes
+ *          one; near a steady state the iterations at the round-off floor leave one, and P += Phi
+ *          adds it up. A constant in the initial guess stands in for it here: the returned Phi
+ *          must still have zero mean over the interior.
+ */
+static PetscErrorCode TestPoissonSolverMultigridKeepsThePressureLevel(void)
+{
+    SimCtx    *simCtx = NULL;
+    UserCtx   *user = NULL;
+    char       tmpdir[PETSC_MAX_PATH_LEN];
+    PetscReal  ***phi, local[2] = {0.0, 0.0}, peak;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(
+        NULL, PETSC_FALSE, "-im 17\n-jm 17\n-km 17\n-mg_level 3\n", &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+    PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
+    PetscCall(KSPSetInitialGuessNonzero(user->ksp, PETSC_TRUE));
+    PetscCall(VecSet(user->Phi, 5.0));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+
+    const DMDALocalInfo info = user->info;
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Phi, (void *)&phi));
+    for (PetscInt k = PetscMax(info.zs, 1); k < PetscMin(info.zs + info.zm, info.mz - 1); k++)
+        for (PetscInt j = PetscMax(info.ys, 1); j < PetscMin(info.ys + info.ym, info.my - 1); j++)
+            for (PetscInt i = PetscMax(info.xs, 1); i < PetscMin(info.xs + info.xm, info.mx - 1); i++) {
+                local[0] += phi[k][j][i];
+                local[1] += 1.0;
+            }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Phi, (void *)&phi));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, local, 2, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(VecNorm(user->Phi, NORM_INFINITY, &peak));
+    PetscCall(PicurvAssertBool((PetscBool)(peak > 1.0e-6), "the perturbation should need a correction"));
+    PetscCall(PicurvAssertRealNear(0.0, local[0] / local[1], 1.0e-12 * peak,
+                                   "Phi should carry no constant over the interior"));
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Counts the occurrences of @p needle in a text file; a missing file counts zero.
  */
 static PetscErrorCode CountFileOccurrences(const char *path, const char *needle, PetscInt *count)
@@ -937,6 +980,7 @@ int main(int argc, char **argv)
         {"projection-zero-phi-leaves-velocity-unchanged", TestProjectionZeroPhiLeavesVelocityUnchanged},
         {"projection-linear-phi-corrects-velocity", TestProjectionLinearPhiCorrectsVelocity},
         {"poisson-solver-multigrid-projects-to-divergence-free", TestPoissonSolverMultigridProjectsToDivergenceFree},
+        {"poisson-solver-multigrid-keeps-the-pressure-level", TestPoissonSolverMultigridKeepsThePressureLevel},
         {"poisson-solver-multigrid-reuses-its-solver", TestPoissonSolverMultigridReusesItsSolver},
         {"poisson-solver-multigrid-honours-distinct-sweeps", TestPoissonSolverMultigridHonoursDistinctSweeps},
         {"poisson-null-space-removes-the-interior-mean", TestPoissonNullSpaceRemovesTheInteriorMean},
