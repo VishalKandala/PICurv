@@ -189,6 +189,21 @@ def test_a_prescribed_scalar_source_conflicts_with_an_initial_value(capsys):
     assert "verification.sources.scalar" in capsys.readouterr().err
 
 
+def test_inlet_fields_conflict_with_a_prescribed_scalar_in_a_list_of_blocks(capsys):
+    """!
+    @brief The inlet-fields conflict is found when boundary_conditions is one list per block.
+    @param[in] capsys Pytest output capture.
+    """
+    case, solver, monitor = load_configs({})
+    inlet = next(entry for entry in case["boundary_conditions"] if entry["type"] == "INLET")
+    inlet["particles"] = {"particles_per_cell": 1, "fields": {"Psi": {"expression": 1.0}}}
+    case["boundary_conditions"] = [case["boundary_conditions"]]
+    solver.setdefault("verification", {})["sources"] = {"scalar": {"expression": "1.0"}}
+    with pytest.raises(SystemExit):
+        validate(case, solver, monitor)
+    assert "particles.fields cannot be combined" in capsys.readouterr().err
+
+
 def test_a_point_source_without_draws_warns(capsys):
     """!
     @brief Particles released from one point all get the same value unless the value draws.

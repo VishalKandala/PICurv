@@ -318,14 +318,51 @@ def test_a_generator_inside_a_source_resolves_its_paths(wrap):
     ({"sum": [DUCT, DUCT_SEED]}, "spectral_velocity"),
     (DUCT, None),
     ("duct", None),
+    ("seed", "spectral_velocity"),
+    ({"sum": ["duct", "seed"]}, "spectral_velocity"),
 ])
 def test_initial_field_term_finds_the_generator(source, name):
     """!
-    @brief The generator is found alone or in a sum, and a plain source has none.
+    @brief The generator is found alone, in a sum, or by its name under sources; a plain source has none.
     @param[in] source Initial-condition source.
     @param[in] name Expected generator, or None.
     """
-    assert CORE.initial_field_term({"source": source}).get("generator") == name
+    case = {"sources": {"duct": DUCT, "seed": DUCT_SEED}}
+    assert CORE.initial_field_term({"source": source}, case).get("generator") == name
+
+
+def test_a_named_generator_resolves_its_paths():
+    """!
+    @brief A generator named under sources is anchored too, in place, where the case defines it.
+    """
+    term = {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "ic.cfg", "script": "tools/ic.py"}}
+    case = {"sources": {"custom": term}, "properties": {"initial_conditions": {"source": {"sum": [DUCT, "custom"]}}}}
+    CORE.absolutize_case_external_paths(case, "/work/case.yml")
+    assert term["params"]["config_file"] == "/work/ic.cfg"
+
+
+def test_a_data_term_in_a_nested_sum_is_found():
+    """!
+    @brief A data term inside a sum inside a named sum is found as resolve_velocity_source() finds it.
+    """
+    profile = {"type": "file", "path": "inlet.picslice"}
+    pulse = {"components": "normal", "expression": "0.1*sin(2*pi*t)"}
+    case = {"sources": {"measured": {"sum": [{"sum": [profile, pulse]}, pulse]}},
+            "boundary_conditions": [[{"face": "-Zeta", "handler": "prescribed_velocity", "source": "measured"}]]}
+    assert [term for _, _, term in CORE.raw_inlet_data_sources(case)] == [profile]
+
+
+@pytest.mark.parametrize("resolve", [
+    lambda case: CORE.resolve_velocity_source({"expression": {"w": "1"}}, case, "src", False),
+    lambda case: CORE.resolve_particle_source({"expression": "1"}, case, "src"),
+])
+def test_sources_that_is_not_a_mapping_is_refused(resolve):
+    """!
+    @brief Every source reader refuses a `sources:` that is not a mapping, not only the velocity one.
+    @param[in] resolve Reads one source.
+    """
+    with pytest.raises(ValueError, match="sources must map names"):
+        resolve({"sources": ["duct"]})
 
 
 @pytest.mark.parametrize("source, provider, execution", [

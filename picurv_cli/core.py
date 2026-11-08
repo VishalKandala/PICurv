@@ -6960,7 +6960,7 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                     gen[key] = resolve_path(case_anchor_path, val)
     ic = (case_cfg.get("properties", {}) or {}).get("initial_conditions", {})
     if isinstance(ic, dict):
-        term = initial_field_term(ic)
+        term = initial_field_term(ic, case_cfg)
         if term.get("type") == "file":
             if isinstance(term.get("path"), str):
                 term["path"] = resolve_path(case_anchor_path, term["path"])
@@ -8161,26 +8161,35 @@ def raw_inlet_data_sources(case_cfg: dict) -> list:
     """!
     @brief The profile data sources named by a case's unprepared prescribed_velocity inlets.
     @details A source given by name resolves to its shared mapping under `sources:`, so
-             in-place edits reach every inlet that names it.
+             in-place edits reach every inlet that names it. Sums are searched to any depth, as
+             resolve_velocity_source() resolves them; nothing here raises, validation does.
     @param[in] case_cfg Parsed case.yml.
-    @return `(block_index, entry, source_mapping)` per inlet whose source has a `type`.
+    @return `(block_index, entry, source_mapping)` per data term with a `type`.
     """
-    named = case_cfg.get("sources") if isinstance(case_cfg.get("sources"), dict) else {}
-    raw_blocks = case_cfg.get("boundary_conditions") or []
-    if raw_blocks and isinstance(raw_blocks[0], dict):
-        raw_blocks = [raw_blocks]
+
+    def data_terms(spec, where, visiting):
+        """!
+        @brief The data terms of one source, its sum terms searched in turn.
+        @param[in] spec Source as written.
+        @param[in] where Configuration path of the source.
+        @param[in] visiting Names being expanded on this path, so a cycle ends the search.
+        @return Data-term mappings.
+        """
+        if isinstance(spec, str):
+            if spec in visiting:
+                return []
+            visiting = visiting | {spec}
+        where, spec, terms = expand_source(spec, case_cfg, where, strict=False)
+        if terms is None:
+            return [spec] if isinstance(spec, dict) and "type" in spec else []
+        return [found for term_where, term in terms for found in data_terms(term, term_where, visiting)]
+
     found = []
-    for block_index, block in enumerate(raw_blocks):
-        for entry in block if isinstance(block, list) else []:
+    for block_index, block in enumerate(normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions"))):
+        for entry in block:
             if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_velocity":
                 continue
-            source = entry.get("source")
-            source = named.get(source) if isinstance(source, str) else source
-            terms = source.get("sum", [source]) if isinstance(source, dict) else []
-            for term in terms if isinstance(terms, list) else []:
-                term = named.get(term) if isinstance(term, str) else term
-                if isinstance(term, dict) and "type" in term:
-                    found.append((block_index, entry, term))
+            found.extend((block_index, entry, term) for term in data_terms(entry.get("source"), "source", frozenset()))
     return found
 
 
@@ -8308,13 +8317,24 @@ def _to_bool(value, field_name: str) -> bool:
             return False
     raise ValueError(f"'{field_name}' must be boolean (got {value!r}).")
 
-def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
+def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: "int | None" = None):
     """!
-    @brief Normalize boundary_conditions to list-of-lists form and validate block count.
-    @param[in] all_blocks_bcs Argument passed to `normalize_boundary_conditions_layout()`.
-    @param[in] num_blocks Argument passed to `normalize_boundary_conditions_layout()`.
-    @return Value returned by `normalize_boundary_conditions_layout()`.
+    @brief Normalize boundary_conditions to list-of-lists form: one list of face entries per block.
+    @details A single face list, one whose first entry is a mapping, is block 0's. Given
+             `num_blocks`, the layout is validated: an empty section, a single list for a
+             multi-block case, or another block count raises. Without it the reading is lenient,
+             for code that inspects a case before validation reports its errors: anything but a
+             non-empty list is no blocks, and a block that is not a list has no entries.
+    @param[in] all_blocks_bcs The `boundary_conditions` value as written.
+    @param[in] num_blocks Declared block count, or None for the lenient reading.
+    @return The list of blocks; validated, it is the input itself when that was already one.
     """
+    if num_blocks is None:
+        if not isinstance(all_blocks_bcs, list) or not all_blocks_bcs:
+            return []
+        if isinstance(all_blocks_bcs[0], dict):
+            return [all_blocks_bcs]
+        return [block if isinstance(block, list) else [] for block in all_blocks_bcs]
     if not all_blocks_bcs:
         raise ValueError("The 'boundary_conditions' section in case.yml is empty.")
 
@@ -8341,10 +8361,7 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     """
     axis_faces = {"i": ("-Xi", "+Xi"), "j": ("-Eta", "+Eta"), "k": ("-Zeta", "+Zeta")}
     declared = {}
-    entries = case_cfg.get("boundary_conditions") or []
-    if entries and isinstance(entries[0], list):
-        entries = entries[0]
-    for entry in entries:
+    for entry in (normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions")) or [[]])[0]:
         if isinstance(entry, dict):
             declared[str(entry.get("face"))] = str(entry.get("type", "")).upper()
     return {
@@ -8628,7 +8645,10 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
     scales = resolve_reference_scales(case_cfg)
 
-    all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
+    raw_bcs = case_cfg.get('boundary_conditions', [])
+    all_blocks_bcs = normalize_boundary_conditions_layout(raw_bcs, num_blocks)
+    # Units are recorded per layout: a list of blocks addresses an entry by block and index.
+    block_path = (lambda bi: (bi,)) if all_blocks_bcs is raw_bcs else (lambda bi: ())
     prepared_blocks = []
     face_sources = 0
 
@@ -8796,8 +8816,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 if bc_type != "INLET" or handler != "prescribed_velocity":
                     raise ValueError(f"{where}.fluctuations: only a prescribed_velocity INLET adds synthetic fluctuations.")
                 prepared_entry["fluctuations"] = normalize_inlet_fluctuations(
-                    bc["fluctuations"], case_cfg, f"{where}.fluctuations",
-                    (bi,) if isinstance((case_cfg.get("boundary_conditions") or [None])[0], list) else ())
+                    bc["fluctuations"], case_cfg, f"{where}.fluctuations", block_path(bi))
             if bc.get("particles") is not None:
                 if bc_type != "INLET":
                     raise ValueError(f"{where}.particles: only an INLET face injects particles.")
@@ -10043,7 +10062,7 @@ def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_
     wall_cfg = (physics.get("turbulence") or {}).get("wall_function")
     if isinstance(wall_cfg, dict) and "roughness_height" in wall_cfg:
         changed.append("models.physics.turbulence.wall_function.roughness_height")
-    initial_term = initial_field_term(ic)
+    initial_term = initial_field_term(ic, case_cfg)
     if initial_term.get("type") == "file":
         changed.append("properties.initial_conditions.source (file payload)")
     if str(initial_term.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
@@ -10448,8 +10467,8 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     "(restart_mode: load); their values come from the checkpoint.")
 
     if ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
-        raw_blocks = case_cfg.get('boundary_conditions') or []
-        for entry in (raw_blocks if raw_blocks and isinstance(raw_blocks[0], dict) else []):
+        for entry in (entry for block in normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions'))
+                      for entry in block):
             if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
                 errors.append(
                     f"  {case_path}: boundary_conditions {entry.get('face')}.particles.fields cannot be combined with "
@@ -14404,6 +14423,44 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     return merged
 
 
+def expand_source(spec, case_cfg: dict, where: str, strict: bool = True, missing: str = ""):
+    """!
+    @brief Dereference a source named under the case's `sources:`, and expand its `sum`.
+    @details Every reader of a source walks it with this: a name becomes its mapping and the
+             path `sources.<name>`, and a `sum` gives its terms with their paths. A term may
+             itself be a name or a sum, which the caller expands in turn.
+    @param[in] spec Source as written: a name, a mapping, or anything else.
+    @param[in] case_cfg Case configuration holding `sources:`.
+    @param[in] where Configuration path of the source.
+    @param[in] strict Whether a `sources:` that is not a mapping, an unknown name, or a malformed
+               sum raises. When false they read as no sources, an unresolved name, and the
+               sum's list, if it is one.
+    @param[in] missing Text the unknown-name error ends with.
+    @return `(where, spec, terms)`: the path and value after dereferencing, and the sum's
+            `(path, term)` pairs, or None when the source is not a sum.
+    @throws ValueError when strict, as above.
+    """
+    named = (case_cfg or {}).get("sources") or {}
+    if not isinstance(named, dict):
+        if strict:
+            raise ValueError("sources must map names to source definitions.")
+        named = {}
+    if isinstance(spec, str):
+        if spec in named:
+            where, spec = f"sources.{spec}", named[spec]
+        elif strict:
+            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'})."
+                             f"{missing}")
+    if not isinstance(spec, dict) or "sum" not in spec:
+        return where, spec, None
+    terms = spec["sum"]
+    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+        if strict:
+            raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+        terms = terms if isinstance(terms, list) else []
+    return where, spec, [(f"{where}.sum[{index}]", term) for index, term in enumerate(terms)]
+
+
 def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool) -> dict:
     """!
     @brief Resolve a velocity source, given inline or by its name under the case's `sources:`.
@@ -14422,17 +14479,11 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
             source, or None for expressions.
     """
     language = load_shared_module("source_expressions")
-    named = case_cfg.get("sources") or {}
-    if not isinstance(named, dict):
-        raise ValueError("sources must map names to source definitions.")
-    if isinstance(spec, str):
-        if spec not in named:
-            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}).")
-        where, spec = f"sources.{spec}", named[spec]
+    where, spec, terms = expand_source(spec, case_cfg, where)
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources.")
-    if "sum" in spec:
-        return _resolve_source_sum(spec, case_cfg, where, allow_normal)
+    if terms is not None:
+        return _resolve_source_sum(terms, case_cfg, where, allow_normal)
     if "type" in spec:
         if not allow_normal:
             raise ValueError(f"{where}: a '{spec['type']}' data source is a face's normal-speed profile, "
@@ -14471,20 +14522,16 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
-def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bool) -> dict:
+def _resolve_source_sum(terms: list, case_cfg: dict, where: str, allow_normal: bool) -> dict:
     """!
     @brief Add a source's `sum` terms: expressions in one frame, and at most one data term.
-    @param[in] spec Mapping with `sum`, a non-empty list of sources.
+    @param[in] terms The sum's `(path, term)` pairs, from expand_source().
     @param[in] case_cfg Case configuration holding `sources:`.
-    @param[in] where Configuration path of the sum.
+    @param[in] where Configuration path of the source holding the sum.
     @param[in] allow_normal Whether the target is a face.
     @return The resolved source; see resolve_velocity_source().
     """
-    terms = spec["sum"]
-    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    resolved = [resolve_velocity_source(term, case_cfg, f"{where}.sum[{index}]", allow_normal)
-                for index, term in enumerate(terms)]
+    resolved = [resolve_velocity_source(term, case_cfg, term_where, allow_normal) for term_where, term in terms]
     data = [source["data"] for source in resolved if source["data"] is not None]
     if len(data) > 1:
         raise ValueError(f"{where}.sum takes at most one data term.")
@@ -14627,20 +14674,12 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     @throws ValueError on an invalid or retired form.
     """
     language = load_shared_module("source_expressions")
-    named = case_cfg.get("sources") or {}
-    if isinstance(spec, str):
-        if spec not in (named if isinstance(named, dict) else {}):
-            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}). "
-                             "An expression is written {expression: ...}.")
-        where, spec = f"sources.{spec}", named[spec]
+    where, spec, terms = expand_source(spec, case_cfg, where, missing=" An expression is written {expression: ...}.")
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources; "
                          "a number or expression is written {expression: ...}.")
-    if "sum" in spec:
-        terms = spec["sum"]
-        if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-            raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-        return " + ".join(f"({resolve_particle_source(term, case_cfg, f'{where}.sum[{n}]')})" for n, term in enumerate(terms))
+    if terms is not None:
+        return " + ".join(f"({resolve_particle_source(term, case_cfg, term_where)})" for term_where, term in terms)
     retired = sorted(set(spec) & {"params", "value", "background", "regions"})
     if retired:
         raise ValueError(f"{where} keys {retired} are retired: write {{expression: <number, expression, or "
@@ -14804,8 +14843,7 @@ def particle_seed_count(case_cfg: dict, case_path: str, staged_grid: "str | None
                          "grid source does not declare before it is generated.")
     cells = [n - 1 for n in dims[0]]
     if normalize_particle_init_mode(particles.get("init_mode", "Surface")) == 0:
-        raw_blocks = case_cfg.get("boundary_conditions") or []
-        entries = raw_blocks[0] if raw_blocks and isinstance(raw_blocks[0], list) else raw_blocks
+        entries = (normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions")) or [[]])[0]
         inlets = [e.get("face") for e in entries if isinstance(e, dict) and e.get("type") == "INLET"]
         order = ["-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"]
         faces = [f for f in order if f in inlets]
@@ -14822,11 +14860,9 @@ def case_injects_particles(case_cfg: dict) -> bool:
     @param[in] case_cfg Parsed case.yml.
     @return True when a boundary entry carries `particles`; validation reports its errors.
     """
-    raw_blocks = (case_cfg or {}).get("boundary_conditions") or []
-    if raw_blocks and isinstance(raw_blocks[0], dict):
-        raw_blocks = [raw_blocks]
+    blocks = normalize_boundary_conditions_layout((case_cfg or {}).get("boundary_conditions"))
     return any(isinstance(entry, dict) and entry.get("particles") is not None
-               for block in raw_blocks for entry in (block if isinstance(block, list) else []))
+               for block in blocks for entry in block)
 
 
 def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
@@ -15004,17 +15040,18 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
-def initial_field_term(ic: dict) -> dict:
+def initial_field_term(ic: dict, case_cfg: "dict | None" = None) -> dict:
     """!
     @brief Find the term of an initial condition's source that stages a field.
+    @details The term resolve_initial_condition_config() stages, found the same way, a name under
+             `sources:` included; nothing here raises, validation does.
     @param[in] ic Raw `properties.initial_conditions` mapping.
-    @return The generator or file term, or an empty mapping when the source has none.
+    @param[in] case_cfg Case configuration holding `sources:`, or None.
+    @return The generator or file term, the shared mapping when named, or an empty mapping when
+            the source has none.
     """
-    source = ic.get("source")
-    terms = source.get("sum", [source]) if isinstance(source, dict) else []
-    if not isinstance(terms, list):
-        return {}
-    return next((term for term in terms if isinstance(term, dict) and ("generator" in term or "type" in term)), {})
+    return _split_initial_field_term(ic.get("source"), "properties.initial_conditions.source", case_cfg,
+                                     strict=False)[1] or {}
 
 
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
@@ -15044,7 +15081,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     where = "properties.initial_conditions.source"
     spec = ic["source"]
     project = isinstance(spec, dict) and "sum" in spec
-    spec, field_term = _split_initial_field_term(spec, where, (case_cfg or {}).get("sources"))
+    spec, field_term = _split_initial_field_term(spec, where, case_cfg)
     field = None if field_term is None else _resolve_initial_field_term(
         field_term, where, prepared_blocks, scales, provider_context)
     source = {"frame": "cartesian", "expressions": [], "constants": {}, "data": None} if spec is None else \
@@ -15102,30 +15139,29 @@ def _retired_initial_condition_message(ic: dict) -> "str | None":
             f"Write {replacement}.")
 
 
-def _split_initial_field_term(spec, where: str, named_sources):
+def _split_initial_field_term(spec, where: str, case_cfg, strict: bool = True):
     """!
     @brief Split an initial source into its expression terms and at most one staged-field term.
+    @details The field term is the source itself, a name of one, or a term of an inline sum,
+             itself possibly a name. A named sum is left whole, for resolve_velocity_source().
     @param[in] spec Raw source: a name, a mapping, or a `sum`.
     @param[in] where Configuration path of the source.
-    @param[in] named_sources The case's `sources:` mapping.
+    @param[in] case_cfg Case configuration holding `sources:`, or None.
+    @param[in] strict Whether a malformed source raises; when false the first field term is taken.
     @return `(source specification or None when only a field term remains, field term or None)`.
     """
-    named = named_sources if isinstance(named_sources, dict) else {}
     is_field = lambda term: isinstance(term, dict) and ("generator" in term or "type" in term)
-    if isinstance(spec, str) and is_field(named.get(spec)):
-        spec = named[spec]
-    if is_field(spec):
-        return None, spec
-    if not (isinstance(spec, dict) and "sum" in spec):
+    _, value, terms = expand_source(spec, case_cfg, where, strict=strict)
+    if is_field(value):
+        return None, value
+    if terms is None or isinstance(spec, str):
         return spec, None
-    terms = spec["sum"]
-    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    resolved = [named.get(term, term) if isinstance(term, str) else term for term in terms]
+    # Unknown term names stay names: resolve_velocity_source() reports them.
+    resolved = [expand_source(term, case_cfg, term_where, strict=False)[1] for term_where, term in terms]
     fields = [term for term in resolved if is_field(term)]
-    if len(fields) > 1:
+    if len(fields) > 1 and strict:
         raise ValueError(f"{where}.sum: a sum takes at most one generator or file term.")
-    rest = [term for term, value in zip(terms, resolved) if not is_field(value)]
+    rest = [term for (_, term), value in zip(terms, resolved) if not is_field(value)]
     return ({"sum": rest} if rest else None), (fields[0] if fields else None)
 
 
@@ -19646,7 +19682,7 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
     initial = copy.deepcopy(
         ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
     )
-    initial_term = initial_field_term(initial)
+    initial_term = initial_field_term(initial, case_cfg)
     initial_file = initial_term.get("type") == "file"
     initial_generator = str(initial_term.get("generator", "source")).strip().lower()
     generated_python = initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
