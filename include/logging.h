@@ -50,8 +50,8 @@ typedef enum {
 /**
  * @brief Context for a dual-purpose KSP monitor.
  *
- * This struct holds a file viewer for unconditional logging and a boolean
- * flag to enable/disable optional logging to the console.
+ * Holds the rank-0 history file the monitor writes one CSV row per iteration to, whether the
+ * true residual is computed and echoed to the console, and the workspaces that computation keeps.
  */
 typedef struct {
     FILE        *file_handle;        // C file handling for logging.
@@ -320,12 +320,20 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
     (PetscUnlikely((int)get_log_level() >= (int)LOG_VERBOSE) && is_function_allowed(__func__))
 
 /**
+ * @brief True when `pid` is traced (`monitor.yml -> logging.trace_particles`).
+ * @details A run that traces no particle pays one load and one compare; only a run that traces
+ *          some searches the sorted list.
+ */
+#define PARTICLE_IS_TRACED(simCtx, pid) \
+    ((PetscBool)(PetscUnlikely((simCtx)->nTracePIDs > 0) && ParticleIsTraced((simCtx), (pid))))
+
+/**
  * @brief True when LOG_PARTICLE() would print for this particle in the calling function.
  * @details For a stage whose line is costly to assemble (several fields): test this, build the
  *          text, then emit it with LOG_PARTICLE().
  */
 #define PARTICLE_LOG_ACTIVE(simCtx, pid) \
-    ((PetscBool)((PetscUnlikely((simCtx)->nTracePIDs > 0) && ParticleIsTraced((simCtx), (pid))) || PARTICLE_LOG_VERBOSE_ENABLED()))
+    ((PetscBool)(PARTICLE_IS_TRACED((simCtx), (pid)) || PARTICLE_LOG_VERBOSE_ENABLED()))
 
 /**
  * @brief Reports one particle at one stage of a step: the consolidated per-particle line.
@@ -346,8 +354,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
  */
 #define LOG_PARTICLE(simCtx, pid, stage, fmt, ...)                                                   \
     do {                                                                                             \
-        const PetscBool _picurv_traced =                                                             \
-            (PetscBool)(PetscUnlikely((simCtx)->nTracePIDs > 0) && ParticleIsTraced((simCtx), (pid))); \
+        const PetscBool _picurv_traced = PARTICLE_IS_TRACED((simCtx), (pid));                         \
         if (_picurv_traced || PARTICLE_LOG_VERBOSE_ENABLED()) {                                      \
             PetscPrintf(PETSC_COMM_SELF, "[%s pid=%lld step=%" PetscInt_FMT " %s] " fmt,             \
                         _picurv_traced ? "trace" : __func__, (long long)(pid), (simCtx)->step,       \
@@ -380,18 +387,6 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
             }                                                                  \
         }                                                                      \
     } while (0)
-/*
-#define LOG_LOOP_ALLOW(scope,level, iterVar, interval, fmt, ...)              \
-    do {                                                                       \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
-            if ((iterVar) % (interval) == 0) {                                 \
-                MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-                PetscPrintf(comm, "[%s] [Iter=%d] " fmt,                       \
-                            __func__, (iterVar), ##__VA_ARGS__);               \
-            }                                                                  \
-        }                                                                      \
-    } while (0)
-*/
 
 /**
  * @brief Logs a custom message if a variable equals a specific value.
@@ -441,8 +436,8 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
         if (LOG_LEVEL_ADMITS(level)) { \
             if ((idx) >= 0 && (idx) < (length)) {                             \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-                PetscPrintf(comm, "[%s] arr[%d] = " fmt "\n",                 \
-                            __func__, (idx), (arr)[idx]);                     \
+                PetscPrintf(comm, "[%s] arr[%" PetscInt_FMT "] = " fmt "\n",  \
+                            __func__, (PetscInt)(idx), (arr)[idx]);           \
             }                                                                 \
         }                                                                     \
     } while (0)
@@ -467,7 +462,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
             PetscInt _start = (start) < 0 ? 0 : (start);                      \
             PetscInt _end   = (end) >= (length) ? (length) - 1 : (end);       \
             for (PetscInt i = _start; i <= _end; i++) {                       \
-                PetscPrintf(comm, "[%s] arr[%d] = " fmt "\n", __func__, i, (arr)[i]); \
+                PetscPrintf(comm, "[%s] arr[%" PetscInt_FMT "] = " fmt "\n", __func__, i, (arr)[i]); \
             }                                                                 \
         }                                                                     \
     } while (0)
@@ -603,19 +598,20 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval);
  * This checks only the reporting contract (particles exist, cadence is enabled,
  * and the global log level is at least INFO).
  *
- * @param simCtx Simulation context controlling the operation.
- * @return PetscBool indicating the result of `IsParticleConsoleSnapshotEnabled()`.
+ * @param simCtx Simulation context controlling the operation (NULL means disabled).
+ * @return PETSC_TRUE when snapshots are enabled.
  */
 PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx);
 
 /**
- * @brief Returns whether a particle console snapshot should be emitted for the
+ * @brief Returns whether a particle console snapshot should be emitted for the completed timestep.
  *
- * completed timestep.
+ * True when snapshots are enabled (IsParticleConsoleSnapshotEnabled()) and the positive
+ * `completed_step` is a multiple of the snapshot cadence.
  *
  * @param simCtx Simulation context controlling the operation.
  * @param completed_step Completed step index used by the decision helper.
- * @return PetscBool indicating the result of `ShouldEmitPeriodicParticleConsoleSnapshot()`.
+ * @return PETSC_TRUE when a snapshot is due.
  */
 PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step);
 
@@ -709,7 +705,6 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
  */
 const char* BCFaceToString(BCFace face);
 
-
 /**
  * @brief Returns the canonical log token for a particle-initialization mode.
  * @param[in] ParticleInitialization The ParticleInitialization enum value.
@@ -802,9 +797,9 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type);
 /**
  * @brief A custom KSP monitor that logs to a file and optionally to the console.
  *
- * This function unconditionally calls the standard true residual monitor to log to a
- * file viewer provided in the context. It also checks a flag in the context
-* and, if true, calls the monitor again to log to standard output.
+ * On rank 0 it writes one CSV row per iteration to the context's history file, when one is
+ * open, and prints the same values when `log_to_console` is set. When the context asks for the
+ * true residual it also computes the true and relative residual norms (collective).
  *
  * @param ksp   The Krylov subspace context.
  * @param it    The current iteration number.
@@ -817,8 +812,8 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx);
 /**
  * @brief Destroys the DualMonitorCtx.
  *
- * This function is passed to KSPMonitorSet to ensure the viewer is
- * properly destroyed and the context memory is freed when the KSP is destroyed.
+ * This function is passed to KSPMonitorSet so that, when the KSP is destroyed, rank 0 closes
+ * any open history file and the residual workspaces and the context are freed.
  * @param ctx a pointer to the context pointer to be destroyed
  * @return PetscErrorCode
  */
@@ -844,7 +839,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
  * This logger is intentionally separate from the detailed inner solver-health
  * logs. Depending on the configured mode, it records deterministic step drift,
  * periodic phase-aligned drift, or statistical window drift into
- * `logs/solution_convergence.log`.
+ * `<log_dir>/solution_convergence.csv`.
  *
  * The logger is solver-mode only and is intended to run after a completed
  * flow-solve / projection step but before history vectors are shifted forward.
@@ -962,7 +957,8 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
  * united by name, each name's total time is reduced to its maximum and minimum (with the ranks
  * holding them) and its mean over ranks, and its calls are summed and reduced to their minimum
  * and maximum per rank (with ranks), so a time spread can be told apart from a call-count spread.
- * Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first. This is the profiler's only
+ * Rank 0 writes `ProfilingSummary_<mode>.csv` (`<mode>` is `Solver` or `PostProcessor`), slowest
+ * rank first; a continued run appends its totals after a continuation marker. This is the profiler's only
  * communication; the timed path stays local to each rank.
  *
  * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
