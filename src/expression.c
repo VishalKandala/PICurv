@@ -1,7 +1,9 @@
 /**
  * @file expression.c
  * @brief The expression language shared by every configured field: a parser, a postfix
- *        compiler, and a pure stack evaluator.
+ *        compiler, and a pure stack evaluator; and the prescribed velocity sources written in
+ *        it, which gather the boundary-face slots they are evaluated at, assemble face fluxes
+ *        and set cell values, and scale themselves to a bulk velocity.
  *
  * Expressions are parsed into a small tree, because a chained comparison evaluates its
  * middle operand twice, and compiled to postfix code that a stack evaluator runs once per
@@ -118,31 +120,31 @@ static void ParserFail(ExpressionParser *parser, const char *message)
 /** @brief Skip whitespace before the next token. */
 static void SkipSpace(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     while (parser->text[parser->pos] && isspace((unsigned char)parser->text[parser->pos])) parser->pos++;
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 }
 
 /** @brief Consume @p token if it is next, and report whether it was. */
 static PetscBool Accept(ExpressionParser *parser, const char *token)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     size_t length = strlen(token);
 
     SkipSpace(parser);
-    if (strncmp(parser->text + parser->pos, token, length) != 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    if (strncmp(parser->text + parser->pos, token, length) != 0) { PROFILE_HELPER_END; return PETSC_FALSE; }
     if (isalpha((unsigned char)token[0])) {
         const char next = parser->text[parser->pos + length];
-        if (isalnum((unsigned char)next) || next == '_') { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+        if (isalnum((unsigned char)next) || next == '_') { PROFILE_HELPER_END; return PETSC_FALSE; }
     }
     /* `*` must not match the first half of `**`, nor `<` the first half of `<=`. */
     if ((!strcmp(token, "*") && parser->text[parser->pos + 1] == '*') ||
         ((!strcmp(token, "<") || !strcmp(token, ">")) && parser->text[parser->pos + 1] == '=')) {
-        PROFILE_FUNCTION_END;
+        PROFILE_HELPER_END;
         return PETSC_FALSE;
     }
     parser->pos += length;
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     return PETSC_TRUE;
 }
 
@@ -150,11 +152,11 @@ static PetscBool Accept(ExpressionParser *parser, const char *token)
 static PetscInt NewNode(ExpressionParser *parser, ExpressionOp op, PetscInt nchild,
                         PetscInt a, PetscInt b, PetscInt c)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (parser->error[0]) { PROFILE_FUNCTION_END; return -1; }
+    PROFILE_HELPER_BEGIN;
+    if (parser->error[0]) { PROFILE_HELPER_END; return -1; }
     if (parser->count == parser->capacity) {
         ParserFail(parser, "expression is too long");
-        PROFILE_FUNCTION_END;
+        PROFILE_HELPER_END;
         return -1;
     }
     ExpressionNode *node = &parser->nodes[parser->count];
@@ -164,7 +166,7 @@ static PetscInt NewNode(ExpressionParser *parser, ExpressionOp op, PetscInt nchi
     node->child[0] = a;
     node->child[1] = b;
     node->child[2] = c;
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     return parser->count++;
 }
 
@@ -398,10 +400,10 @@ static PetscInt ParsePower(ExpressionParser *parser)
  */
 static PetscInt ParseUnary(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (Accept(parser, "-")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_NEG, 1, ParseUnary(parser), -1, -1); }
-    if (Accept(parser, "+")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_POS, 1, ParseUnary(parser), -1, -1); }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_BEGIN;
+    if (Accept(parser, "-")) { PROFILE_HELPER_END; return NewNode(parser, OP_NEG, 1, ParseUnary(parser), -1, -1); }
+    if (Accept(parser, "+")) { PROFILE_HELPER_END; return NewNode(parser, OP_POS, 1, ParseUnary(parser), -1, -1); }
+    PROFILE_HELPER_END;
     return ParsePower(parser);
 }
 
@@ -413,17 +415,17 @@ static PetscInt ParseUnary(ExpressionParser *parser)
  */
 static PetscInt ParseTerm(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     PetscInt left = ParseUnary(parser);
     for (;;) {
         if (Accept(parser, "*")) left = NewNode(parser, OP_MUL, 2, left, ParseUnary(parser), -1);
         else if (Accept(parser, "/")) {
-            if (parser->text[parser->pos] == '/') { ParserFail(parser, "'//' is not supported"); PROFILE_FUNCTION_END; return -1; }
+            if (parser->text[parser->pos] == '/') { ParserFail(parser, "'//' is not supported"); PROFILE_HELPER_END; return -1; }
             left = NewNode(parser, OP_DIV, 2, left, ParseUnary(parser), -1);
         } else if (Accept(parser, "%")) left = NewNode(parser, OP_MOD, 2, left, ParseUnary(parser), -1);
-        else { PROFILE_FUNCTION_END; return left; }
+        else { PROFILE_HELPER_END; return left; }
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -433,20 +435,20 @@ static PetscInt ParseTerm(ExpressionParser *parser)
  */
 static PetscInt ParseSum(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     PetscInt left = ParseTerm(parser);
     for (;;) {
         if (Accept(parser, "+")) left = NewNode(parser, OP_ADD, 2, left, ParseTerm(parser), -1);
         else if (Accept(parser, "-")) left = NewNode(parser, OP_SUB, 2, left, ParseTerm(parser), -1);
-        else { PROFILE_FUNCTION_END; return left; }
+        else { PROFILE_HELPER_END; return left; }
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 }
 
 /** @brief sum (comparison sum)*; a chain `a < b < c` is `(a < b) and (b < c)`. */
 static PetscInt ParseComparison(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     static const struct { const char *token; ExpressionOp op; } kComparisons[] = {
         {"==", OP_EQ}, {"!=", OP_NE}, {"<=", OP_LE}, {">=", OP_GE}, {"<", OP_LT}, {">", OP_GT},
     };
@@ -457,21 +459,21 @@ static PetscInt ParseComparison(ExpressionParser *parser)
         for (size_t c = 0; c < sizeof(kComparisons) / sizeof(kComparisons[0]); ++c) {
             if (Accept(parser, kComparisons[c].token)) { op = kComparisons[c].op; break; }
         }
-        if (op == OP_CONST) { PROFILE_FUNCTION_END; return (result < 0) ? left : result; }
+        if (op == OP_CONST) { PROFILE_HELPER_END; return (result < 0) ? left : result; }
         const PetscInt right = ParseSum(parser);
         const PetscInt pair = NewNode(parser, op, 2, left, right, -1);
         result = (result < 0) ? pair : NewNode(parser, OP_AND, 2, result, pair, -1);
         left = right;
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 }
 
 /** @brief 'not' not | comparison */
 static PetscInt ParseNot(ExpressionParser *parser)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (Accept(parser, "not")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_NOT, 1, ParseNot(parser), -1, -1); }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_BEGIN;
+    if (Accept(parser, "not")) { PROFILE_HELPER_END; return NewNode(parser, OP_NOT, 1, ParseNot(parser), -1, -1); }
+    PROFILE_HELPER_END;
     return ParseComparison(parser);
 }
 
@@ -501,7 +503,7 @@ static PetscInt CountCode(const ExpressionParser *parser, PetscInt index);
 static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpression *expression,
                      PetscInt *depth)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     const ExpressionNode *node = &parser->nodes[index];
 
     if (node->op == OP_SUM) {
@@ -516,7 +518,7 @@ static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpre
         ExpressionInstruction *acc = &expression->code[expression->length++];
         acc->op = OP_SUM_ACC; acc->value = (PetscReal)body; acc->arg = node->var;
         *depth -= 1;
-        PROFILE_FUNCTION_END;
+        PROFILE_HELPER_END;
         return;
     }
     for (PetscInt c = 0; c < node->nchild; ++c) EmitNode(parser, node->child[c], expression, depth);
@@ -527,7 +529,7 @@ static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpre
     *depth += 1 - node->nchild;
     if (*depth > expression->max_depth) expression->max_depth = *depth;
     if (node->op == OP_UNIFORM || node->op == OP_NORMAL) expression->draws = PETSC_TRUE;
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 }
 
 /** @brief Count the instructions a subtree emits (shared subtrees count per use). */
@@ -902,6 +904,28 @@ PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face,
 }
 
 /**
+ * @brief Implementation of \ref PicurvSourcePressureCreate().
+ * @see PicurvSourcePressureCreate()
+ */
+PetscErrorCode PicurvSourcePressureCreate(const char *prefix, PetscBool allow_draws, PicurvExpression **pressure)
+{
+    char      option[PETSC_MAX_PATH_LEN], text[PICURV_SOURCE_EXPRESSION_LENGTH];
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    *pressure = NULL;
+    PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_pressure", prefix));
+    PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
+    if (found) {
+        PetscCall(PicurvExpressionCompile(text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, allow_draws,
+                                          pressure));
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref PicurvVelocitySourceBulkFactor().
  * @see PicurvVelocitySourceBulkFactor()
  */
@@ -927,6 +951,27 @@ PetscErrorCode PicurvVelocitySourceBulkFactor(const PicurvVelocitySource *source
 }
 
 /**
+ * @brief Evaluate one component of a source, refusing a non-finite value.
+ * @param[in]  source Compiled source.
+ * @param[in]  c      Component.
+ * @param[in]  values One value per #PicurvSourceVariable.
+ * @param[in]  key    Draw key with its `field` already set to @p c; may be NULL for a source that does not draw.
+ * @param[out] value  The component's value.
+ * @return Zero on success; `PETSC_ERR_FP` for a non-finite value.
+ */
+static inline PetscErrorCode SourceComponentEvaluate(const PicurvVelocitySource *source, PetscInt c, const PetscReal *values,
+                                                     const PicurvExpressionDrawKey *key, PetscReal *value)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvExpressionEvaluate(source->component[c], values, key, value));
+    PetscCheck(!PetscIsInfOrNanReal(*value), PETSC_COMM_SELF, PETSC_ERR_FP,
+               "Velocity source value %" PetscInt_FMT " is %g at (x, y, z) = (%g, %g, %g), t = %g.",
+               c, (double)*value, (double)values[PICURV_SOURCE_VAR_X], (double)values[PICURV_SOURCE_VAR_Y],
+               (double)values[PICURV_SOURCE_VAR_Z], (double)values[PICURV_SOURCE_VAR_T]);
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref PicurvVelocitySourceEvaluate().
  * @see PicurvVelocitySourceEvaluate()
  */
@@ -940,11 +985,7 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
     PROFILE_HELPER_BEGIN;
     for (PetscInt c = 0; c < source->count; ++c) {
         if (key) { component_key = *key; component_key.field = c; }
-        PetscCall(PicurvExpressionEvaluate(source->component[c], values, key ? &component_key : NULL, &v[c]));
-        PetscCheck(!PetscIsInfOrNanReal(v[c]), PETSC_COMM_SELF, PETSC_ERR_FP,
-                   "Velocity source value %" PetscInt_FMT " is %g at (x, y, z) = (%g, %g, %g), t = %g.",
-                   c, (double)v[c], (double)values[PICURV_SOURCE_VAR_X], (double)values[PICURV_SOURCE_VAR_Y],
-                   (double)values[PICURV_SOURCE_VAR_Z], (double)values[PICURV_SOURCE_VAR_T]);
+        PetscCall(SourceComponentEvaluate(source, c, values, key ? &component_key : NULL, &v[c]));
     }
     if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
         /* Values are components along the unit grid-line directions. */
@@ -966,14 +1007,12 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
 }
 
 /** @brief Draw key of a cell: every value set from a cell's or its + faces' source reads one draw per stream. */
-static PicurvExpressionDrawKey CellDrawKey(const UserCtx *user, PetscInt i, PetscInt j, PetscInt k)
+static inline PicurvExpressionDrawKey CellDrawKey(const UserCtx *user, PetscInt i, PetscInt j, PetscInt k)
 {
-    PROFILE_HELPER_BEGIN;
     const PetscInt64 mx = user->info.mx, my = user->info.my;
     const PicurvExpressionDrawKey key = {(PetscInt64)user->simCtx->sourceRandomSeed,
-                                         ((PetscInt64)user->_this << 48) + i + mx * (j + my * k),
+                                         PicurvGridDrawId(user->_this, i + mx * (j + my * k)),
                                          PICURV_DRAW_SALT_INITIAL_FIELD, 0, PETSC_TRUE};
-    PROFILE_HELPER_END;
     return key;
 }
 
@@ -984,17 +1023,15 @@ static PicurvExpressionDrawKey CellDrawKey(const UserCtx *user, PetscInt i, Pets
 PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySource *source, Vec fraction, Vec length,
                                       PetscReal physical_time, PetscReal *factor)
 {
-    const DMDALocalInfo *info = &user->info;
     const PetscReal L_ref = user->simCtx->scaling.L_ref, U_ref = user->simCtx->scaling.U_ref;
-    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
-    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
-    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    PetscInt lo[3], hi[3];
     PetscReal values[PICURV_SOURCE_VAR_COUNT], local[3] = {0.0, 0.0, 0.0};
     const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet, ***ucat;
     const PetscReal ***aj;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+    GetOwnedInteriorCellBounds(&user->info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
     PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
     PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
@@ -1004,9 +1041,9 @@ PetscErrorCode PicurvSourceCellBulkFactor(UserCtx *user, const PicurvVelocitySou
     PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
     values[PICURV_SOURCE_VAR_T] = physical_time;
-    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
-    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
-    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
+    for (PetscInt k = lo[2]; k < hi[2]; ++k)
+    for (PetscInt j = lo[1]; j < hi[1]; ++j)
+    for (PetscInt i = lo[0]; i < hi[0]; ++i) {
         const PetscReal volume = 1.0 / PetscAbsReal(aj[k][j][i]);
         Cmpnts edges[3], v;
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], L_ref);
@@ -1042,11 +1079,7 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
     const DMDALocalInfo *info = &user->info;
     const PetscReal L_ref = user->simCtx->scaling.L_ref, U_ref = user->simCtx->scaling.U_ref;
     const PetscInt start[3] = {info->xs, info->ys, info->zs};
-    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
-    const PetscInt nodes[3] = {info->mx, info->my, info->mz};
-    const PetscInt lo[3] = {(start[0] == 0) ? 1 : start[0], (start[1] == 0) ? 1 : start[1], (start[2] == 0) ? 1 : start[2]};
-    const PetscInt hi[3] = {(end[0] == nodes[0]) ? nodes[0] - 1 : end[0], (end[1] == nodes[1]) ? nodes[1] - 1 : end[1],
-                            (end[2] == nodes[2]) ? nodes[2] - 1 : end[2]};
+    PetscInt lo[3], hi[3];
     const Cmpnts ***frac, ***len, ***csi, ***eta, ***zet, ***centx, ***centy, ***centz;
     const PetscReal ***aj;
     Cmpnts ***ucont;
@@ -1054,6 +1087,7 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+    GetOwnedInteriorCellBounds(info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
     PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
@@ -1087,15 +1121,16 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
                 PicurvSourceSetVariables(values, centre, frac[k][j][i], len[k][j][i], L_ref);
                 values[PICURV_SOURCE_VAR_XI + a] += side ? -half : half;
                 key.field = a;
-                if (source->frame == PICURV_SOURCE_FRAME_CONTRAVARIANT) {
+                if (source->frame == PICURV_SOURCE_FRAME_CONTRAVARIANT || source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
+                    /* Component a is this face's own: its flux, or its speed through the face. */
                     PetscReal value;
-                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, &key, &value));
-                    flux = factor * value / (U_ref * L_ref * L_ref);
-                } else if (source->frame == PICURV_SOURCE_FRAME_CURVILINEAR) {
-                    const PetscReal area = PetscSqrtReal(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
-                    PetscReal value;
-                    PetscCall(PicurvExpressionEvaluate(source->component[a], values, &key, &value));
-                    flux = factor * (value / U_ref) * user->GridOrientation * area;
+                    PetscCall(SourceComponentEvaluate(source, a, values, &key, &value));
+                    if (source->frame == PICURV_SOURCE_FRAME_CONTRAVARIANT) {
+                        flux = factor * value / (U_ref * L_ref * L_ref);
+                    } else {
+                        const PetscReal area = PetscSqrtReal(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
+                        flux = factor * (value / U_ref) * user->GridOrientation * area;
+                    }
                 } else {
                     Cmpnts v;
                     PetscCall(PicurvVelocitySourceEvaluate(source, values, &key, edges, &v));
@@ -1123,38 +1158,50 @@ PetscErrorCode PicurvSourceAddFluxes(UserCtx *user, const PicurvVelocitySource *
 }
 
 /**
- * @brief Implementation of \ref PicurvSourceSetCellPressure().
- * @see PicurvSourceSetCellPressure()
+ * @brief Implementation of \ref PicurvSourceSetCellFields().
+ * @see PicurvSourceSetCellFields()
  */
-PetscErrorCode PicurvSourceSetCellPressure(UserCtx *user, const PicurvExpression *pressure, Vec fraction, Vec length,
-                                           PetscReal physical_time)
+PetscErrorCode PicurvSourceSetCellFields(UserCtx *user, const PicurvVelocitySource *velocity, PetscReal factor,
+                                         const PicurvExpression *pressure, Vec fraction, Vec length,
+                                         PetscReal physical_time)
 {
-    const DMDALocalInfo *info = &user->info;
     const ScalingCtx *scaling = &user->simCtx->scaling;
-    const PetscInt xs = info->xs, xe = info->xs + info->xm, mx = info->mx;
-    const PetscInt ys = info->ys, ye = info->ys + info->ym, my = info->my;
-    const PetscInt zs = info->zs, ze = info->zs + info->zm, mz = info->mz;
+    PetscInt lo[3], hi[3];
     const Cmpnts ***cent, ***frac, ***len;
-    PetscReal ***p, values[PICURV_SOURCE_VAR_COUNT];
+    Cmpnts ***ucat = NULL;
+    PetscReal ***p = NULL, values[PICURV_SOURCE_VAR_COUNT];
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
+    if (!velocity && !pressure) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    GetOwnedInteriorCellBounds(&user->info, lo, hi);
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
     PetscCall(DMDAVecGetArrayRead(user->fda, fraction, &frac));
     PetscCall(DMDAVecGetArrayRead(user->fda, length, &len));
-    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+    if (velocity) PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    if (pressure) PetscCall(DMDAVecGetArray(user->da, user->P, &p));
     values[PICURV_SOURCE_VAR_T] = physical_time;
-    for (PetscInt k = (zs == 0) ? 1 : zs; k < ((ze == mz) ? mz - 1 : ze); ++k)
-    for (PetscInt j = (ys == 0) ? 1 : ys; j < ((ye == my) ? my - 1 : ye); ++j)
-    for (PetscInt i = (xs == 0) ? 1 : xs; i < ((xe == mx) ? mx - 1 : xe); ++i) {
-        PetscReal value;
+    for (PetscInt k = lo[2]; k < hi[2]; ++k)
+    for (PetscInt j = lo[1]; j < hi[1]; ++j)
+    for (PetscInt i = lo[0]; i < hi[0]; ++i) {
         PicurvExpressionDrawKey key = CellDrawKey(user, i, j, k);
-        key.field = 3; /* After the velocity's three components. */
         PicurvSourceSetVariables(values, cent[k][j][i], frac[k][j][i], len[k][j][i], scaling->L_ref);
-        PetscCall(PicurvExpressionEvaluate(pressure, values, &key, &value));
-        p[k][j][i] = value / scaling->P_ref;
+        if (velocity) {
+            Cmpnts v;
+            PetscCall(PicurvVelocitySourceEvaluate(velocity, values, &key, NULL, &v));
+            ucat[k][j][i].x = factor * v.x / scaling->U_ref;
+            ucat[k][j][i].y = factor * v.y / scaling->U_ref;
+            ucat[k][j][i].z = factor * v.z / scaling->U_ref;
+        }
+        if (pressure) {
+            PetscReal value;
+            key.field = 3; /* After the velocity's three components. */
+            PetscCall(PicurvExpressionEvaluate(pressure, values, &key, &value));
+            p[k][j][i] = value / scaling->P_ref;
+        }
     }
-    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    if (pressure) PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    if (velocity) PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, length, &len));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, fraction, &frac));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));

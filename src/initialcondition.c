@@ -1,6 +1,8 @@
 /**
- * @file initialcondition.c  //  Setup the Initial conditions for different cases. 
- * @brief Test program for DMSwarm interpolation using the fdf-curvIB method.
+ * @file initialcondition.c
+ * @brief Sets the Eulerian state the run starts from: a fresh start from the initial-condition
+ *        source or staged field, a restart from checkpoints, or the analytical field, and the
+ *        solver history vectors that follow from it.
  **/
 
  #include "initialcondition.h"
@@ -56,8 +58,6 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
     PicurvExpression *pressure = NULL;
     PetscReal physical_time, weight = 1.0, factor = 1.0;
     Vec fraction, length;
-    char pressure_text[4096];
-    PetscBool has_pressure = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -71,21 +71,18 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
         if (weight != 1.0) PetscCall(VecScale(staged_flux ? user->Ucont : user->Ucat, weight));
         if (!staged_flux) PetscCall(UcontFromInteriorUcat(user));
     }
-    PetscCall(PetscOptionsGetString(NULL, NULL, "-ic_source_pressure", pressure_text, sizeof(pressure_text), &has_pressure));
-    if (source.count > 0 || has_pressure) {
+    PetscCall(PicurvSourcePressureCreate("ic_source", PETSC_TRUE, &pressure));
+    if (source.count > 0 || pressure) {
         PetscCall(DMCreateGlobalVector(user->fda, &fraction));
         PetscCall(DMCreateGlobalVector(user->fda, &length));
         PetscCall(ComputeGridLineFractions(user, fraction, length));
         if (source.bulk) PetscCall(PicurvSourceCellBulkFactor(user, &source, fraction, length, physical_time, &factor));
         if (source.count > 0) PetscCall(PicurvSourceAddFluxes(user, &source, fraction, length, physical_time, factor, PETSC_FALSE));
-        if (has_pressure) {
-            PetscCall(PicurvExpressionCompile(pressure_text, kPicurvSourceVariableNames, PICURV_SOURCE_VAR_CELL_COUNT, PETSC_TRUE, &pressure));
-            PetscCall(PicurvSourceSetCellPressure(user, pressure, fraction, length, physical_time));
-            PetscCall(PicurvExpressionDestroy(&pressure));
-        }
+        PetscCall(PicurvSourceSetCellFields(user, NULL, 1.0, pressure, fraction, length, physical_time));
         PetscCall(VecDestroy(&fraction));
         PetscCall(VecDestroy(&length));
     }
+    PetscCall(PicurvExpressionDestroy(&pressure));
     PetscCall(PicurvVelocitySourceDestroy(&source));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -150,7 +147,7 @@ static PetscErrorCode ProjectInitialVelocity(SimCtx *simCtx)
         PetscCall(VecSet(user_finest[bi].Phi, 0.0));
         PetscCall(UpdateLocalGhosts(&user_finest[bi], FIELD_ID_PHI));
     }
-    LOG(GLOBAL, LOG_INFO, "Initial velocity projected to be divergence-free (Poisson source imbalance %g).\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Initial velocity projected to be divergence-free (Poisson source imbalance %g).\n",
               (double)simCtx->poissonSourceImbalance);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -239,8 +236,8 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `InitializeEulerianState()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref InitializeEulerianState().
+ * @see InitializeEulerianState()
  */
 PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
 {
@@ -256,7 +253,7 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     if (simCtx->StartStep > 0) {
         if(strcmp(simCtx->eulerianSource,"analytical")==0){
             LOG_ALLOW(GLOBAL,LOG_INFO,"Initializing analytical field from its source (t=%.4f, step=%" PetscInt_FMT ").\n",simCtx->StartTime,simCtx->StartStep);
-            ierr = AnalyticalSolutionEngine(simCtx);
+            ierr = AnalyticalSolutionEngine(simCtx); CHKERRQ(ierr);
         }
         else{
             LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%" PetscInt_FMT ").\n",

@@ -1,7 +1,9 @@
 /**
  * @file expression.h
- * @brief The expression language shared by every configured field, and the keyed hashes
- *        its random draws and other reproducible draws are built from.
+ * @brief The expression language shared by every configured field, the keyed hashes its
+ *        random draws and other reproducible draws are built from, and the prescribed velocity
+ *        sources written in it: their compilation, the face slots a boundary evaluates them at,
+ *        the face fluxes and cell values they set, and their bulk-velocity scaling.
  *
  * Callers compile an expression against their own list of variable names and supply the
  * values in that order at evaluation. `generators/ic.gen` validates the same language;
@@ -89,8 +91,9 @@ typedef struct {
  * @brief Compile one expression against a list of variable names.
  * @details The grammar is Python's expression syntax restricted to numbers, the given
  *          names, `pi`, arithmetic (`+ - * / % **`), comparisons (chained ones included),
- *          `and`/`or`/`not`, and the functions `abs atan2 cos cosh erf exp floor log
- *          maximum minimum sin sinh sqrt tan tanh where`, plus `uniform` and `normal` when
+ *          `and`/`or`/`not`, the functions `abs atan2 bei ber besselj bessely cos cosh erf
+ *          exp floor log maximum minimum sin sinh sqrt tan tanh where`, the series
+ *          `sum(k, lo, hi, body)` over integer bounds, plus `uniform` and `normal` when
  *          @p allow_random is true. Comparisons and logical operators yield 1 or 0; `%`
  *          takes the sign of the divisor; `**` binds tighter than a unary minus on its left
  *          and groups to the right.
@@ -189,7 +192,8 @@ typedef struct {
  * @details Reads `-<prefix>_frame` (`cartesian`, `curvilinear`, on a face `normal`, otherwise `contravariant`), one
  *          expression per value, `-<prefix>_expr_<c>`, written in physical units over the names
  *          of #PicurvSourceVariable, and the optional `-<prefix>_bulk_velocity`, an expression
- *          in `t`.
+ *          in `t`; on a face, without a bulk velocity, the optional `-<prefix>_flow_rate`, a
+ *          volumetric flow rate [m^3/s] in `t`, instead.
  * @param[in]  prefix   Option prefix without its dash, e.g. `ic_source` or `face_source_0`.
  * @param[in]  on_face  Whether the target is a face, where the normal frame means something.
  * @param[in]  has_data Whether the target also has staged data, which makes the expressions
@@ -202,6 +206,17 @@ typedef struct {
  */
 PetscErrorCode PicurvVelocitySourceCreate(const char *prefix, PetscBool on_face, PetscBool has_data,
                                           PetscBool allow_draws, PicurvVelocitySource *source);
+
+/**
+ * @brief Read and compile a source's optional pressure, `-<prefix>_pressure`, an expression in Pa
+ *        over the cell variables of #PicurvSourceVariable.
+ * @param[in]  prefix      Option prefix without its dash, e.g. `ic_source`.
+ * @param[in]  allow_draws Whether the expression may call `uniform` and `normal`.
+ * @param[out] pressure    Compiled expression, or NULL when the option is absent; release it with
+ *                         PicurvExpressionDestroy().
+ * @return Zero on success; `PETSC_ERR_ARG_WRONG` for a malformed expression.
+ */
+PetscErrorCode PicurvSourcePressureCreate(const char *prefix, PetscBool allow_draws, PicurvExpression **pressure);
 
 /**
  * @brief Factor on a source's expressions that makes a target's whole mean equal its bulk velocity.
@@ -259,6 +274,37 @@ static inline PetscInt64 PicurvFaceCellId(const PetscInt nodes[3], BCFace face, 
     return id;
 }
 
+/**
+ * @brief Draw identity of a grid point: its block in the top 16 bits, above an identity unique
+ *        within the block (a cell's natural index, or PicurvFaceCellId()).
+ * @param[in] block Block index.
+ * @param[in] id    Identity within the block, below 2^48.
+ * @return The identity.
+ */
+static inline PetscInt64 PicurvGridDrawId(PetscInt block, PetscInt64 id)
+{
+    return ((PetscInt64)block << 48) + id;
+}
+
+/**
+ * @brief Draw key of a boundary face cell at one step, the key of a face source's draws.
+ * @param[in] seed  Run seed, `-source_random_seed`.
+ * @param[in] block Block index.
+ * @param[in] nodes Global node counts along i, j, k.
+ * @param[in] face  Face.
+ * @param[in] p     Zero-based cell index along the face's first tangential axis.
+ * @param[in] q     Zero-based cell index along the second.
+ * @param[in] step  Step the draws are made for, their salt.
+ * @return The key; its `field` is 0, for PicurvVelocitySourceEvaluate() to set per component.
+ */
+static inline PicurvExpressionDrawKey PicurvFaceDrawKey(PetscInt64 seed, PetscInt block, const PetscInt nodes[3],
+                                                        BCFace face, PetscInt p, PetscInt q, PetscInt64 step)
+{
+    const PicurvExpressionDrawKey key = {seed, PicurvGridDrawId(block, PicurvFaceCellId(nodes, face, p, q)), step, 0,
+                                         PETSC_TRUE};
+    return key;
+}
+
 /** @brief What a source reads at each boundary-face slot this rank owns, gathered once. */
 typedef struct {
     PetscInt   normal;  /**< Logical axis of the face normal. */
@@ -307,17 +353,22 @@ PetscErrorCode PicurvVelocitySourceEvaluate(const PicurvVelocitySource *source, 
                                             const PicurvExpressionDrawKey *key, const Cmpnts edges[3], Cmpnts *value);
 
 /**
- * @brief Set a block's pressure at every interior cell centre from an expression in Pa. Dummy cells
- *        are left to the caller's boundary pass.
- * @param[in]     user          Block with current cell centres.
- * @param[in]     pressure      Expression over the cell variables, physical.
+ * @brief Set a block's Ucat, its P, or both at every interior cell centre this rank owns, from a
+ *        source evaluated there. Dummy cells are left to the caller's boundary pass.
+ * @details A cell's draws are keyed as the face fluxes it sets are, the pressure on the stream
+ *          after the velocity's three components.
+ * @param[in,out] user          Block with current cell centres; its Ucat and P receive the values.
+ * @param[in]     velocity      Source of Cartesian components, physical, or NULL to leave Ucat.
+ * @param[in]     factor        Factor on the velocity, from a bulk velocity, or 1.
+ * @param[in]     pressure      Expression over the cell variables in Pa, or NULL to leave P.
  * @param[in]     fraction      Grid-line fractions, from ComputeGridLineFractions().
  * @param[in]     length        Grid-line lengths, from ComputeGridLineFractions().
  * @param[in]     physical_time Time [s].
  * @return PETSc error code.
  */
-PetscErrorCode PicurvSourceSetCellPressure(UserCtx *user, const PicurvExpression *pressure, Vec fraction, Vec length,
-                                           PetscReal physical_time);
+PetscErrorCode PicurvSourceSetCellFields(UserCtx *user, const PicurvVelocitySource *velocity, PetscReal factor,
+                                         const PicurvExpression *pressure, Vec fraction, Vec length,
+                                         PetscReal physical_time);
 
 /**
  * @brief Factor on a source's expressions that makes the volume mean of the whole field, along
