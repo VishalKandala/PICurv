@@ -365,11 +365,9 @@ static PetscErrorCode DrawSeedingPoint(
  * @brief Initialize position-independent particle fields after a particle is created.
  */
 static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
-                                                PetscInt particlesPerProcess,
-                                                BoundingBox *bboxlist) // bboxlist unused for placement
+                                                PetscInt particlesPerProcess)
 {
     PetscErrorCode ierr;
-    (void)bboxlist;
     DM             swarm = user->swarm;
     PetscReal      *positions_field = NULL; // Pointer to swarm field for physical positions (x,y,z)
     PetscInt64     *particleIDs = NULL;     // Pointer to swarm field for Particle IDs
@@ -630,8 +628,7 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId f
  * @details Local to this translation unit.
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
-                                            PetscInt particlesPerProcess,
-                                            BoundingBox *bboxlist)
+                                            PetscInt particlesPerProcess)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
@@ -641,10 +638,7 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     SimCtx *simCtx = user->simCtx;
     
     // --- 0. Input Validation ---
-    if (!user || !bboxlist) {
-        LOG_ALLOW(GLOBAL, LOG_ERROR, "Null user or bboxlist.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input detected.");
-    }
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user.");
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Initializing swarm with %" PetscInt_FMT " particles per process. Mode: %s.\n",
             particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
@@ -662,7 +656,7 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     // --- 2. Initialize Basic Particle Properties (Position, PID, Cell IDs placeholder) ---
     // Placement draws are keyed on (seed, PID), so no generator state is passed in.
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Calling InitializeParticleBasicProperties.\n");
-    ierr = InitializeParticleBasicProperties(user, particlesPerProcess, bboxlist); CHKERRQ(ierr);
+    ierr = InitializeParticleBasicProperties(user, particlesPerProcess); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully initialized basic particle properties.\n");
 
     // --- 3. Initialize Other Swarm Fields (Velocity, Weight, Pressure, etc.) ---
@@ -755,9 +749,8 @@ static PetscErrorCode DistributeParticlesByOwnedMeasure(UserCtx *user, PetscInt 
  * @brief Internal helper implementation: `CreateParticleSwarm()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist) {
+PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess) {
     PetscErrorCode ierr;                      // PETSc error handling variable
-    (void)bboxlist;
     PetscMPIInt rank, size;                   // Variables to store MPI rank and size
     PetscInt remainder = 0;                   // Remainder of particles after division
     
@@ -1046,7 +1039,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 
     // --- Phase 1: Create the DMSwarm Object (Always required) ---
     // This creates the container and registers the fields. It does not add particles yet.
-    ierr = CreateParticleSwarm(user, simCtx->np, &particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
+    ierr = CreateParticleSwarm(user, simCtx->np, &particlesPerProcess); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "DMSwarm object and fields created successfully.\n");
 
 
@@ -1069,7 +1062,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     if (should_initialize_new_particles) {
         // --- PATH A: Generate a fresh population of particles ---
         LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: INITIALIZE. Generating new particle population.\n");
-        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
+        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess); CHKERRQ(ierr);
 
     } else {
         // --- PATH B: Load particle population from restart files ---

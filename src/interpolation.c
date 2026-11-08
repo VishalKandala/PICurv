@@ -495,7 +495,6 @@ static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, 
  * @details Local to this translation unit.
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
-    const char   *fieldName,
     PetscReal  ***fieldScal,
     PetscInt      i,
     PetscInt      j,
@@ -537,7 +536,6 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     sum += wcorner[7] * fieldScal[k1][j1][i1];
 
     *val = sum;
-    (void)fieldName; /* The interpolate stage's particle line reports the corners and result. */
 
     PetscFunctionReturn(0);
 }
@@ -548,7 +546,6 @@ PetscErrorCode TrilinearInterpolation_Scalar(
  * @details Local to this translation unit.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
-    const char   *fieldName,
     Cmpnts     ***fieldVec,  /* 3D array [k][j][i], dimension [mz][my][mx] */
     PetscInt      i, // local cell index i
     PetscInt      j, // local cell index j
@@ -564,7 +561,6 @@ PetscErrorCode TrilinearInterpolation_Vector(
   PetscReal wcorner[8];
 
   ComputeTrilinearWeights(a1, a2, a3, wcorner);
-  (void)fieldName; /* The interpolate stage's particle line reports the corners and result. */
 
   // For partial interpolation, we'll keep track of how many corners are valid
   // and how much sum of weights is used. Then we do a final normalization.
@@ -631,7 +627,6 @@ PetscErrorCode TrilinearInterpolation_Vector(
  * @brief Interpolate one Eulerian field to a single located swarm particle.
  */
 static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
-    const char  *fieldName,
     void        *fieldPtr,   /* typed Pointer => either (PetscReal***) or (Cmpnts***) */
     Particle    *particle,   /* particle struct containing Cell ID and weight information. */
     void        *swarmOut,   /* typed Pointer => (PetscReal*) or (Cmpnts*) or dof=3 array */
@@ -661,7 +656,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     PetscReal ***fieldScal = (PetscReal ***) fieldPtr;
     PetscReal val;
 
-    ierr = TrilinearInterpolation(fieldName, fieldScal,
+    ierr = TrilinearInterpolation(fieldScal,
                                    iCell, jCell, kCell,
                                    a1, a2, a3,
                                    &val);
@@ -675,7 +670,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     Cmpnts ***fieldVec = (Cmpnts ***) fieldPtr;
     Cmpnts vec;
 
-     ierr = TrilinearInterpolation(fieldName, fieldVec,
+     ierr = TrilinearInterpolation(fieldVec,
                                    iCell, jCell, kCell,
                                    a1, a2, a3,
                                    &vec);
@@ -809,7 +804,7 @@ static inline PetscErrorCode CenterDualCellWeights(const DMDALocalInfo *info, co
  * @details Trilinear inside the domain, the unclamped corner weights where the dual cell was
  *          clamped. Local to this translation unit.
  */
-static inline PetscErrorCode CenterInterpolateVector(const char *fieldName, Cmpnts ***fieldVec, const PetscInt base[3],
+static inline PetscErrorCode CenterInterpolateVector(Cmpnts ***fieldVec, const PetscInt base[3],
                                                      const PetscReal a[3], const PetscReal w[8], PetscBool unclamped,
                                                      Cmpnts *vec)
 {
@@ -832,7 +827,7 @@ static inline PetscErrorCode CenterInterpolateVector(const char *fieldName, Cmpn
     } else {
         /* Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
          * field[bk+1..bk+2][bj+1..bj+2][bi+1..bi+2] = cells (bi..bi+1, bj..bj+1, bk..bk+1). */
-        return TrilinearInterpolation_Vector(fieldName, fieldVec, bi + 1, bj + 1, bk + 1, a[0], a[1], a[2], vec);
+        return TrilinearInterpolation_Vector(fieldVec, bi + 1, bj + 1, bk + 1, a[0], a[1], a[2], vec);
     }
     return PETSC_SUCCESS;
 }
@@ -931,7 +926,6 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
          * Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
          * field[bk+1..bk+2][bj+1..bj+2][bi+1..bi+2] = cells (bi..bi+1, bj..bj+1, bk..bk+1). */
         for (PetscInt t = 0; t < ntargets; ++t) {
-            const char *fieldName = targets[t].field_name;
             PetscReal  *swarmOut  = targets[t].swarm_out;
             if (targets[t].bs == 1) {
                 PetscReal ***fieldScal = (PetscReal ***)targets[t].field_ptr;
@@ -942,13 +936,13 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
                         + w[4] * fieldScal[bk+2][bj+1][bi+1] + w[5] * fieldScal[bk+2][bj+1][bi+2]
                         + w[6] * fieldScal[bk+2][bj+2][bi+1] + w[7] * fieldScal[bk+2][bj+2][bi+2];
                 } else {
-                    ierr = TrilinearInterpolation_Scalar(fieldName, fieldScal,
+                    ierr = TrilinearInterpolation_Scalar(fieldScal,
                         bi + 1, bj + 1, bk + 1, a1_new, a2_new, a3_new, &val); CHKERRQ(ierr);
                 }
                 swarmOut[p] = val;
             } else {
                 Cmpnts vec;
-                ierr = CenterInterpolateVector(fieldName, (Cmpnts ***)targets[t].field_ptr, base, a_new, w,
+                ierr = CenterInterpolateVector((Cmpnts ***)targets[t].field_ptr, base, a_new, w,
                                                needs_unclamped, &vec); CHKERRQ(ierr);
                 swarmOut[3*p + 0] = vec.x;
                 swarmOut[3*p + 1] = vec.y;
@@ -1345,7 +1339,6 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
         }
 
         ierr = InterpolateEulerFieldToSwarmForParticle(
-                  fieldName,
                   cornerPtr_read_with_ghosts,
                   &particle,
                   swarmOut, p, bs);
@@ -1455,7 +1448,7 @@ PetscErrorCode InterpolateVelocityAtPoint(const VelocityPointInterpolator *inter
     } else if (interp->method == INTERP_CORNER_AVERAGED) {
         if (!(cell[0] < info->gxs || cell[0] >= info->gxs + info->gxm - 1 || cell[1] < info->gys ||
               cell[1] >= info->gys + info->gym - 1 || cell[2] < info->gzs || cell[2] >= info->gzs + info->gzm - 1))
-            PetscCall(TrilinearInterpolation_Vector("Ucat", interp->field, cell[0], cell[1], cell[2],
+            PetscCall(TrilinearInterpolation_Vector(interp->field, cell[0], cell[1], cell[2],
                                                     weights[0], weights[1], weights[2], u));
     } else {
         PetscInt  base[3];
@@ -1463,7 +1456,7 @@ PetscErrorCode InterpolateVelocityAtPoint(const VelocityPointInterpolator *inter
         PetscBool unclamped, outside;
         PetscCall(CenterDualCellWeights(info, &interp->dual, interp->periodic, cell, weights, point, base, a, w,
                                         &unclamped, &outside));
-        if (!outside) PetscCall(CenterInterpolateVector("Ucat", interp->field, base, a, w, unclamped, u));
+        if (!outside) PetscCall(CenterInterpolateVector(interp->field, base, a, w, unclamped, u));
     }
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);

@@ -23,31 +23,19 @@
 // --------------------- Function Declarations ---------------------
 
 /**
- * @brief Creates and initializes a Particle Swarm.
+ * @brief Creates the particle swarm, registers its fields and sizes it for this rank's share.
  *
- * This function sets up a DMSwarm within the provided UserCtx structure, initializes
- * particle fields, and distributes particles across MPI processes. It ensures that
- * the number of particles is evenly divided among the available MPI ranks. If the total
- * number of particles isn't divisible by the number of processes, the remainder is distributed
- * to the first few ranks.
+ * Volume and Surface seeding give each rank the particles its owned cells seed (by volume, or
+ * by area on the inlet face, the stratified split of the seeding table); PointSource divides
+ * the count evenly, the first ranks taking one more. Collective.
  *
- * Additionally, it now takes a 'bboxlist' array as an input parameter and passes it on to
- * AssignInitialProperties(), enabling particle initialization at the midpoint of each rank's
- * bounding box if ParticleInitialization is set to 0.
- *
- * @param[in,out] user          Pointer to the UserCtx structure containing the simulation context.
+ * @param[in,out] user          Finest-level context; receives the swarm.
  * @param[in]     numParticles  Total number of particles to create across all MPI processes.
  * @param[out]    particlesPerProcess Number of particles assigned to the local rank.
- * @param[in]     bboxlist      Pointer to an array of BoundingBox structures, one per rank.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note
- * - Ensure that `numParticles` is a positive integer.
- * - The `control.dat` file should contain necessary PETSc options.
- * - The `bboxlist` array should be properly populated before calling this function.
  */
-PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist);
+PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess);
 
 /**
  * @brief Initializes the DMSwarm object within the UserCtx structure.
@@ -89,25 +77,20 @@ PetscErrorCode RegisterParticleFields(DM swarm);
 /**
  * @brief Initializes all particle properties in the swarm.
  *
- * This function orchestrates the initialization of particle properties.
- * It first determines the inlet face if surface initialization (Mode 0) is selected
- * by parsing "bcs.dat".
- * Then, it initializes basic particle properties (physical position, Particle ID,
- * and the seeded cell) by calling `InitializeParticleBasicProperties`. Volumetric and
- * surface seeding stratify the particles over the cells' volume or inlet area and key every
- * placement draw on (seed, particle ID), so the population does not depend on the rank layout.
- * Finally, it calls helper functions to initialize other registered swarm fields
- * like "velocity", "weight", and "P" (pressure) to default values.
+ * Surface seeding requires an INLET face. The basic properties (physical position, particle
+ * ID and the seeded cell) are set by `InitializeParticleBasicProperties`: Volume and Surface
+ * seeding stratify the particles over the cells' volume or inlet area and key every placement
+ * draw on (seed, particle ID), so the population does not depend on the rank layout. Every
+ * field the particle catalog marks for default initialization (velocity, weight, Diffusivity,
+ * DiffusivityGradient and Psi) then takes its catalog default. Collective.
  *
  * @param[in,out] user               Pointer to the `UserCtx` structure.
  * @param[in]     particlesPerProcess Number of particles assigned to this MPI process.
- * @param[in]     bboxlist           Array of BoundingBox structures (potentially unused by IPBP).
  *
  * @return PetscErrorCode            Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
-                                              PetscInt particlesPerProcess,
-                                              BoundingBox *bboxlist);
+                                              PetscInt particlesPerProcess);
 
 /**
  * @brief Distributes particles evenly across MPI processes, handling any remainders.

@@ -92,39 +92,31 @@
  *   Cmpnts vec;
  *   
  *   // For scalars:
- *   TrilinearInterpolation(fieldName, fieldScal, i, j, k, a1, a2, a3, &result);
+ *   TrilinearInterpolation(fieldScal, i, j, k, a1, a2, a3, &result);
  *
  *   // For vectors:
- *   TrilinearInterpolation(fieldName, fieldVec, i, j, k, a1, a2, a3, &vec);
+ *   TrilinearInterpolation(fieldVec, i, j, k, a1, a2, a3, &vec);
  */
-#define TrilinearInterpolation(fieldName, fieldPtr, i, j, k, a1, a2, a3, outPtr)           \
+#define TrilinearInterpolation(fieldPtr, i, j, k, a1, a2, a3, outPtr)                      \
   _Generic((fieldPtr),                                                                     \
     PetscReal ***: TrilinearInterpolation_Scalar,                                          \
     Cmpnts      ***: TrilinearInterpolation_Vector                                         \
-  )(fieldName, fieldPtr, i, j, k, a1, a2, a3, outPtr)
+  )(fieldPtr, i, j, k, a1, a2, a3, outPtr)
 
 // Function declarations
 
 /**
- * @brief Computes the trilinear interpolated scalar at a given point.
+ * @brief Trilinear interpolation of a scalar from the eight entries (i..i+1, j..j+1, k..k+1).
  *
- * each cell a PetscReal.
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same interface.
+ * The weights come from `ComputeTrilinearWeights()`, which clamps the coordinates to [0,1].
  *
- * @param fieldName A
- * @param fieldScal 3D
- * @param i Integral
- * @param j Integral
- * @param k Integral
- * @param a1 Normalized
- * @param a2 Normalized
- * @param a3 Normalized
- * @param val Pointer
+ * @param[in]  fieldScal Scalar array indexed [k][j][i].
+ * @param[in]  i,j,k     Index of the lowest of the eight entries.
+ * @param[in]  a1,a2,a3  Coordinates in the eight-entry cell along i, j and k, in [0,1].
+ * @param[out] val       The interpolated value.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
-    const char   *fieldName,
     PetscReal  ***fieldScal,
     PetscInt      i,
     PetscInt      j,
@@ -135,25 +127,18 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     PetscReal    *val);
 
 /**
- * @brief Computes the trilinear interpolated vector (e.g., velocity) at a given point.
+ * @brief Trilinear interpolation of a vector from the eight entries (i..i+1, j..j+1, k..k+1).
  *
- * each cell of type Cmpnts.
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same interface.
+ * The weights come from `ComputeTrilinearWeights()`, which clamps the coordinates to [0,1];
+ * the weighted sum is divided by the weights' sum, and is zero when that sum is below 1e-14.
  *
- * @param fieldName A
- * @param fieldVec 3D
- * @param i Integral
- * @param j Integral
- * @param k Integral
- * @param a1 Normalized
- * @param a2 Normalized
- * @param a3 Normalized
- * @param vec Pointer
+ * @param[in]  fieldVec  Vector array indexed [k][j][i].
+ * @param[in]  i,j,k     Index of the lowest of the eight entries.
+ * @param[in]  a1,a2,a3  Coordinates in the eight-entry cell along i, j and k, in [0,1].
+ * @param[out] vec       The interpolated vector.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
-    const char   *fieldName,
     Cmpnts     ***fieldVec,
     PetscInt      i,
     PetscInt      j,
