@@ -1,0 +1,1 @@
+- IEM's linear reconstruction refreshes the particle count's ghost cells before taking the gradient, so cells beside a subdomain seam no longer fall back to the stepped mean; the result is independent of the rank layout.
