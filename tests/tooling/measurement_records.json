@@ -1397,8 +1397,8 @@
       "question": "Does a prescribed_velocity inlet driving a pulsatile Womersley flow in a circular pipe converge at second order in space and time, and does the delivered face mean match the exact one?",
       "date": "2026-11-06",
       "commit": "2cf2dec2",
-      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; this study at 8 ranks",
-      "configuration": "grid_gen sweep: a circle of R = 0.5 carried 10 along +x, centre checked to 12 digits; the inlet source is the exact Womersley profile in r with top-level constants; nu = omega R^2/alpha^2; two periods; Newton-Krylov. Errors at the mid-plane over the last period. Spatial: two cross-section resolutions at dt 0.005. Temporal: dt 0.01, 0.005, 0.0025 and 0.00125 at N16, differences against dt 0.00125, repeated at N32. Saturation check: N16 with Poisson absolute tolerance 1e-5 and 1e-10. Grace records 2026-11-06_face-sources (wom/studies/wom_dt_20261106-214840, derived/wom_out.txt, wom_errors.csv).",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; this study at 8 ranks on a shared node",
+      "configuration": "grid_gen sweep: a circle of R = 0.5 carried 10 along +x, centre checked to 12 digits; the inlet source is the exact Womersley profile in r with top-level constants; nu = omega R^2/alpha^2; two periods; Newton-Krylov. Errors at the mid-plane over the last period. Spatial: two cross-section resolutions at dt 0.005. Temporal: dt 0.02, 0.01, 0.005, 0.0025 and 0.00125 at N16, differences against dt 0.00125, repeated at N32. Saturation check: N16 with Poisson absolute tolerance 1e-5 and 1e-10. Grace records 2026-11-06_face-sources (wom/studies/wom_dt_20261106-214840, derived/wom_out.txt, wom_errors.csv).",
       "result": {
         "measured": "Spatial at dt 0.005: L2 error 4.449e-3 to 1.014e-3, order 2.13; Linf order 1.86. Temporal, last-period max L2 differences against dt 0.00125: 7.22e-4, 1.79e-4, 4.27e-5, 8.54e-6, orders 2.01, 2.07 and 2.32; an exactly second-order scheme gives 2.02, 2.07 and 2.32 against this reference, which subtracts its own error. N32 agrees within 3%. The two Poisson tolerances agree to 3e-11 to 1.5e-10, against the smallest temporal difference 8.5e-6, so the solve does not saturate. Inlet face mean against the exact area mean at the face centres: 4.9e-11.",
         "threshold": "Observed orders near 2 in space and time; the delivered face mean equal to the exact mean to solver tolerance.",
@@ -1441,15 +1441,15 @@
       "id": "particle-injection-2026-11-08",
       "question": "Do inlet-injected particles keep the particle budget exactly, keep the number density uniform from the inlet on, follow the rank layout and a restart exactly, and carry a scalar the two-stream reference predicts?",
       "date": "2026-11-08",
-      "commit": "18da824f (placement); bb065b0d and 2cf2dec2 for the earlier rows",
+      "commit": "18da824f (placement); bb065b0d and 2cf2dec2 for the earlier rows; 1d43b996 for the population at particles_per_cell, the tightened two-stream fit and the cost",
       "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated",
-      "configuration": "Solved laminar channel 32 x 32 x 128 cells, domain 1 x 1 x 4, x periodic, y walls, inlet 6y(1-y), nu = D = 0.01, dt 0.02, peak CFL 0.96, n V = 1e7 (about 76 particles per cell), C_IEM 0. Two-stream: analytical plug w = 1, 64 x 64 x 128, D = 1e-3, about 15 particles per cell, 21 snapshots after one residence time. Grace records 2026-11-06_particle-batch, 2026-11-07_inlet-brownian, 2026-11-08_placement-mixing.",
+      "configuration": "Solved laminar channel 32 x 32 x 128 cells, domain 1 x 1 x 4, x periodic, y walls, inlet 6y(1-y), nu = D = 0.01, dt 0.02, peak CFL 0.96, n V = 1e7 (about 76 particles per cell), C_IEM 0. Two-stream: analytical plug w = 1, 64 x 64 x 128, D = 1e-3, about 15 particles per cell, 21 snapshots after one residence time. At 1d43b996: the same channel with particles_per_cell 76.29; the two-stream case at two seeds, 122 snapshots; cost on an analytical channel with 1e8 particles at 64 and 256 ranks, against the same case without injection. Grace records 2026-11-06_particle-batch, 2026-11-07_inlet-brownian, 2026-11-08_placement-mixing, 2026-11-08_promotion-evidence/P3 and P6.",
       "result": {
-        "measured": "Budget: injected minus exited minus lost equals the live count every step, 0 mismatches over 1200 steps, lost 0; injected against expected z = 0.01-0.08. Population N/(nV) 1.0009-1.0011 at t = 22-24. At 18da824f, t = 4-6: near-inlet wall cells 0-3 1.0007, 1.0135, 0.9991, 1.0019 (noise 0.0083), wall cells 4-15 1.0008, bulk cells 0-3 0.9989-1.0042 (noise 0.0029); before the placement change the first wall cells read 1.035 and 1.037. PID sets identical at 4 x 4 x 4 and 2 x 4 x 8 (N = 2,501,221), positions within 8.6e-13; restart at step 100: PIDs identical at step 150, positions within 1.2e-12. Two-stream, C_IEM 0: plateau D_eff/D 1.0055 +- 0.0015 against about 1.004 predicted (injected particles start half a step ahead); 1.0057 +- 0.0015 at 18da824f.",
+        "measured": "Budget: injected minus exited minus lost equals the live count every step, 0 mismatches over 1200 steps, lost 0; injected against expected z = 0.01-0.08. Population N/(nV) 1.0009-1.0011 at t = 22-24 (2cf2dec2); at 1d43b996 with particles_per_cell, 9,997,189 against 1e7 (0.9997) at t = 24. At 18da824f, t = 4-6: near-inlet wall cells 0-3 1.0007, 1.0135, 0.9991, 1.0019 (noise 0.0083), wall cells 4-15 1.0008, bulk cells 0-3 0.9989-1.0042 (noise 0.0029); before the placement change the first wall cells read 1.035 and 1.037. PID sets identical at 4 x 4 x 4 and 2 x 4 x 8 (N = 2,501,221), positions within 8.6e-13; restart at step 100: PIDs identical at step 150, positions within 1.2e-12. Two-stream, C_IEM 0: plateau D_eff/D 1.0055 +- 0.0015 against about 1.004 predicted (injected particles start half a step ahead); 1.0057 +- 0.0015 at 18da824f; at 1d43b996 over two seeds 1.0043 +- 0.0006, and 1.0221 +- 0.0022 at z = 0.5 against 1.020. Cost at 1d43b996: InjectAtInlet 0.7% of the step at 64 ranks and 1.5% at 256; the steps with and without injection are 1.760 against 1.303 s and 0.666 against 0.347 s, the gap almost wholly LocateAllParticlesInGrid with 5 migration passes against 3 (GitHub #18). At 1d43b996 with 1e8 particles: 4 x 4 x 16 against 2 x 4 x 32 at step 250, PID sets identical (99,750,212), positions bit-identical, max dPsi 2.2e-15; a restart at step 225 on 2 x 4 x 32 matches the uninterrupted run at step 250 bit-identically (max dPsi 5.6e-16); budgets exact, lost 0.",
         "threshold": "Exact budget; densities within counting noise of 1; PID identity across layouts and restart; the two-stream fit within its uncertainty of the prediction.",
         "verdict": "met"
       },
-      "limitations": "One grid of 131k cells and 1e7 particles at 64 ranks; cost and swarm resizing at large populations and rank counts are not measured (InjectParticlesAtInlets 0.002-0.004 s/step steady against a 0.24 s particle phase here). An absorbing outlet leaves a thinner layer near it (wall cells 0.92-0.94 in the last axial cells), which a 2D steady solve reproduces. Two-stream references are plug flow only.",
+      "limitations": "Correctness was measured on one grid of 131k cells and 1e7 particles at 64 ranks. The cost comparison is not a clean A/B: the run without injection is periodic in z. Swarm resizing is not timed apart from injection (at most 0.006 s/step). The two extra migration passes per step are not yet explained. An absorbing outlet leaves a thinner layer near it (wall cells 0.92-0.94 in the last axial cells), which a 2D steady solve reproduces. Two-stream references are plug flow only.",
       "artifacts": []
     },
     {
@@ -1486,22 +1486,22 @@
       "id": "iem-cell-reconstruction-2026-11-08",
       "question": "Does relaxing toward each cell's linear reconstruction, instead of its stepped mean, remove the excess diffusion IEM added to a resolved scalar layer, without changing the variance per squared mean gradient?",
       "date": "2026-11-08",
-      "commit": "5cdede88 (reconstruction b6a5fd9d, seam fix 7d174e32); the stepped-mean baseline at 2cf2dec2",
+      "commit": "5cdede88 (reconstruction b6a5fd9d, seam fix 7d174e32); the stepped-mean baseline at 2cf2dec2; the tight two-seed reference at 1d43b996",
       "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; 4 x 4 x 4",
       "configuration": "Two streams (Psi 1 and 0) in an analytical plug w = 1, 64 x 64 x 128, y walls, x periodic, D = 1e-3, about 15 particles per cell, dt 0.02; erf fits of the y-bin means per snapshot at z = 0.5-3.5, plateau z = 1.5-3.5; the C_IEM 0 run is the reference. Grace records 2026-11-06_particle-batch (stepped mean), 2026-11-08_iem-seam (reconstruction).",
       "result": {
-        "measured": "Plateau excess over C_IEM 0: stepped mean +0.092 (C_IEM 2) and +0.174 (C_IEM 4), with D_eff/D 1.0437, 1.0885, 1.1708 at C_IEM 1, 2, 4, matching x coth x within 0.9 of its excess; reconstruction +0.0011 +- 0.0016 and +0.0025 +- 0.0016, every station within about 1.2 SE of zero. Variance per squared mean gradient in the layer |y - 0.5| < 0.1 within 1.5% of the stepped mean's at every station. Mean Psi conserved (0.50005), lost 0. Psi after an IEM step identical by particle at 1, 2 and 4 ranks (1e-16, local).",
+        "measured": "Plateau excess over C_IEM 0: stepped mean +0.092 (C_IEM 2) and +0.174 (C_IEM 4), with D_eff/D 1.0437, 1.0885, 1.1708 at C_IEM 1, 2, 4, matching x coth x within 0.9 of its excess; reconstruction +0.0011 +- 0.0016 and +0.0025 +- 0.0016, every station within about 1.2 SE of zero against the first reference. Against the two-seed C_IEM 0 reference at 1d43b996: C_IEM 2 +0.0085 +- 0.0039 at z = 0.5 falling to -0.0005 +- 0.0019 at 3.5, C_IEM 4 +0.0124 to +0.0002; plateau excess +0.0025 +- 0.0009 and +0.0038 +- 0.0009. Variance per squared mean gradient in the layer |y - 0.5| < 0.1 within 1.5% of the stepped mean's at every station. Mean Psi conserved (0.50005), lost 0. Psi after an IEM step identical by particle at 1, 2 and 4 ranks (1e-16, local). Against the stepped mean's +0.092 and +0.174 the reconstruction removes about 97% and 98% of the excess.",
         "threshold": "Excess over the C_IEM 0 reference consistent with zero; variance per squared gradient unchanged within a few percent.",
-        "verdict": "met"
+        "verdict": "not-met"
       },
-      "limitations": "The reference's SE (0.003-0.004 per station) equals the residual a 1D model predicts (+0.012 at z = 0.5, +0.005 at 3.5), so that residual is not resolved; C_IEM 4 minus C_IEM 2 hints at +0.004 at z = 0.5, not verified. Plug flow, one grid and particle density, 64 ranks; an 18da824f run without the seam fix halved the excess only, because the empty-cell test read rank-local counts.",
+      "limitations": "Against the tight reference a residual excess is resolved: it decays along the layer as the 1D model predicts (+0.012 at z = 0.5, +0.005 at 3.5), though the z = 3.5 value is 2.9 SE below that prediction, and the plateau excess is 2.8 and 4.2 SE from zero. The reconstruction removes most of the stepped mean's excess, not all of it. The C_IEM 2 and 4 runs are at 5cdede88 and the reference at 1d43b996. Plug flow, one grid and particle density, 64 ranks; an 18da824f run without the seam fix halved the excess only, because the empty-cell test read rank-local counts.",
       "artifacts": []
     },
     {
       "id": "stratified-seeding-layout-64rank-2026-10-29",
       "question": "Is stratified keyed seeding identical by particle ID at 64 ranks across rank layouts, with every cell within one particle of its share?",
       "date": "2026-10-29",
-      "commit": "08df3642",
+      "commit": "62c9fef9 (build identity 0.1.0.dev358+g62c9fef94745; the seeding was introduced at 08df3642)",
       "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; 64 ranks at 4 x 4 x 4 and 2 x 4 x 8, and 1 rank",
       "configuration": "Volume seeding of 4e6 particles on a uniform and a graded grid, and Surface seeding of 1e6 on an inlet; step-0 checkpoints compared by PID, step-1 search metrics compared. Grace records 2026-10-29_stratified-seeding-layout-64rank (Drive PICurv-cluster-test-records).",
       "result": {
@@ -1509,7 +1509,37 @@
         "threshold": "Bitwise identity by PID; every cell within one particle of its share.",
         "verdict": "met"
       },
-      "limitations": "Seeding only: later steps of a coupled run are not bitwise layout-independent, since the flow solve's reductions differ at round-off. 2.3% of Surface particles, seeded 1.6e-8 inside the face, left back through the inlet in step 1.",
+      "limitations": "Seeding only: later steps of a coupled run are not bitwise layout-independent, since the flow solve's reductions differ at round-off. Grace reported on 2026-10-29 that 2.3% of Surface particles, seeded 1.6e-8 inside the face, left back through the inlet in step 1; the figure is not in the derived files of this record and is not verified.",
+      "artifacts": []
+    },
+    {
+      "id": "prescribed-velocity-duct-2026-11-08",
+      "question": "Does a prescribed_velocity inlet deliver a rectangular-duct flow that converges at second order, hold its flow rate, give the same result from an expression, a sliced field and a staged file, play a recording exactly, and restart exactly?",
+      "date": "2026-11-08",
+      "commit": "1d43b996",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build; Slurm; layouts 4x4x4, 2x4x8 and 16 ranks as stated per case in the record",
+      "configuration": "Straight rectangular duct at N = 16, 32 and 64 cells across. (a) The exact series profile (sum) as both the inlet source and the initial condition, bulk_velocity 1. (b) A constant inlet source developing along the duct. (c) A field_slice source taken from (a)'s N32 outlet, and the same profile as a type: file source. (d) A recording with repeat: true over two periods, 500 steps. (e) A restart at step 50, compared with an uninterrupted run at step 100. Grace records 2026-11-08_promotion-evidence/P1.",
+      "result": {
+        "measured": "(a) L2 error 1.105e-2, 2.846e-3, 7.186e-4 at N 16, 32, 64, orders 1.96 and 1.99, Linf the same; flow rate 1 to 12 digits every step, net flux 0. (b) The developed outlet matches (a) at each N (L2 7.63e-4 at N64). (c) The field_slice and file runs are identical; flux 1.0000000001; outlet against (a)'s outlet 9.1e-10. (d) Inlet mean against the frame-linear expected mean 1.8e-10; step-to-step change against expected 1.2e-10 at frame crossings and both wraps; period repeat 1e-11; flux_in equals inlet_flow exactly. (e) Ucat 5e-15, P 1e-13.",
+        "threshold": "Observed order near 2; flow rate and recorded mean to solver tolerance; identical results from the sliced and file routes; restart to round-off.",
+        "verdict": "met"
+      },
+      "limitations": "One duct cross-section; three resolutions. The recording run of (d) aborted in finalize after its last step, a teardown defect in the recording's frame buffers, fixed at 6e85bc9c; every step's results were complete. On the 2x4x8 and 2x2x16 layouts the domain-mean pressure drifted (to 12.5 by step 200 on 2x2x16) and Poisson iterations rose, with velocity unaffected (GitHub #17); this record does not establish the pressure gauge's layout independence.",
+      "artifacts": []
+    },
+    {
+      "id": "particles-per-cell-2026-11-08",
+      "question": "Does particles_per_cell seed the expected population on a graded grid, and does an inlet's particles_per_cell sustain the expected population with a flat near-inlet density?",
+      "date": "2026-11-08",
+      "commit": "1d43b996",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build; Slurm; 64 ranks for the graded seeding",
+      "configuration": "(b) Volume seeding, particles_per_cell 10, on a graded programmatic grid (rxs 4, rys 2, rzs 1.5) of 524,288 cells. (c) An inlet with particles_per_cell 76.29, run to t = 24. Grace records 2026-11-08_promotion-evidence/P6.",
+      "result": {
+        "measured": "(b) 5,242,880 particles = round(10 x 524,288) exactly, every PID unique; per cell min 2, mean 10, max 31, the spread expected of volume-weighted seeding on a graded grid. (c) Population at t = 24 of 9,997,189 against 1e7 (0.9997); near-inlet cells flat within noise at t = 4-6 and 22-24; the budget closes with 0 lost.",
+        "threshold": "The seeded count equal to the requested mean times the cell count; the inlet population at its target within sampling noise, with a flat near-inlet density and an exact budget.",
+        "verdict": "met"
+      },
+      "limitations": "One graded grid and one inlet density. Of 580 existing case files on Grace none validate at this commit: 559 use the retired initial-condition format and 548 of those also carry the retired count, which validation reports only after the initial-condition error.",
       "artifacts": []
     }
   ]

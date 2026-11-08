@@ -80,7 +80,7 @@
           }
         },
         "prescribed_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -96,6 +96,7 @@
               "example:examples/flat_channel"
             ],
             "analytical": [
+              "measurement:prescribed-velocity-duct-2026-11-08",
               "measurement:womersley-order-2026-11-06",
               "measurement:prescribed-recording-2026-11-06",
               "measurement:keyed-source-draws-2026-11-06"
@@ -589,7 +590,8 @@
             "analytical": [
               "measurement:particle-seeding-restart-2026-09-21",
               "measurement:stratified-seeding-layout-2026-10-29",
-              "measurement:stratified-seeding-layout-64rank-2026-10-29"
+              "measurement:stratified-seeding-layout-64rank-2026-10-29",
+              "measurement:particles-per-cell-2026-11-08"
             ]
           }
         },

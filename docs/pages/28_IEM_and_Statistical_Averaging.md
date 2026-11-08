@@ -90,13 +90,16 @@ Freezing the particles removes it exactly, and scattering the mean after the mov
 of using the previous step's leaves it unchanged, so neither the kernel nor the step order
 causes it.
 
-**Verified** (measurement `iem-cell-reconstruction-2026-11-08`): in a two-stream plug flow at 64
+**Measured** (measurement `iem-cell-reconstruction-2026-11-08`, threshold not met): in a two-stream plug flow at 64
 ranks, relaxing toward the stepped mean added transport of the resolved mean, D_eff/D 1.044, 1.089 and
 1.171 at `C_IEM` = 1, 2 and 4 against a `C_IEM` = 0 reference, the x coth x factor within 0.9 of its
 excess. With the reconstruction the excess over the reference is +0.0011 +- 0.0016 (`C_IEM` = 2) and
 +0.0025 +- 0.0016 (`C_IEM` = 4), and the variance per squared mean gradient stays within 1.5% of the
-stepped mean's. The reference's uncertainty equals the residual a 1D model predicts for this layer
-(+0.005 to +0.012), so that residual is not resolved.
+stepped mean's. Against a tighter two-seed reference a residual is resolved: a plateau excess of
++0.0025 +- 0.0009 (`C_IEM` = 2) and +0.0038 +- 0.0009 (`C_IEM` = 4), decaying along the layer as a 1D
+model of the reconstruction predicts (+0.012 at z = 0.5 to +0.005 at 3.5 for `C_IEM` = 2), though the
+last station lies 2.9 standard errors below it. The reconstruction removes about 97% of the stepped
+mean's excess, not all of it.
 
 The unit tests in `tests/c/test_setup_lifecycle.c` pin the kernel: `TestConfiguredIEMUpdatesSwarm`
 checks relaxation toward a prescribed mean for the default and an overridden constant;

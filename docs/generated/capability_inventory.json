@@ -117,7 +117,7 @@
       "prescribed_velocity": {
         "optional_params": [],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "INLET"
         ]

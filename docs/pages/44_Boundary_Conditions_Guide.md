@@ -468,6 +468,11 @@ Integration verified - `tests/test_velocity_sources.py` covers resolution, the e
 options, data-source staging and scaling, and the refusals; `tests/test_config_regressions.py`
 and `tests/test_cli_smoke.py` exercise the data-source types and the face-dimension validation.
 Production exercised in `examples/flat_channel`. Analytically verified -
+`prescribed-velocity-duct-2026-11-08`: the exact rectangular-duct series as inlet and initial
+condition converges at order 1.96 to 1.99 over N = 16, 32, 64 with the flow rate held to 12 digits;
+a constant inlet develops to the same outlet; a `field_slice` source and the same profile as a `file`
+source give identical runs; a two-period recording delivers the frame-linear mean to 1.8e-10; and a
+restart matches an uninterrupted run to 5e-15 in velocity;
 `womersley-order-2026-11-06`: a Womersley inlet on a circular pipe, written with `r`, converges at
 order 2.13 in space and 2.0 in time, its face mean within 4.9e-11 of the exact one;
 `prescribed-recording-2026-11-06`: a 50-frame recording with `repeat` delivers the recorded mean to
@@ -486,7 +491,8 @@ reproduces the state and the inlet flux bitwise, and 1 and 4 ranks, splitting th
 
 **Limitations.** Drawn noise is white: uncorrelated between face cells and between steps, so it
 is not a model of an inflow's turbulence. Its effect depends on `dt` and the grid, since a smaller
-step averages more draws per unit time. `fluctuations` imposes the stress and the correlation scales, not the
+step averages more draws per unit time. `fluctuations` is experimental within this supported handler: its downstream
+recovery has not been validated. It imposes the stress and the correlation scales, not the
 spectrum or the phase structure of real turbulence, so the flow downstream of the inlet needs a
 development length before its statistics recover; that length has not been measured in PICurv.
 The fluctuation's normal component changes the face's instantaneous flux: `bulk_velocity` and

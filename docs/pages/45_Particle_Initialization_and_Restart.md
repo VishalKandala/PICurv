@@ -142,8 +142,9 @@ and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expre
 
 @section p45_inject_sec 1.2 Injection at an Inlet
 
-**Status: experimental.** See the evidence below; cost at large populations and rank counts is not
-measured yet.
+**Status: supported.** Injection itself is a small share of a step: 0.7% at 64 ranks and 1.5% at 256
+with 1e8 particles. A step with injection still costs more, because particle location needs two
+extra migration passes each step (GitHub #18).
 
 An INLET face adds particles every step when its entry carries `particles`. Nothing needs
 to be seeded, so a case without `particles_per_cell` starts flow-through from an empty domain, and two inlets
@@ -215,7 +216,9 @@ particle and `Psi` budgets every step. Analytically verified - `particle-injecti
 solved laminar channel with 1e7 particles at 64 ranks, the budget closes on every step of 1200, the
 density is uniform from the inlet on within counting noise (near-inlet wall cells 0.999-1.014 against
 noise 0.008), particle IDs are identical across two rank layouts and a restart, and a two-stream scalar
-matches the erf reference (D_eff/D 1.0055 +- 0.0015 against about 1.004).
+matches the erf reference (D_eff/D 1.0043 +- 0.0006 over two seeds against about 1.004). In an
+analytical channel with 1e8 particles, IDs and positions are bit-identical across 4 x 4 x 16 and
+2 x 4 x 32 ranks and across a restart at 2 x 4 x 32, with the budget exact.
 
 Mapping to control flags: `-particle_inlet_count`, then per inlet `-particle_inlet_<n>_face`,
 `-particle_inlet_<n>_particles_per_cell` and the field options under `-particle_inlet_<n>_fields_*`.
@@ -305,6 +308,9 @@ stayed within 0.6% of uniform with Kolmogorov-Smirnov statistics at most 0.29.
 `particle-seeding-restart-2026-09-21` first measured the uniformity and unique IDs.
 `stratified-seeding-layout-64rank-2026-10-29`: 4e6 particles on a uniform and a graded grid bitwise
 equal by ID at 64 ranks in two layouts and on 1 rank, no cell outside its share by more than one.
+`particles-per-cell-2026-11-08`: `particles_per_cell: 10` on a graded grid of 524,288 cells at 64 ranks
+seeded exactly 5,242,880 particles with unique IDs; counts per cell ran from 2 to 31 about a mean of
+10, the spread volume weighting gives on a graded grid.
 
 **Limitations.** No control over the spatial distribution beyond the grid itself. Counts
 per cell are stratified, not Poisson-distributed.
