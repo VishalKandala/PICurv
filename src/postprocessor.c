@@ -353,16 +353,14 @@ static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pp
  * @brief Fills one recipe ensemble's storage from the loaded step.
  * @details Local to this translation unit. A particle ensemble takes each cell's
  *          particles as its samples; an Eulerian one takes the cell's own state as its
- *          single sample, which is one accepted state of unit weight. Storage holds
- *          solver units, as a run window's restored state does, because derivation
- *          applies the physical scale itself; a dimensionalized post run has already
- *          scaled what it loaded, so that scale is removed here.
+ *          single sample, which is one accepted state of unit weight. A dimensionalized
+ *          post run has already scaled what it loaded, so the storage is marked as
+ *          holding physical units and derivation applies no further scale.
  */
 static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *pps, PetscInt index,
                                              PicurvWindowStorage *storage)
 {
     const PicurvWindowDefinition *definition = &pps->field_statistics_ensembles[index].definition;
-    PetscReal scale[PICURV_WINDOW_MAX_REQUESTS];
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -371,22 +369,7 @@ static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *p
     } else {
         PetscCall(PicurvWindowAccumulate(user, definition, storage, 1.0));
     }
-    if (!pps->dimensionalize) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
-    for (PetscInt f = 0; f < definition->field_count; ++f) {
-        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->fields[f].field_id),
-                                            &scale[f], NULL, 0));
-        PetscCall(VecScale(storage->mean[f], 1.0 / scale[f]));
-        if (storage->m2[f]) PetscCall(VecScale(storage->m2[f], 1.0 / (scale[f] * scale[f])));
-    }
-    for (PetscInt pair = 0; pair < definition->covariance_count; ++pair) {
-        PetscReal first = 1.0, second = 1.0;
-
-        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->covariances[pair].first),
-                                            &first, NULL, 0));
-        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->covariances[pair].second),
-                                            &second, NULL, 0));
-        PetscCall(VecScale(storage->cm[pair], 1.0 / (first * second)));
-    }
+    storage->physical_units = pps->dimensionalize;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

@@ -52,6 +52,8 @@ typedef struct PicurvWindowStorage {
     Vec       occupied_weight_sq; /**< Occupied-state squared weight; NULL likewise. */
     Vec      *occupied_mean;      /**< Per field: its mean over the occupied states, for an ordinary
                                        field paired with a particle-sampled one; NULL otherwise. */
+    PetscBool physical_units;     /**< Holds physical units, as an ensemble of a dimensionalized load
+                                       does, so derivation applies no scale; otherwise solver units. */
 } PicurvWindowStorage;
 
 /** @brief Maximum stored length of a payload name, including the terminator. */

@@ -807,7 +807,7 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
             source_components = field->components;
             source_vec = storage->cm[slot];
             set = RequestSampleSet(definition, -1, slot);
-            if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+            if (user->simCtx->pps && user->simCtx->pps->dimensionalize && !storage->physical_units) {
                 PetscReal first_scale = 1.0, second_scale = 1.0;
 
                 /* A co-moment carries the product of its two fields' dimensions. */
@@ -935,7 +935,7 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
 
         /* Applied once, here, so the VTK field and the convergence-history CSV - which
          * both read this staging vector - cannot end up in different unit systems. */
-        if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+        if (user->simCtx->pps && user->simCtx->pps->dimensionalize && !storage->physical_units) {
             if (kind != DERIVED_FLUX && descriptor) {
                 PetscReal base = 1.0;
 
@@ -1476,6 +1476,7 @@ PetscErrorCode PicurvWindowStorageReduce(UserCtx *user, const PicurvWindowDefini
     PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL && reduced != NULL && average_direction != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, definition, and both storages are required.");
+    reduced->physical_units = storage->physical_units;
     if (definition->field_count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));

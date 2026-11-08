@@ -544,6 +544,13 @@ static PetscErrorCode TestDerivedQuantities(void)
                                        "a mean carries the field's scale once"));
         PetscCall(PicurvAssertRealNear(velocity * velocity * nondimensional_tke, dimensional_tke,
                                        1.0e-11, "a turbulent kinetic energy carries it squared"));
+
+        /* An ensemble of an already scaled load is not scaled again. */
+        storage.physical_units = PETSC_TRUE;
+        PetscCall(PicurvWindowDerive(user, &d, &storage, "tke", 0, scalar_target, vector_target, &field));
+        PetscCall(ReadScalarAt(user, scalar_target, 2, 2, 2, &dimensional_tke));
+        PetscCall(PicurvAssertRealNear(nondimensional_tke, dimensional_tke, 1.0e-12,
+                                       "storage in physical units derives without a scale"));
         user->simCtx->pps->dimensionalize = PETSC_FALSE;
         user->simCtx->scaling.U_ref = 1.0;
     }
