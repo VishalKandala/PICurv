@@ -425,6 +425,45 @@ static PetscErrorCode TestComputeEulerianDiffusivityVerificationLinearX(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the diffusivity gradient fills its periodic dummy cells.
+ * @details A particle within half a cell of a periodic seam interpolates across it, so the
+ *          dummy cells on each side must hold the gradient of the cell they image.
+ */
+static PetscErrorCode TestDiffusivityGradientFillsPeriodicDummyCells(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal ***diff = NULL;
+    Cmpnts ***grad = NULL;
+    const FieldId fields[] = {FIELD_ID_DIFFUSIVITY};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_POS_X].mathematical_type = PERIODIC;
+    const DMDALocalInfo info = user->info;
+    PetscCall(DMDAVecGetArray(user->da, user->Diffusivity, &diff));
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) diff[k][j][i] = 1.0 + 0.1 * (PetscReal)(i * i);
+    PetscCall(DMDAVecRestoreArray(user->da, user->Diffusivity, &diff));
+    PetscCall(SynchronizePeriodicCellFields(user, 1, fields));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY));
+
+    PetscCall(ComputeEulerianDiffusivityGradient(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->DiffusivityGradient, &grad));
+    PetscCall(PicurvAssertBool((PetscBool)(PetscAbsReal(grad[2][2][1].x) > 1.0e-6), "the first cell should carry a gradient"));
+    PetscCall(PicurvAssertRealNear(grad[2][2][info.mx - 2].x, grad[2][2][0].x, 1.0e-12,
+                                   "the low dummy cell should image the last cell's gradient"));
+    PetscCall(PicurvAssertRealNear(grad[2][2][1].x, grad[2][2][info.mx - 1].x, 1.0e-12,
+                                   "the high dummy cell should image the first cell's gradient"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->DiffusivityGradient, &grad));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests that Poisson matrix assembly produces a populated operator on a tiny Cartesian grid.
  */
 static PetscErrorCode TestAssemblePoissonOperatorPopulatesRows(void)
@@ -975,6 +1014,7 @@ int main(int argc, char **argv)
         {"compute-rhs-zero-field-no-forcing", TestComputeRHSZeroFieldNoForcing},
         {"compute-eulerian-diffusivity-gradient-constant-field", TestComputeEulerianDiffusivityGradientConstantField},
         {"compute-eulerian-diffusivity-verification-linear-x", TestComputeEulerianDiffusivityVerificationLinearX},
+        {"diffusivity-gradient-fills-periodic-dummy-cells", TestDiffusivityGradientFillsPeriodicDummyCells},
         {"assemble-poisson-operator-populates-rows", TestAssemblePoissonOperatorPopulatesRows},
         {"operator-and-projection-share-one-face-gradient", TestOperatorAndProjectionShareOneFaceGradient},
         {"projection-zero-phi-leaves-velocity-unchanged", TestProjectionZeroPhiLeavesVelocityUnchanged},

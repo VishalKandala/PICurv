@@ -88,7 +88,7 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_DIM_DIFFUSIVITY),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY_GRADIENT, "DiffusivityGradient", NULL, NULL, 3, FIELD_DM_FDA,
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE, DiffusivityGradient, lDiffusivityGradient,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, DiffusivityGradient, lDiffusivityGradient,
                 FIELD_DIM_VELOCITY),
     FIELD_ENTRY(FIELD_ID_CSI, "Csi", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,

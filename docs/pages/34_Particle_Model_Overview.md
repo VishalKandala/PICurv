@@ -134,12 +134,22 @@ interpreting that artifact.
   (`diffusivity-gradient-drift-paired-2026-09-18`); and Trilinear interpolation of the
   TGV3D field converged at order 1.97. Only one gradient, and zero or uniform carriers,
   were measured. The examples are listed in @ref p65_verify_sec.
-- **Brownian trajectories repeat only for the same rank count.** Placement and Brownian
-  draws are seeded from `models.physics.particles.random_seed` (default `12345`) plus the
-  MPI rank, so identical inputs on the same number of ranks give identical trajectories,
-  while a different rank count gives a different, equally valid, realization. A restart
-  does not continue the sequence it stopped in: it draws a fresh sequence determined by
-  the seed and the restart step.
+- **Brownian trajectories do not depend on the rank layout or a restart.** Each step's
+  Brownian draw is keyed on `models.physics.particles.random_seed` (default `12345`), the
+  particle ID and the step, so a particle follows the same trajectory at any rank count and
+  across a restart; seeding is keyed the same way. 819,200 particles over 500 steps gave
+  bit-identical positions at the 4 x 1 x 2 and 1 x 8 x 1 layouts of 8 ranks.
+- **A uniform population stays uniform under a varying diffusivity.** The drift
+  \f$\nabla D\f$ is interpolated from a cell-centred gradient whose periodic dummy cells
+  are filled, like those of \f$D\f$ itself, so a particle near a periodic seam carries the
+  full gradient. In a fully periodic box with \f$D = 0.02 + 0.01 \sin 2\pi y\f$ on 32 cells
+  across, the density's departure from uniform, fitted as \f$D^{-\epsilon}\f$, is
+  \f$\epsilon = 0.008 \pm 0.003\f$ after 200 steps, the size of the gradient's
+  second-order discretization error (GitHub #16). With reflecting walls in \f$y\f$,
+  periodic \f$x\f$ and \f$z\f$, and \f$D\f$ linear in \f$y\f$, the share of particles in
+  the low-\f$D\f$ half moved by \f$-0.0010 \pm 0.00055\f$ over 500 steps; whether the
+  reflection contributes a residual where \f$\partial D/\partial n \neq 0\f$ is not
+  resolved.
 
 @section p34_extension_sec 6. Extending To New Closures
 

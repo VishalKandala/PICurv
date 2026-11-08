@@ -449,6 +449,10 @@ PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
     // Central differences read the neighbours across subdomain and periodic seams.
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY));
     PetscCall(ComputeCellScalarGradient(user, user->lDiffusivity, NULL, user->DiffusivityGradient));
+    // A particle within half a cell of a periodic seam interpolates across it, reading the
+    // periodic dummy cells, which the gradient's owned-cell loop does not write.
+    const FieldId periodic_fields[] = {FIELD_ID_DIFFUSIVITY_GRADIENT};
+    PetscCall(SynchronizePeriodicCellFields(user, 1, periodic_fields));
     // Particles near subdomain boundaries interpolate the gradient, so its ghosts are filled.
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY_GRADIENT));
     PROFILE_FUNCTION_END;
