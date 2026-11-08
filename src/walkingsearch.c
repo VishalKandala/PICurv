@@ -658,6 +658,16 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
 
 
 /**
+ * @brief Forget the cell the stuck-walk detector compared against, after the particle moved
+ *        without the walk stepping (a wrap, a reflection or the reflection fallback).
+ */
+static inline void ResetStuckDetection(PetscInt *repeated, PetscInt *prev_i, PetscInt *prev_j, PetscInt *prev_k)
+{
+    *repeated = 0;
+    *prev_i = PETSC_MIN_INT; *prev_j = PETSC_MIN_INT; *prev_k = PETSC_MIN_INT;
+}
+
+/**
  * @brief Implementation of \ref LocateParticleOrFindMigrationTarget().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/walkingsearch.h`.
@@ -687,11 +697,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     rank = user->simCtx->rank;
-    if (user && user->simCtx) {
-        user->simCtx->searchMetrics.searchAttempts++;
-        if (user->simCtx->searchMetrics.currentSettlementPass > 1) {
-            user->simCtx->searchMetrics.reSearchCount++;
-        }
+    user->simCtx->searchMetrics.searchAttempts++;
+    if (user->simCtx->searchMetrics.currentSettlementPass > 1) {
+        user->simCtx->searchMetrics.reSearchCount++;
     }
 
     // Only a pass-1 walk from the previous-step cell relies on the particle having moved a short
@@ -873,7 +881,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                         LOG_PARTICLE(user->simCtx, particle->PID, "locate", "wrapped through %s to (%.6e, %.6e, %.6e), cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                                      BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
                     }
-                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                 } else if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;
@@ -890,7 +898,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     ierr = ReflectParticleAcrossCellFace(current_planes, crossed, &particle->loc); CHKERRQ(ierr);
                     reflections++;
                     user->simCtx->searchMetrics.reflectionCount++;
-                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                     LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflected about boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%.6e, %.6e, %.6e)\n",
                                  crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
                 } else {
@@ -900,7 +908,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     ierr = PlaceParticleInsideCell(&current_cell, &particle->loc, &placed); CHKERRQ(ierr);
                     if (placed) {
                         user->simCtx->searchMetrics.reflectionFallbackCount++;
-                        repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                        ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                         LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflection cap %d reached: placed just inside cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                                      REFLECTION_CAP, idx, idy, idz);
                     } else {
@@ -953,33 +961,15 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         }
     }
 
-    // --- 4. Report the Final Outcome ---
-    ierr = ReportSearchOutcome(user->simCtx, particle, *status_out, start_cell, traversal_steps, reflections); CHKERRQ(ierr);
-    if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Implementation of \ref ReportSearchOutcome().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/walkingsearch.h`.
- * @see ReportSearchOutcome()
- */
-PetscErrorCode ReportSearchOutcome(const SimCtx *simCtx, const Particle *particle,
-                                   ParticleLocationStatus status, const PetscInt start_cell[3],
-                                   PetscInt traversal_steps, PetscInt reflections)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    LOG_PARTICLE(simCtx, particle->PID, "locate",
+    // --- 4. Report the Final Outcome: the particle's consolidated locate line ---
+    LOG_PARTICLE(user->simCtx, particle->PID, "locate",
                  "%s from cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") in %" PetscInt_FMT " step(s), %" PetscInt_FMT " reflection(s) | weights (%.6f, %.6f, %.6f) | at (%.6e, %.6e, %.6e) | destination rank %d\n",
-                 ParticleLocationStatusToString(status), start_cell[0], start_cell[1], start_cell[2],
+                 ParticleLocationStatusToString(*status_out), start_cell[0], start_cell[1], start_cell[2],
                  particle->cell[0], particle->cell[1], particle->cell[2], traversal_steps, reflections,
                  particle->weights.x, particle->weights.y, particle->weights.z,
                  particle->loc.x, particle->loc.y, particle->loc.z, (int)particle->destination_rank);
+    if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
+
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

@@ -250,24 +250,6 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                         ParticleLocationStatus *status_out);
 
 /**
- * @brief Reports the outcome of one particle's location search: its consolidated `locate` line.
- *
- * Emitted through LOG_PARTICLE(), so it prints for a traced particle or at VERBOSE with this
- * function allow-listed. Lost and exited particles are counted in `search_metrics.csv`.
- *
- * @param simCtx          Simulation context (traced IDs, step).
- * @param particle        Particle whose location attempt has completed.
- * @param status          Final locate/migration status assigned to the particle.
- * @param start_cell      Cell the walk started from.
- * @param traversal_steps Number of cell-to-cell traversal steps attempted.
- * @param reflections     Number of wall reflections applied during the walk.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode ReportSearchOutcome(const SimCtx *simCtx, const Particle *particle,
-                                   ParticleLocationStatus status, const PetscInt start_cell[3],
-                                   PetscInt traversal_steps, PetscInt reflections);
-
-/**
  * @brief Updates the cell indices based on the signed distances to each face.
  *
  * This function modifies the cell indices (`idx`, `idy`, `idz`) to move towards the direction
