@@ -150,6 +150,13 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
                                                          "constants": {"xi": 2}}}, None,
      "cannot name a constant"),
+    # Constants are shared, so a particle's pid or a draw's name is reserved on a face too.
+    (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
+                                                         "constants": {"pid": 2}}}, None,
+     "cannot name a constant"),
+    (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
+                                                         "constants": {"normal": 2}}}, None,
+     "cannot name a constant"),
     (None, {"handler": "prescribed_velocity", "source": DUCT, "constraints": {"project": True}}, None,
      "not constraints of this target"),
     (None, None, {"source": {"components": "normal", "expression": "1"}}, "expected one of"),

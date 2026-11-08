@@ -10307,8 +10307,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     if ic_is_analytical and resolved_ic and (resolved_ic["kind"] != "source" or resolved_ic["source"]["project"]):
         errors.append(f"  {case_path}: an analytical field is re-evaluated from its expressions every step, so its "
                       "source takes neither a generator or file term nor project.")
+    draw = load_shared_module("source_expressions").EXPRESSION_DRAW
     if ic_is_analytical and resolved_ic and resolved_ic["kind"] == "source" and any(
-            EXPRESSION_DRAW.search(text) for text in resolved_ic["source"]["expressions"]
+            draw.search(text) for text in resolved_ic["source"]["expressions"]
             + [resolved_ic["source"].get("pressure") or ""]):
         errors.append(f"  {case_path}: an analytical field is the exact answer at any point and time, so its source "
                       "cannot draw uniform() or normal().")
@@ -10431,7 +10432,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
             if pinit_code == 2:
                 for entry in particle_fields:
-                    if not any(EXPRESSION_DRAW.search(e) for e in entry["expressions"]):
+                    if not any(draw.search(e) for e in entry["expressions"]):
                         warnings.append(
                             f"{case_path}: models.physics.particles.fields.{entry['name']} has no random draw, "
                             "but init_mode is PointSource: every particle starts at one point and gets the "
@@ -14341,20 +14342,11 @@ def load_ic_generator_module():
     return load_generator_module("ic.gen", "picurv_ic_generator")
 
 
-#: Variables a prescribed velocity source may use, in physical units; the runtime's list is
-#: `kPicurvSourceVariableNames` in `src/expression.c`. `xi`, `eta`, `zeta` are arc-length
-#: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
-#: lengths [m].
-SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
-#: On a face a source also reads `r`, the distance from the face's centre [m].
-FACE_SOURCE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"r"}
 #: Component frames a velocity source may be written in, and the value names each takes; the
 #: normal frame takes one value, the speed into the domain through a face.
 SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"),
                  "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
-#: A call to a random draw in expression text.
-EXPRESSION_DRAW = re.compile(r"\b(uniform|normal)\s*\(")
 
 
 def _source_text(value, constants: dict, names, where: str, language, random: bool = False) -> str:
@@ -14375,8 +14367,8 @@ def _source_text(value, constants: dict, names, where: str, language, random: bo
         return language.lower_value(dict(value, params=constants), names, random=random, where=where)
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError(f"{where} must be a number, an expression string, or regions over a background.")
-    text = repr(float(value)) if not isinstance(value, str) else language._substitute_params(value, constants)
-    language._validate_at(text, names, random, where)
+    text = repr(float(value)) if not isinstance(value, str) else language.substitute_params(value, constants)
+    language.validate_at(text, names, random, where)
     return text
 
 
@@ -14390,7 +14382,8 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     @param[in] language The loaded `source_expressions` module.
     @return Mapping of names to numbers.
     """
-    reserved = set(FACE_SOURCE_EXPRESSION_NAMES) | set(language.FUNCTION_ARITY) | {"pi"}
+    # Constants are shared by every source, so no source's variable may name one.
+    reserved = language.FACE_SOURCE_EXPRESSION_NAMES | language.PARTICLE_EXPRESSION_NAMES | language.RESERVED_WORDS
     merged = {}
     fluid = ((case_cfg.get("properties") or {}).get("fluid")) or {}
     density, viscosity = fluid.get("density"), fluid.get("viscosity")
@@ -14456,7 +14449,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     if frame not in SOURCE_FRAMES or frame == (cells_only if allow_normal else face_only):
         allowed = [name for name in SOURCE_FRAMES if name != (cells_only if allow_normal else face_only)]
         raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
-    names = FACE_SOURCE_EXPRESSION_NAMES if allow_normal else SOURCE_EXPRESSION_NAMES
+    names = language.FACE_SOURCE_EXPRESSION_NAMES if allow_normal else language.SOURCE_EXPRESSION_NAMES
     constants = _source_constants(spec, case_cfg, where, language)
     expression = spec["expression"]
     if frame == "normal":
@@ -14758,7 +14751,7 @@ def normalize_inlet_fluctuations(spec, case_cfg: dict, where: str, block_path: t
         raise ValueError(f"{where}.reynolds_stress maps uu, vv, ww, uv, uw and vw to expressions; omitted ones are zero.")
     language = load_shared_module("source_expressions")
     constants = _source_constants({}, case_cfg, where, language)
-    names = set(FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
+    names = set(language.FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
     stress = [[_source_text(stresses.get(name, 0.0), constants, names, f"{where}.reynolds_stress.{name}", language)
                for name in group] for group in INLET_FLUCTUATION_STRESSES]
     lengths = spec["length_scales"]

@@ -63,9 +63,20 @@ MAX_SERIES_DEPTH = 4
 RANDOM_FUNCTIONS = ("uniform", "normal")
 #: Variables an Eulerian expression may use.
 EULERIAN_EXPRESSION_NAMES = frozenset({"x", "y", "z", "xi", "eta", "zeta", "i", "j", "k"})
-#: Variables a particle initial-value expression may use: physical coordinates, domain-
-#: normalized coordinates, particle identity, and physical time.
-PARTICLE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta", "pid"})
+#: Variables a prescribed velocity source may use, in physical units; the runtime's list is
+#: `kPicurvSourceVariableNames` in `src/expression.c`. `xi`, `eta`, `zeta` are arc-length
+#: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
+#: lengths [m].
+SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
+#: On a face a source also reads `r`, the distance from the face's centre [m].
+FACE_SOURCE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"r"}
+#: A particle initial-value expression also reads `pid`, the particle's identity.
+PARTICLE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"pid"}
+#: Words that are not free identifiers: `pi`, the functions, the random draws and the logical
+#: operators. Neither a source constant nor a value's `params` may take one as its name.
+RESERVED_WORDS = frozenset({"pi", "and", "or", "not"} | set(FUNCTION_ARITY) | set(RANDOM_FUNCTIONS))
+#: A call to a random draw in expression text.
+EXPRESSION_DRAW = re.compile(r"\b(" + "|".join(RANDOM_FUNCTIONS) + r")\s*\(")
 _DECIMAL_LITERAL = re.compile(r"^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 ALLOWED_AST_NODES = (
     ast.Expression,
@@ -414,7 +425,7 @@ def _region_distance(region: dict, params: dict, where: str) -> str:
     return f"sqrt(({others[0]} - {c0})**2 + ({others[1]} - {c1})**2) - {num('radius')}"
 
 
-def _substitute_params(expression: str, params: dict) -> str:
+def substitute_params(expression: str, params: dict) -> str:
     """!
     @brief Replace declared parameter names in an expression by their values.
     @param[in] expression Expression text.
@@ -432,7 +443,7 @@ def _substitute_params(expression: str, params: dict) -> str:
     return "".join(pieces)
 
 
-def _validate_at(expression: str, names, random: bool, where: str):
+def validate_at(expression: str, names, random: bool, where: str):
     """!
     @brief Validate an expression written in a configuration value, naming where it is.
     @param[in] expression Expression text.
@@ -469,7 +480,7 @@ def lower_value(spec, names=PARTICLE_EXPRESSION_NAMES, random=True, where="value
             raise ValueError(f"{where} must be finite.")
         return repr(float(spec))
     if isinstance(spec, str):
-        _validate_at(spec, names, random, where)
+        validate_at(spec, names, random, where)
         return spec
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a number, an expression, or a mapping.")
@@ -479,8 +490,8 @@ def lower_value(spec, names=PARTICLE_EXPRESSION_NAMES, random=True, where="value
     params = spec.get("params") or {}
     if not isinstance(params, dict):
         raise ValueError(f"{where}.params must be a mapping of names to numbers.")
+    reserved = set(names) | RESERVED_WORDS
     for name, number in params.items():
-        reserved = set(names) | {"pi"} | set(FUNCTION_ARITY) | set(RANDOM_FUNCTIONS) | {"and", "or", "not"}
         if not isinstance(name, str) or not name.isidentifier() or name in reserved:
             raise ValueError(f"{where}.params name '{name}' is not a free identifier.")
         _number_text(number, {}, f"{where}.params.{name}")
@@ -494,8 +505,8 @@ def lower_value(spec, names=PARTICLE_EXPRESSION_NAMES, random=True, where="value
         @return Expression text.
         """
         if isinstance(value, str) and value not in params:
-            _validate_at(value, scope, random, path)
-            return f"({_substitute_params(value, params)})"
+            validate_at(value, scope, random, path)
+            return f"({substitute_params(value, params)})"
         return _number_text(value, params, path)
 
     if "value" in spec:
