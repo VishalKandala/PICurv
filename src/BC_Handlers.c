@@ -9,8 +9,8 @@
 
 
 /**
- * @brief Internal helper implementation: `Validate_DrivenFlowConfiguration()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Validate_DrivenFlowConfiguration().
+ * @see Validate_DrivenFlowConfiguration()
  */
 PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
 {
@@ -125,8 +125,7 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, 
-                     "Input BoundaryCondition object is NULL in Create_WallNoSlip");
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
     // ✅ Set priority
     bc->priority   = BC_PRIORITY_WALL;
@@ -198,9 +197,8 @@ static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx
 PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
 {
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-                     "Input BoundaryCondition object is NULL in Create_WallFreeSlip");
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
     bc->priority   = BC_PRIORITY_WALL;
     bc->Initialize = NULL;
     bc->PreStep    = NULL;
@@ -212,8 +210,25 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
     bc->needs_repeat_pass = PETSC_TRUE; // Copies the adjacent Ucat, which the pass refreshes after it
     bc->Destroy    = NULL;
     bc->data       = NULL;
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
+}
+
+/**
+ * @brief @p velocity less its component along the face metric @p metric, which leaves it tangent
+ *        to the face. A face of zero area has no normal, and @p velocity is returned unchanged.
+ */
+static inline Cmpnts RemoveFaceNormalComponent(Cmpnts velocity, Cmpnts metric)
+{
+    const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+    const PetscReal normal = (area_sq > 0.0)
+        ? (velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z) / area_sq : 0.0;
+    Cmpnts tangential;
+
+    tangential.x = velocity.x - normal * metric.x;
+    tangential.y = velocity.y - normal * metric.y;
+    tangential.z = velocity.z - normal * metric.z;
+    return tangential;
 }
 
 /**
@@ -224,22 +239,12 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
  *          and keeping the tangential one, which is zero normal gradient. On a curvilinear
  *          grid the metric is the face's own normal, so the construction holds there too.
  */
-static Cmpnts WallFreeSlipVelocity(const BoundaryCondition *self, BCFace face_id,
-                                   PetscInt i, PetscInt j, PetscInt k,
-                                   Cmpnts metric, PetscReal sign, Cmpnts interior)
+static inline Cmpnts WallFreeSlipVelocity(const BoundaryCondition *self, BCFace face_id,
+                                          PetscInt i, PetscInt j, PetscInt k,
+                                          Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
-    PROFILE_HELPER_BEGIN;
-    const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
-    const PetscReal normal = (area_sq > 0.0)
-        ? (interior.x * metric.x + interior.y * metric.y + interior.z * metric.z) / area_sq : 0.0;
-    Cmpnts tangential;
-
     (void)self; (void)face_id; (void)i; (void)j; (void)k; (void)sign;
-    tangential.x = interior.x - normal * metric.x;
-    tangential.y = interior.y - normal * metric.y;
-    tangential.z = interior.z - normal * metric.z;
-    PROFILE_HELPER_END;
-    return tangential;
+    return RemoveFaceNormalComponent(interior, metric);
 }
 
 /**
@@ -260,11 +265,14 @@ static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx
 //          (Corresponds to BC_HANDLER_INLET_PRESCRIBED_VELOCITY)
 //
 // The velocity is a configured source (expression.h) evaluated at the centre of every
-// inlet face slot, or a normal speed per slot read from a PICSLICE file, optionally rescaled
-// so the face's mean normal speed follows a target bulk velocity. The slots are gathered at
-// the first boundary pass, once the metrics exist; the velocity is re-evaluated once per
-// step when it depends on t, and the rescaling is recomputed once per step when the source
-// or the target depends on t.
+// inlet face slot, a PICSLICE file of one value per slot (a normal speed, or a Cartesian
+// velocity), in one frame or a recording of frames interpolated in time, or such a file with
+// expressions in its frame added to it. It is optionally rescaled so the face's mean normal
+// speed or flow rate follows a target, the expressions alone when they add to a file, and
+// synthetic fluctuations may be added after the rescaling. The slots are gathered at the
+// first boundary pass, once the metrics exist; the velocity is re-evaluated once per step
+// when it depends on t, and the rescaling is recomputed once per step when the source, the
+// file or the target depends on t.
 //
 //================================================================================
 
@@ -661,7 +669,6 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
 static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCContext *ctx,
                                                 FaceBoundaryVelocityRule rule)
 {
-    PetscErrorCode ierr;
     UserCtx *user = ctx->user;
     BCFace face_id = ctx->face_id;
     PetscBool can_service;
@@ -672,16 +679,16 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
 
-    ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
+    PetscCall(CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service));
     if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat); CHKERRQ(ierr);
+    PetscCall(DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat));
 
     const PetscInt xs = info->xs, xe = info->xs + info->xm;
     const PetscInt ys = info->ys, ye = info->ys + info->ym;
@@ -749,13 +756,13 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
         } break;
     }
 
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert));
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -768,13 +775,7 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
 static inline Cmpnts EvaluateMovingWallVelocity(const BoundaryCondition *self, BCFace face_id, PetscInt i, PetscInt j, PetscInt k,
                                                 Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
-    Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k, metric, sign, interior);
-    const PetscReal area2 = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
-    const PetscReal through = (velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z) / area2;
-    velocity.x -= through * metric.x;
-    velocity.y -= through * metric.y;
-    velocity.z -= through * metric.z;
-    return velocity;
+    return RemoveFaceNormalComponent(EvaluateInletCartesianVelocity(self, face_id, i, j, k, metric, sign, interior), metric);
 }
 
 /** @brief Applies a moving wall's velocity through the path every prescribed face shares. */
@@ -804,8 +805,10 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
 }
 
 /**
- * @brief Compile the source named by the face's `source_id` parameter, or record the PICSLICE
- *        file named by its `source_file` parameter, and the source's bulk velocity, if any.
+ * @brief Compile the source named by the face's `source_id` parameter, with its bulk velocity or
+ *        flow rate if any, record the PICSLICE file named by its `source_file` parameter, and read
+ *        the synthetic-fluctuation settings `-face_source_<id>_fluct*`: the Reynolds-stress sources
+ *        and the integral length and time scales.
  */
 static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self, BCContext *ctx)
 {
@@ -846,6 +849,12 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
             for (PetscInt g = 0; g < 2; ++g) {
                 PetscCall(PetscSNPrintf(stress_prefix, sizeof(stress_prefix), "%s_fluct_stress_%d", prefix, (int)g));
                 PetscCall(PicurvVelocitySourceCreate(stress_prefix, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE, &data->stress[g]));
+                /* Three stress components, as read: no frame turns them, and no bulk velocity or
+                   flow rate scales them. */
+                PetscCheck(data->stress[g].frame == PICURV_SOURCE_FRAME_CARTESIAN && !data->stress[g].bulk,
+                           PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                           "Face %s: the Reynolds stresses -%s_* must be in the cartesian frame, with no bulk_velocity or flow_rate.",
+                           BCFaceToString(ctx->face_id), stress_prefix);
             }
             PetscCall(PetscSNPrintf(option, sizeof(option), "-%s_fluct_length", prefix));
             PetscCall(PetscOptionsGetRealArray(NULL, NULL, option, data->fluct_length, &count, &found));
@@ -1297,10 +1306,9 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
         const PetscInt  nodes[3] = {user->info.mx, user->info.my, user->info.mz};
         for (PetscInt s = 0; s < data->slots.n[0] * data->slots.n[1]; ++s) {
             const PetscInt p = s % data->slots.n[0], q = s / data->slots.n[0];
-            const PicurvExpressionDrawKey key = {(PetscInt64)simCtx->sourceRandomSeed,
-                                                 ((PetscInt64)user->_this << 48) +
-                                                 PicurvFaceCellId(nodes, ctx->face_id, data->slots.lo[0] + p - 1, data->slots.lo[1] + q - 1),
-                                                 (PetscInt64)simCtx->step, 0, PETSC_TRUE};
+            const PicurvExpressionDrawKey key = PicurvFaceDrawKey((PetscInt64)simCtx->sourceRandomSeed, user->_this, nodes, ctx->face_id,
+                                                                  data->slots.lo[0] + p - 1, data->slots.lo[1] + q - 1,
+                                                                  (PetscInt64)simCtx->step);
             Cmpnts v;
             data->slots.values[s][PICURV_SOURCE_VAR_T] = physical_time;
             PetscCall(PicurvVelocitySourceEvaluate(&data->source, data->slots.values[s], &key, data->slots.edges[s], &v));
@@ -1390,7 +1398,7 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition is NULL");
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
     // This handler has the highest priority to ensure it runs after
     // all inflow fluxes have been calculated.
@@ -1906,7 +1914,7 @@ PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc){
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition is NULL");
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
     bc->priority = BC_PRIORITY_WALL;
 
     // Assign function pointers
@@ -2065,16 +2073,16 @@ typedef struct {
 // --- 2. HANDLER CONSTRUCTOR ---
 
 /**
- * @brief Internal helper implementation: `Create_PeriodicDrivenConstant()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Create_PeriodicDrivenConstant().
+ * @see Create_PeriodicDrivenConstant()
  */
 PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
+    PROFILE_FUNCTION_BEGIN;
     
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenConstantFlux");
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
     // --- Allocate the private data structure ---
     DrivenFluxData *data = NULL;
@@ -2104,7 +2112,7 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL; // The boundary value is not flow-dependent (it's periodic).
     bc->Destroy    = Destroy_PeriodicDrivenConstant;
     
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2416,16 +2424,16 @@ static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCC
 // --- 2. HANDLER CONSTRUCTOR ---
 
 /**
- * @brief Internal helper implementation: `Create_PeriodicDrivenInitial()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Create_PeriodicDrivenInitial().
+ * @see Create_PeriodicDrivenInitial()
  */
 PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
+    PROFILE_FUNCTION_BEGIN;
 
-    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenInitial");
+    PetscCheck(bc, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
     // --- Allocate the private data structure ---
     DrivenFluxData *data = NULL;
@@ -2453,7 +2461,7 @@ PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL; // The boundary value is not flow-dependent (it's periodic).
     bc->Destroy    = Destroy_PeriodicDrivenConstant; // Same private data layout.
 
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
