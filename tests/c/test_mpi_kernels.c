@@ -1349,7 +1349,7 @@ static PetscErrorCode TestSourceDrawsAreKeyedOnTheGrid(void)
 
 /**
  * @brief A filtered inflow draw at face cell (g0, g1) of -Zeta: the separable kernel applied to
- *        the keyed normals on a lattice padded by the half-widths.
+ *        the keyed normals on a lattice with a fixed padding beyond the face's edges.
  */
 static PetscReal InflowOracle(PetscInt64 seed, PetscInt c, PetscInt g0, PetscInt g1, PetscInt64 step,
                               const PetscInt cells[2], const PetscInt half[2], PetscReal *const kernel[2])
@@ -1357,8 +1357,9 @@ static PetscReal InflowOracle(PetscInt64 seed, PetscInt c, PetscInt g0, PetscInt
     PetscReal sum = 0.0;
     for (PetscInt k1 = -half[1]; k1 <= half[1]; ++k1)
     for (PetscInt k0 = -half[0]; k0 <= half[0]; ++k0) {
-        const PetscInt64 id = ((PetscInt64)BC_FACE_NEG_Z * (cells[1] + 2 * half[1]) + (g1 + k1 + half[1])) * (cells[0] + 2 * half[0])
-                              + (g0 + k0 + half[0]);
+        const PetscInt64 pad = 1048576; /* the draw lattice's fixed padding beyond each face edge */
+        const PetscInt64 id = ((PetscInt64)BC_FACE_NEG_Z * (cells[1] + 2 * pad) + (g1 + k1 + pad)) * (cells[0] + 2 * pad)
+                              + (g0 + k0 + pad);
         sum += kernel[0][k0 + half[0]] * kernel[1][k1 + half[1]]
                * PicurvNormalFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INFLOW, (uint64_t)c, id, step));
     }

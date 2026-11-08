@@ -430,8 +430,8 @@ of the stress (Lund, Wu & Squires 1998):
 
 Each step, every face cell draws three unit normals keyed on the seed, the block, the component,
 the face cell and the step. They are filtered along the face's two tangential grid axes by the
-weights exp(-pi |k| / n) for |k| <= 2n, where n = L / h and h is the face's mean cell width along
-that axis, normalized to unit variance. Then the time filter
+weights exp(-pi |k| / n) for |k| <= 2n, where n = L / h and h is the mean of the face's widest and
+narrowest cell along that axis, normalized to unit variance. Then the time filter
 psi <- psi exp(-pi dt / 2T) + filtered sqrt(1 - exp(-pi dt / T)) is applied. The result has unit
 variance, spatial correlation close to exp(-pi r / 2L) along each axis and temporal correlation
 exp(-pi tau / 2T). The velocity added is u' = A psi with A A^T = R / U_ref^2. Its components are
@@ -444,8 +444,11 @@ Cartesian, and it is added after `bulk_velocity` or `flow_rate`, which rescale o
   in axis order: `xi` then `eta` on a `Zeta` face, `xi` then `zeta` on an `Eta` face, `eta` then
   `zeta` on a `Xi` face. `time_scale` is a time. All three must be positive.
 - **Decomposition and seams:** a rank computes the halo of its face cells itself, from the same
-  keyed draws, so the fluctuation does not depend on the rank layout. Beyond a closed edge of the
-  face the draws continue on a padded lattice; along a periodic tangential axis they wrap.
+  keyed draws, and h comes from each cell's own width rather than a line length summed across
+  ranks, so the fluctuation does not depend on the rank layout. Beyond a closed edge of the
+  face the draws continue on a lattice with a fixed padding, so a draw depends only on its face
+  cell, component, block and step, not on the filter's width; along a periodic tangential axis
+  they wrap.
 - **Restart:** the filter's state is the catalogued field `InflowFluctuation`, held in the inlet's
   dummy plane and written with every checkpoint. A restart from such a checkpoint continues the
   sequence exactly. A checkpoint written without it, for example by a run without fluctuations,
@@ -487,7 +490,10 @@ it at every inlet cell, at the first step and after one time-filter update, with
 the face's edges. Fluctuations, run once locally and not registered as a measurement: on a 32 x 32-node
 face over 200 steps at dt = T/5 the state's variance is 0.99-1.00, its lag-1 temporal correlation 0.729 against
 0.730, and its one-cell spatial correlation 0.394 against 0.399; a restart from a checkpoint
-reproduces the state and the inlet flux bitwise, and 1 and 4 ranks, splitting the face 2 x 2, give bitwise-identical state.
+reproduces the state and the inlet flux bitwise. On a 40 x 36 face spanning 2 pi by 2, eight ranks
+split 2 x 4, 4 x 2, 1 x 4 and 4 x 1 across it give bitwise-identical state; the applied inlet flux
+still differs between layouts at round-off when `bulk_velocity` or `flow_rate` rescales it, through
+that face sum.
 
 **Limitations.** Drawn noise is white: uncorrelated between face cells and between steps, so it
 is not a model of an inflow's turbulence. Its effect depends on `dt` and the grid, since a smaller

@@ -1094,35 +1094,49 @@ PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+/** Face cells the synthetic-inflow draw lattice extends beyond each edge; a filter half-width may not exceed it. */
+#define INFLOW_LATTICE_PAD 1048576
+
 /**
  * @brief Prepare an inlet's synthetic fluctuations once its slots exist: filter widths from the
  *        face's mean spacing, and the Reynolds stresses' Cholesky factor at each slot.
  * @details Collective over the block. The integral length L along a tangential axis spans
- *          n = L / h cells, h the face's mean cell width along it, and the filter weights are
+ *          n = L / h cells, h the face's cell width along it: the mean of its widest and
+ *          narrowest cell there. The filter weights are
  *          exp(-pi |k| / n) for |k| <= 2n, scaled to a unit sum of squares (Xie & Castro 2008),
- *          so filtered unit-variance noise keeps unit variance. Every rank uses the same h.
+ *          so filtered unit-variance noise keeps unit variance. Every rank and every
+ *          decomposition uses the same h, so the kernel is bitwise the same.
  */
 static PetscErrorCode BuildInletFluctuation(InletPrescribedVelocityData *data, UserCtx *user)
 {
     PicurvSourceFaceSlots *slots = &data->slots;
     const PetscInt         count = slots->n[0] * slots->n[1];
     const PetscInt         tangential[2] = {slots->a, slots->b};
-    const PetscInt         nodes[3] = {user->info.mx, user->info.my, user->info.mz};
-    const PetscReal        L_ref = user->simCtx->scaling.L_ref, U2 = user->simCtx->scaling.U_ref * user->simCtx->scaling.U_ref;
-    PetscReal              sums[3] = {0.0, 0.0, (PetscReal)count};
+    const PetscReal        U2 = user->simCtx->scaling.U_ref * user->simCtx->scaling.U_ref;
+    /* Widest and narrowest cell along each axis, as {max0, max1, -min0, -min1}. Each width comes
+       from its own cell's metrics and a maximum is exact in any order, so every decomposition
+       builds the same kernel; a line length is summed across the ranks it crosses, and is not. */
+    PetscReal              extent[4] = {0.0, 0.0, -PETSC_MAX_REAL, -PETSC_MAX_REAL};
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (PetscInt s = 0; s < count; ++s) {
-        sums[0] += data->slots.values[s][PICURV_SOURCE_VAR_L_XI + tangential[0]] / L_ref;
-        sums[1] += data->slots.values[s][PICURV_SOURCE_VAR_L_XI + tangential[1]] / L_ref;
+        for (PetscInt d = 0; d < 2; ++d) {
+            const Cmpnts    e = data->slots.edges[s][tangential[d]];
+            const PetscReal width = PetscSqrtReal(e.x * e.x + e.y * e.y + e.z * e.z);
+            extent[d] = PetscMax(extent[d], width);
+            extent[2 + d] = PetscMax(extent[2 + d], -width);
+        }
     }
-    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, sums, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, extent, 4, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
     for (PetscInt d = 0; d < 2; ++d) {
-        const PetscReal h = sums[d] / sums[2] / (PetscReal)(nodes[tangential[d]] - 2);
+        const PetscReal h = 0.5 * (extent[d] - extent[2 + d]);
         const PetscReal n = data->fluct_length[d] / h;
         PetscReal       norm = 0.0;
         data->half[d] = PetscMax(1, (PetscInt)PetscCeilReal(2.0 * n));
+        PetscCheck(data->half[d] <= INFLOW_LATTICE_PAD, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "An inlet's fluctuation length spans %g cells, beyond the %d its draws can reach.",
+                   (double)n, INFLOW_LATTICE_PAD / 2);
         PetscCall(PetscMalloc1(2 * data->half[d] + 1, &data->kernel[d]));
         for (PetscInt k = -data->half[d]; k <= data->half[d]; ++k) {
             data->kernel[d][k + data->half[d]] = PetscExpReal(-PETSC_PI * PetscAbsReal((PetscReal)k) / n);
@@ -1189,8 +1203,10 @@ static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, Us
                 for (PetscInt pp = 0; pp < w0; ++pp) {
                     PetscInt g[2] = {slots->lo[0] - 1 - h0 + pp, slots->lo[1] - 1 - h1 + qq};
                     for (PetscInt d = 0; d < 2; ++d) if (periodic[d]) g[d] = ((g[d] % cells[d]) + cells[d]) % cells[d];
-                    /* A face cell, or one of its halo beyond a closed edge, on a lattice padded by the half-widths. */
-                    const PetscInt64 id = ((PetscInt64)face_id * (cells[1] + 2 * h1) + (g[1] + h1)) * (cells[0] + 2 * h0) + (g[0] + h0);
+                    /* A face cell, or one of its halo beyond a closed edge, on a lattice padded by a fixed
+                       width, so a draw does not depend on the filter's half-widths. */
+                    const PetscInt64 id = ((PetscInt64)face_id * (cells[1] + 2 * INFLOW_LATTICE_PAD) + (g[1] + INFLOW_LATTICE_PAD))
+                                          * (cells[0] + 2 * INFLOW_LATTICE_PAD) + (g[0] + INFLOW_LATTICE_PAD);
                     noise[pp + w0 * qq] = PicurvNormalFromHash(PicurvDrawHash((PetscInt64)simCtx->sourceRandomSeed,
                                                                                PICURV_DRAW_SPACE_INFLOW,
                                                                                (uint64_t)(3 * user->_this + c), id,
