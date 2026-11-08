@@ -98,64 +98,30 @@ class _LazyNumpyProxy:
 np = _LazyNumpyProxy()
 
 
-def _prune_incompatible_python_site_paths(paths):
+def load_shared_module(name: str):
     """!
-    @brief Remove site-package paths for a different Python major/minor version.
-    @param[in] paths Candidate sys.path entries.
-    @return Filtered path list.
+    @brief Load a module this file shares with the generators, such as `source_expressions`, from beside it.
+    @details A plain module rather than a package import, so this file works when it is loaded on
+             its own, as the tests do, and the generators load the same copy the same way.
+    @param[in] name Module name under `picurv_cli/`.
+    @return The module.
     """
-    current = (sys.version_info[0], sys.version_info[1])
-    pattern = re.compile(r"python(?:-)?(\d+)\.(\d+)", re.IGNORECASE)
-    filtered = []
-    for path in paths:
-        text = str(path)
-        match = pattern.search(text)
-        if match:
-            path_version = (int(match.group(1)), int(match.group(2)))
-            if path_version != current and ("site-packages" in text or "dist-packages" in text):
-                continue
-        filtered.append(path)
-    return filtered
-
-
-def _drop_imported_package(package_name: str):
-    """!
-    @brief Remove a failed/partial import package tree from sys.modules.
-    @param[in] package_name Top-level package name.
-    """
-    prefix = package_name + "."
-    for module_name in list(sys.modules):
-        if module_name == package_name or module_name.startswith(prefix):
-            sys.modules.pop(module_name, None)
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    return importlib.import_module(name)
 
 
 def require_numpy():
     """!
     @brief Import NumPy only for commands that need numeric reductions.
+    @details `periodic_spectral.require_numpy()` owns the import and its retry; this keeps the
+             module for the lazy `np` proxy.
     @return Imported NumPy module.
     """
     global _NUMPY_MODULE
-    if _NUMPY_MODULE is not None:
-        return _NUMPY_MODULE
-    try:
-        import numpy
-    except Exception as exc:
-        first_error = exc
-        original_path = list(sys.path)
-        try:
-            _drop_imported_package("numpy")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
-            import numpy
-        except Exception as retry_exc:
-            raise RuntimeError(
-                "NumPy is required for this operation, but no compatible NumPy "
-                "could be imported for this Python interpreter. PICurv ignored "
-                "site-packages paths for other Python versions and retried. "
-                f"First error: {first_error}. Retry error: {retry_exc}"
-            ) from retry_exc
-        finally:
-            sys.path = original_path
-    _NUMPY_MODULE = numpy
+    if _NUMPY_MODULE is None:
+        _NUMPY_MODULE = load_shared_module("periodic_spectral").require_numpy()
     return _NUMPY_MODULE
 
 
@@ -172,8 +138,9 @@ def optional_matplotlib_pyplot():
         import matplotlib.pyplot as pyplot
     except Exception:
         try:
-            _drop_imported_package("matplotlib")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
+            shared = load_shared_module("periodic_spectral")
+            shared.drop_imported_package("matplotlib")
+            sys.path = shared.prune_incompatible_python_site_paths(original_path)
             import matplotlib.pyplot as pyplot
         except Exception:
             return None
@@ -14374,19 +14341,6 @@ def load_ic_generator_module():
     return load_generator_module("ic.gen", "picurv_ic_generator")
 
 
-def load_source_expressions():
-    """!
-    @brief Load `source_expressions`, the expression language's Python side, from beside this file.
-    @details A plain module rather than a package import, so this file works when it is loaded on
-             its own, as the tests do, and the generators load it the same way.
-    @return The module.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    return importlib.import_module("source_expressions")
-
-
 #: Variables a prescribed velocity source may use, in physical units; the runtime's list is
 #: `kPicurvSourceVariableNames` in `src/expression.c`. `xi`, `eta`, `zeta` are arc-length
 #: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
@@ -14474,7 +14428,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     @return `{"frame", "expressions", "constants", "data"}`; `data` is the normalized profile
             source, or None for expressions.
     """
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     named = case_cfg.get("sources") or {}
     if not isinstance(named, dict):
         raise ValueError("sources must map names to source definitions.")
@@ -14593,7 +14547,7 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     for target in ("bulk_velocity", "flow_rate"):
         if target in constraints:
             resolved[target] = _source_text(constraints[target], source["constants"], {"t"},
-                                            f"{where}.{target}", load_source_expressions())
+                                            f"{where}.{target}", load_shared_module("source_expressions"))
     return resolved
 
 
@@ -14619,7 +14573,7 @@ def verification_field_text(field, name: str) -> str:
     if not isinstance(constants, dict):
         raise ValueError(f"{where}.constants must map names to numbers.")
     return _source_text(field["expression"], constants, ("x", "y", "z", "t"), f"{where}.expression",
-                        load_source_expressions())
+                        load_shared_module("source_expressions"))
 
 
 def expression_control_value(text: str, where: str) -> str:
@@ -14679,7 +14633,7 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     @return Expression text.
     @throws ValueError on an invalid or retired form.
     """
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     named = case_cfg.get("sources") or {}
     if isinstance(spec, str):
         if spec not in (named if isinstance(named, dict) else {}):
@@ -14763,7 +14717,7 @@ def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
                          "the entering fluid carries; the solver converts it with the grid's cells and volume.")
     if not isinstance(spec, dict) or "particles_per_cell" not in spec or set(spec) - {"particles_per_cell", "fields"}:
         raise ValueError(f"{where} takes particles_per_cell and optionally fields.")
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     per_cell = spec["particles_per_cell"]
     if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool) and per_cell <= 0:
         raise ValueError(f"{where}.particles_per_cell must be positive (got {per_cell}).")
@@ -14802,7 +14756,7 @@ def normalize_inlet_fluctuations(spec, case_cfg: dict, where: str, block_path: t
     stresses = spec["reynolds_stress"]
     if not isinstance(stresses, dict) or not stresses or set(stresses) - {c for g in INLET_FLUCTUATION_STRESSES for c in g}:
         raise ValueError(f"{where}.reynolds_stress maps uu, vv, ww, uv, uw and vw to expressions; omitted ones are zero.")
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     constants = _source_constants({}, case_cfg, where, language)
     names = set(FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
     stress = [[_source_text(stresses.get(name, 0.0), constants, names, f"{where}.reynolds_stress.{name}", language)

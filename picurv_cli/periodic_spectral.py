@@ -7,13 +7,15 @@
          wavenumbers are, and how a periodic field is moved between resolutions. Arrays are
          in PICurv storage order, `[k, j, i, component]`; lengths and wavenumbers are in
          Cartesian `x, y, z` order. Every function imports NumPy through
-         `require_numpy()`, so importing this module never imports NumPy itself.
+         `require_numpy()`, so importing this module never imports NumPy itself; that import,
+         with its retry, is defined here once for the conductor and every generator.
 """
 
+import re
 import sys
 
 
-def _drop_imported_package(package_name: str):
+def drop_imported_package(package_name: str):
     """!
     @brief Remove a failed/partial import package tree from sys.modules.
     @param[in] package_name Top-level package name.
@@ -24,9 +26,16 @@ def _drop_imported_package(package_name: str):
             sys.modules.pop(module_name, None)
 
 
-def _prune_incompatible_python_site_paths(paths):
+#: A `pythonX.Y` (or `python-X.Y`) component of a site-packages path.
+_SITE_PYTHON_VERSION = re.compile(r"python(?:-)?(\d+)\.(\d+)", re.IGNORECASE)
+
+
+def prune_incompatible_python_site_paths(paths):
     """!
     @brief Remove site-package paths for a different Python major/minor version.
+    @details The version is the first `pythonX.Y` anywhere in the path, so a path with an
+             unversioned `python` directory before it, or a two-digit minor version, is read
+             correctly; a site path naming no version is kept.
     @param[in] paths Candidate sys.path entries.
     @return Filtered path list.
     """
@@ -34,46 +43,47 @@ def _prune_incompatible_python_site_paths(paths):
     filtered = []
     for path in paths:
         text = str(path)
-        marker = "python"
-        idx = text.lower().find(marker)
-        if idx >= 0 and ("site-packages" in text or "dist-packages" in text):
-            version_text = text[idx + len(marker):idx + len(marker) + 4].strip("-/")
-            parts = version_text.split(".")
-            try:
-                path_version = (int(parts[0]), int(parts[1]))
-            except (IndexError, ValueError):
-                filtered.append(path)
-                continue
-            if path_version != current:
+        match = _SITE_PYTHON_VERSION.search(text)
+        if match:
+            path_version = (int(match.group(1)), int(match.group(2)))
+            if path_version != current and ("site-packages" in text or "dist-packages" in text):
                 continue
         filtered.append(path)
     return filtered
 
 
+_NUMPY_MODULE = None
+
+
 def require_numpy():
     """!
-    @brief Import NumPy with the same compatibility retry used by the conductor.
+    @brief Import NumPy on first use, retrying without other Pythons' site-packages.
+    @details The one implementation the conductor, the shared modules and the generators use.
     @return Imported NumPy module.
     """
+    global _NUMPY_MODULE
+    if _NUMPY_MODULE is not None:
+        return _NUMPY_MODULE
     try:
         import numpy
-        return numpy
     except Exception as exc:
         first_error = exc
         original_path = list(sys.path)
         try:
-            _drop_imported_package("numpy")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
+            drop_imported_package("numpy")
+            sys.path = prune_incompatible_python_site_paths(original_path)
             import numpy
-            return numpy
         except Exception as retry_exc:
             raise RuntimeError(
-                "NumPy is required for PICurv spectral generators, but no compatible "
-                "NumPy could be imported. "
+                "NumPy is required for this operation, but no compatible NumPy "
+                "could be imported for this Python interpreter. PICurv ignored "
+                "site-packages paths for other Python versions and retried. "
                 f"First error: {first_error}. Retry error: {retry_exc}"
             ) from retry_exc
         finally:
             sys.path = original_path
+    _NUMPY_MODULE = numpy
+    return _NUMPY_MODULE
 
 
 def validate_spectral_grid(nodes, transform_axes=(0, 1, 2), subject="spectra require"):

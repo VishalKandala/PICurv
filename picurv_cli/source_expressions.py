@@ -14,29 +14,38 @@ import ast
 import copy
 import io
 import math
+import os
 import re
+import sys
 import tokenize
 
-import numpy as np
+# `periodic_spectral` is a sibling plain module, found however this one was loaded.
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from periodic_spectral import require_numpy  # noqa: E402
 
-ALLOWED_FUNCTIONS = {
-    "abs": np.abs,
-    "atan2": np.arctan2,
-    "cos": np.cos,
-    "cosh": np.cosh,
-    "erf": np.vectorize(math.erf, otypes=[float]),
-    "exp": np.exp,
-    "floor": np.floor,
-    "log": np.log,
-    "maximum": np.maximum,
-    "minimum": np.minimum,
-    "sin": np.sin,
-    "sinh": np.sinh,
-    "sqrt": np.sqrt,
-    "tan": np.tan,
-    "tanh": np.tanh,
-    "where": np.where,
-}
+#: Functions picurv evaluates itself, mapped to their NumPy implementations; built by
+#: `_evaluated_functions()` on the first evaluation, so validating never imports NumPy.
+_EVALUATED_FUNCTIONS = None
+
+
+def _evaluated_functions() -> dict:
+    """!
+    @brief The NumPy implementation of each function picurv evaluates, built once.
+    @return Mapping of function name to callable.
+    """
+    global _EVALUATED_FUNCTIONS
+    if _EVALUATED_FUNCTIONS is None:
+        np = require_numpy()
+        _EVALUATED_FUNCTIONS = {
+            "abs": np.abs, "atan2": np.arctan2, "cos": np.cos, "cosh": np.cosh,
+            "erf": np.vectorize(math.erf, otypes=[float]), "exp": np.exp, "floor": np.floor,
+            "log": np.log, "maximum": np.maximum, "minimum": np.minimum, "sin": np.sin,
+            "sinh": np.sinh, "sqrt": np.sqrt, "tan": np.tan, "tanh": np.tanh, "where": np.where,
+        }
+    return _EVALUATED_FUNCTIONS
+
+
 #: Arguments each function takes; the runtime evaluator (`src/expression.c`) accepts exactly
 #: the same calls.
 FUNCTION_ARITY = {"abs": 1, "cos": 1, "cosh": 1, "erf": 1, "exp": 1, "floor": 1, "log": 1, "sin": 1,
@@ -285,8 +294,9 @@ def evaluate_values(expression: str, values: dict):
     @param[in] values Mapping of variable name to value or array.
     @return Result as a float array, not yet checked for finiteness.
     """
+    np = require_numpy()
     tree = ast.fix_missing_locations(_LogicalRewriter().visit(ast.parse(expression, mode="eval")))
-    env = dict(ALLOWED_FUNCTIONS)
+    env = dict(_evaluated_functions())
     env.update({"logical_and": np.logical_and, "logical_or": np.logical_or,
                 "logical_not": np.logical_not, "pi": math.pi,
                 "series": lambda body, lo, hi: sum((body(k) for k in range(int(lo), int(hi) + 1)), 0.0)})
