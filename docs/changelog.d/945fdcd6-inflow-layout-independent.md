@@ -1,0 +1,1 @@
+- Synthetic inlet fluctuations are now bitwise identical on every rank layout. Their realization changes from earlier builds, but their statistics do not.

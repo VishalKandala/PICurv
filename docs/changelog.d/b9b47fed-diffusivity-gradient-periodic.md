@@ -1,0 +1,1 @@
+- Particles in periodic domains now stay well mixed when the diffusivity varies. Near a periodic seam they used to carry too little of the diffusivity-gradient drift, which slowly moved them toward low diffusivity (GitHub #16).
