@@ -249,7 +249,8 @@ def test_seed_count_follows_the_cells(particles, expected):
         ({"count": 0}, "count is retired for Surface"),
         ({"particles_per_cell": 1, "init_mode": "PointSource", "point_source": {"x": 0.5, "y": 0.5, "z": 0.5}},
          "a PointSource has no cells"),
-        ({"particles_per_cell": 0, "init_mode": "Volume"}, "must be a positive number"),
+        ({"particles_per_cell": 0, "init_mode": "Volume"}, "particles_per_cell' must be positive"),
+        ({"particles_per_cell": float("inf"), "init_mode": "Volume"}, "particles_per_cell' must be finite"),
         ({"particles_per_cell": 0.001, "init_mode": "Surface"}, "seeds no particle"),
     ],
 )

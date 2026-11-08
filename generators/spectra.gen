@@ -29,65 +29,7 @@ _SHARED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 if _SHARED_DIR not in sys.path:
     sys.path.insert(0, _SHARED_DIR)
 from periodic_spectral import require_numpy, spectral_symbols, validate_spectral_grid  # noqa: E402
-
-
-def read_picgrid_blocks(path: str) -> list:
-    """!
-    @brief Read canonical PICGRID blocks as coordinate arrays.
-    @param[in] path PICGRID path.
-    @return List of dictionaries with node dims and coords shaped `(KM, JM, IM, 3)`.
-    """
-    numpy = require_numpy()
-    if not os.path.isfile(path):
-        raise ValueError(f"PICGRID file not found: {path}")
-    with open(path, "r", encoding="utf-8") as fin:
-        lines = [line.strip() for line in fin if line.strip() and not line.lstrip().startswith("#")]
-    if len(lines) < 3 or lines[0] != "PICGRID":
-        raise ValueError(f"PICGRID file '{path}' must begin with canonical PICGRID header.")
-    try:
-        nblk = int(lines[1])
-    except ValueError as exc:
-        raise ValueError(f"Invalid PICGRID block count in '{path}'.") from exc
-    if nblk <= 0:
-        raise ValueError(f"PICGRID file '{path}' has non-positive block count.")
-    cursor = 2
-    dims = []
-    for block_idx in range(nblk):
-        if cursor >= len(lines):
-            raise ValueError(f"PICGRID file '{path}' missing dimensions for block {block_idx}.")
-        parts = lines[cursor].split()
-        cursor += 1
-        if len(parts) != 3:
-            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.")
-        try:
-            im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
-        except ValueError as exc:
-            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.") from exc
-        if min(im, jm, km) < 2:
-            raise ValueError(f"PICGRID block {block_idx} dimensions {(im, jm, km)} are too small.")
-        dims.append((im, jm, km))
-    blocks = []
-    for block_idx, (im, jm, km) in enumerate(dims):
-        count = im * jm * km
-        if cursor + count > len(lines):
-            raise ValueError(f"PICGRID file '{path}' missing coordinates for block {block_idx}.")
-        coords = []
-        for row in lines[cursor:cursor + count]:
-            parts = row.split()
-            if len(parts) != 3:
-                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.")
-            try:
-                coords.append((float(parts[0]), float(parts[1]), float(parts[2])))
-            except ValueError as exc:
-                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.") from exc
-        cursor += count
-        blocks.append({
-            "dims": (im, jm, km),
-            "coords": numpy.asarray(coords, dtype=float).reshape((km, jm, im, 3)),
-        })
-    if cursor != len(lines):
-        raise ValueError(f"PICGRID file '{path}' has trailing coordinate rows.")
-    return blocks
+from picgrid import read_picgrid_blocks  # noqa: E402
 
 
 #: Bytes of a PetscInt in the PETSc that wrote the payloads; set from `--petsc-index-bytes`.

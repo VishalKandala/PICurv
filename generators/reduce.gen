@@ -30,8 +30,6 @@ is returned to solver units through `--velocity-scale`.
 
 import argparse
 import csv
-import importlib.machinery
-import importlib.util
 import math
 import os
 import re
@@ -43,6 +41,7 @@ _SHARED_DIR = os.path.join(os.path.dirname(_GENERATORS_DIR), "picurv_cli")
 if _SHARED_DIR not in sys.path:
     sys.path.insert(0, _SHARED_DIR)
 from periodic_spectral import require_numpy  # noqa: E402
+from picgrid import read_picgrid_blocks  # noqa: E402
 
 #: Axis token -> index into the (k, j, i) array order the readers produce.
 AXIS_TO_KJI = {"Xi": 2, "Eta": 1, "Zeta": 0}
@@ -74,19 +73,6 @@ PROFILE_SERIES_FUNCTIONALS = (
 #: Leading columns of a field-statistics profile that locate a row rather than hold an
 #: output: the retained cell indices, then the slot's mean cell-centre coordinates.
 PROFILE_LOCATION_COLUMNS = ("i", "j", "k", "x", "y", "z")
-
-
-def load_spectra_helpers():
-    """!
-    @brief Import the PICGRID reader from `spectra.gen`, which owns it.
-    @return The loaded module.
-    """
-    path = os.path.join(_GENERATORS_DIR, "spectra.gen")
-    loader = importlib.machinery.SourceFileLoader("picurv_spectra_gen", path)
-    spec = importlib.util.spec_from_loader("picurv_spectra_gen", loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 def window_bounds(args):
@@ -122,7 +108,7 @@ def profile_statistics(profile_csv, window_name, grid_path, block, retained, vel
             M2_PAIRS order).
     """
     numpy = require_numpy()
-    blocks = load_spectra_helpers().read_picgrid_blocks(grid_path)
+    blocks = read_picgrid_blocks(grid_path)
     if block >= len(blocks):
         raise SystemExit(f"block {block} is out of range; the grid holds {len(blocks)}.")
     node_dims = blocks[block]["dims"]

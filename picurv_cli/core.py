@@ -165,7 +165,7 @@ SCRIPT_PATH = os.environ.get(
 PROJECT_ROOT = os.path.dirname(SCRIPT_PATH)
 GENERATORS_PATH = os.path.join(PACKAGE_PROJECT_ROOT, "generators")
 #: Modules in `picurv_cli/` that the generators import.
-GENERATOR_SHARED_MODULES = ("source_expressions.py", "periodic_spectral.py", "petsc_binary.py")
+GENERATOR_SHARED_MODULES = ("source_expressions.py", "periodic_spectral.py", "petsc_binary.py", "picgrid.py")
 if os.path.basename(SCRIPT_PATH) == "bin":
     DEFAULT_BIN_DIR = SCRIPT_PATH
 else:
@@ -4288,10 +4288,8 @@ def normalize_post_reducers_config(post_cfg: dict) -> dict:
                                  f"bounds, so 'source' must be a run window, not an ensemble.")
             task["friction_velocity"] = friction
             if needs == "value":
-                value = entry.get("value")
-                if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-                    raise ValueError(f"{label}: friction_velocity '{friction}' needs a positive 'value'.")
-                task["value"] = float(value)
+                task["value"] = _to_finite_float(entry.get("value"), f"reducers.tasks[{index}].value",
+                                                 positive=True, strict=True)
             if name == "cross_section":
                 task["fold"] = _to_bool(entry.get("fold", True), f"reducers.tasks[{index}].fold")
             if name == "wall_profile" and entry.get("half_height") is not None:
@@ -7092,34 +7090,10 @@ def normalize_statistics_task(task_name: str) -> str:
         raise ValueError(f"Unsupported statistics task '{task_name}'. Currently supported: 'msd'.")
     return "ComputeMSD"
 
-def _iter_nonempty_noncomment_lines(file_obj):
-    """!
-    @brief Yield (lineno, stripped_line) for non-empty, non-comment lines.
-    @param[in] file_obj Argument passed to `_iter_nonempty_noncomment_lines()`.
-    """
-    for lineno, raw in enumerate(file_obj, start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        yield lineno, line
-
-PICGRID_FLOAT_FORMAT = ".17e"
-
-
-def format_picgrid_coordinate(value: float) -> str:
-    """!
-    @brief Format a coordinate with round-trip-safe binary64 precision.
-    @param[in] value Coordinate value.
-    @return Formatted coordinate.
-    """
-    return format(value, PICGRID_FLOAT_FORMAT)
-
-
 def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_ref: float, expected_nblk: int = None) -> dict:
     """!
     @brief Validates PICGRID payload and writes a non-dimensionalized copy.
-    @details Requires canonical PICGRID input with leading "PICGRID" token.
-             Output is always written in canonical PICGRID format with header and per-block dims.
+    @details Streams the rows, so the grid is never held in memory; `picgrid.py` owns the format.
     @param[in] source_grid Input grid file path.
     @param[in] dest_grid Output grid file path.
     @param[in] L_ref Reference length for non-dimensionalization.
@@ -7127,60 +7101,16 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
     @return Summary dictionary with nblk, dims, and total_nodes.
     @throws ValueError on malformed grid.
     """
+    picgrid = load_shared_module("picgrid")
     if L_ref == 0.0:
         raise ValueError("length_ref must be non-zero when processing grid coordinates.")
     if not os.path.isfile(source_grid):
         raise ValueError(f"Grid file not found: {source_grid}")
 
     with open(source_grid, "r") as fin:
-        line_iter = _iter_nonempty_noncomment_lines(fin)
-        try:
-            _, first_token = next(line_iter)
-        except StopIteration:
-            raise ValueError(f"Grid file '{source_grid}' is empty.")
-
-        if first_token != "PICGRID":
-            raise ValueError(
-                f"Grid file '{source_grid}' must begin with the canonical PICGRID header token."
-            )
-        try:
-            _, nblk_line = next(line_iter)
-        except StopIteration:
-            raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
-
-        try:
-            nblk = int(nblk_line)
-        except ValueError:
-            raise ValueError(f"Invalid block count '{nblk_line}' in grid file '{source_grid}'.")
-        if nblk <= 0:
-            raise ValueError(f"Grid file '{source_grid}' has non-positive block count: {nblk}.")
-        if expected_nblk is not None and nblk != expected_nblk:
-            raise ValueError(
-                f"Grid file block count mismatch: case expects {expected_nblk}, grid contains {nblk}."
-            )
-
-        dims = []
-        for bi in range(nblk):
-            try:
-                lineno, dim_line = next(line_iter)
-            except StopIteration:
-                raise ValueError(f"Grid file '{source_grid}' missing dimensions for block {bi}.")
-            parts = dim_line.split()
-            if len(parts) != 3:
-                raise ValueError(
-                    f"Invalid dimensions line at {source_grid}:{lineno}. Expected 3 integers, got: '{dim_line}'."
-                )
-            try:
-                im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
-            except ValueError:
-                raise ValueError(
-                    f"Invalid dimensions line at {source_grid}:{lineno}. Non-integer values: '{dim_line}'."
-                )
-            if im <= 0 or jm <= 0 or km <= 0:
-                raise ValueError(
-                    f"Invalid block dimensions at {source_grid}:{lineno}: ({im}, {jm}, {km}). Must be > 0."
-                )
-            dims.append((im, jm, km))
+        line_iter = picgrid.content_lines(fin)
+        dims = picgrid.read_picgrid_header(line_iter, source_grid, expected_nblk)
+        nblk = len(dims)
 
         total_nodes_expected = sum(im * jm * km for (im, jm, km) in dims)
         os.makedirs(os.path.dirname(dest_grid), exist_ok=True)
@@ -7192,28 +7122,13 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
 
             total_nodes_seen = 0
             for lineno, coord_line in line_iter:
-                parts = coord_line.split()
-                if len(parts) != 3:
-                    raise ValueError(
-                        f"Invalid coordinate row at {source_grid}:{lineno}. Expected 3 floats, got: '{coord_line}'."
-                    )
-                try:
-                    x = float(parts[0]) / L_ref
-                    y = float(parts[1]) / L_ref
-                    z = float(parts[2]) / L_ref
-                except ValueError:
-                    raise ValueError(
-                        f"Invalid coordinate row at {source_grid}:{lineno}. Non-numeric values: '{coord_line}'."
-                    )
+                point = picgrid.parse_coordinate_row(lineno, coord_line, source_grid)
                 total_nodes_seen += 1
                 if total_nodes_seen > total_nodes_expected:
                     raise ValueError(
                         f"Grid file '{source_grid}' has more coordinates ({total_nodes_seen}) than expected ({total_nodes_expected})."
                     )
-                fout.write(
-                    f"{format_picgrid_coordinate(x)} {format_picgrid_coordinate(y)} "
-                    f"{format_picgrid_coordinate(z)}\n"
-                )
+                fout.write(" ".join(picgrid.format_picgrid_coordinate(value / L_ref) for value in point) + "\n")
 
         if total_nodes_seen != total_nodes_expected:
             raise ValueError(
@@ -7221,63 +7136,6 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
             )
 
     return {"nblk": nblk, "dims": dims, "total_nodes": total_nodes_expected}
-
-def read_picgrid_header_dimensions(source_grid: str, expected_nblk: int = None) -> list:
-    """!
-    @brief Read only the canonical PICGRID header dimensions.
-    @param[in] source_grid Input grid file path.
-    @param[in] expected_nblk Optional expected block count.
-    @return List of (IM, JM, KM) node-count tuples.
-    @throws ValueError on malformed header.
-    """
-    if not os.path.isfile(source_grid):
-        raise ValueError(f"Grid file not found: {source_grid}")
-
-    with open(source_grid, "r") as fin:
-        line_iter = _iter_nonempty_noncomment_lines(fin)
-        try:
-            _, first_token = next(line_iter)
-        except StopIteration:
-            raise ValueError(f"Grid file '{source_grid}' is empty.")
-        if first_token != "PICGRID":
-            raise ValueError(f"Grid file '{source_grid}' must begin with the canonical PICGRID header token.")
-
-        try:
-            _, nblk_line = next(line_iter)
-            nblk = int(nblk_line)
-        except StopIteration:
-            raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
-        except ValueError:
-            raise ValueError(f"Invalid block count '{nblk_line}' in grid file '{source_grid}'.")
-        if nblk <= 0:
-            raise ValueError(f"Grid file '{source_grid}' has non-positive block count: {nblk}.")
-        if expected_nblk is not None and nblk != expected_nblk:
-            raise ValueError(f"Grid file block count mismatch: case expects {expected_nblk}, grid contains {nblk}.")
-
-        dims = []
-        for bi in range(nblk):
-            try:
-                lineno, dim_line = next(line_iter)
-            except StopIteration:
-                raise ValueError(f"Grid file '{source_grid}' missing dimensions for block {bi}.")
-            parts = dim_line.split()
-            if len(parts) != 3:
-                raise ValueError(
-                    f"Invalid dimensions line at {source_grid}:{lineno}. Expected 3 integers, got: '{dim_line}'."
-                )
-            try:
-                im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
-            except ValueError:
-                raise ValueError(
-                    f"Invalid dimensions line at {source_grid}:{lineno}. Non-integer values: '{dim_line}'."
-                )
-            if im <= 0 or jm <= 0 or km <= 0:
-                raise ValueError(
-                    f"Invalid block dimensions at {source_grid}:{lineno}: ({im}, {jm}, {km}). Must be > 0."
-                )
-            dims.append((im, jm, km))
-
-    return dims
 
 def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, U_ref: float,
                                             expected_dims: tuple = None, expected_components: str = "normal") -> dict:
@@ -7301,7 +7159,7 @@ def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, 
         raise ValueError(f"PICSLICE file not found: {source_slice}")
 
     with open(source_slice, "r") as fin:
-        line_iter = _iter_nonempty_noncomment_lines(fin)
+        line_iter = load_shared_module("picgrid").content_lines(fin)
         try:
             _, first_token = next(line_iter)
         except StopIteration:
@@ -7557,7 +7415,7 @@ def recording_outlast_problem(source: dict, case_cfg: dict, case_path: str, face
         if not os.path.isfile(path):
             return None
         with open(path, "r", encoding="utf-8") as stream:
-            lines = _iter_nonempty_noncomment_lines(stream)
+            lines = load_shared_module("picgrid").content_lines(stream)
             next(lines, None)
             frame_line, shape_line = next(lines, (0, "1"))[1], next(lines, (0, ""))[1]
         shape = shape_line.split()
@@ -8272,7 +8130,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         if not isinstance(source_grid, str) or not source_grid.strip():
             raise ValueError("grid.source_file is required for file-grid inlet profile validation.")
         source_grid = _resolve_case_relative_path(source_grid, case_dir)
-        return read_picgrid_header_dimensions(source_grid, expected_nblk=num_blocks)
+        return load_shared_module("picgrid").read_picgrid_dimensions(source_grid, expected_nblk=num_blocks)
 
     if grid_mode == "grid_gen":
         candidates = []
@@ -8281,7 +8139,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
             candidates.append(os.path.join(run_dir, STAGED_GRID_RELPATH))
         for candidate in candidates:
             if os.path.isfile(candidate):
-                return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
+                return load_shared_module("picgrid").read_picgrid_dimensions(candidate, expected_nblk=num_blocks)
         raise ValueError(
             "inlet profile dimension validation for grid.mode='grid_gen' requires an existing generated "
             "PICGRID output. Run or stage the grid first, or use grid.mode='file' with the generated .picgrid."
@@ -10412,10 +10270,12 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                           "not particles_per_cell.")
         if 'particles_per_cell' in particles_cfg:
             per_cell = particles_cfg['particles_per_cell']
-            if isinstance(per_cell, bool) or not isinstance(per_cell, (int, float)) or not per_cell > 0:
-                errors.append(f"  {case_path}: models.physics.particles.particles_per_cell must be a positive "
-                              f"number (got {per_cell!r}).")
-            elif pinit_code in PARTICLE_CELL_SEEDED_MODES:
+            try:
+                _to_finite_float(per_cell, "models.physics.particles.particles_per_cell", positive=True, strict=True)
+            except ValueError as e:
+                errors.append(f"  {case_path}: {e}")
+                per_cell = None
+            if per_cell is not None and pinit_code in PARTICLE_CELL_SEEDED_MODES:
                 try:
                     if particle_seed_count(case_cfg, case_path) < 1:
                         errors.append(f"  {case_path}: models.physics.particles.particles_per_cell {per_cell} "
@@ -13471,6 +13331,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
 
     Lx, Ly, Lz = x_max - x_min, y_max - y_min, z_max - z_min
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    format_coordinate = load_shared_module("picgrid").format_picgrid_coordinate
     with open(dest_path, "w") as fout:
         fout.write("PICGRID\n1\n")
         fout.write(f"{IM} {JM} {KM}\n")
@@ -13481,8 +13342,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
                 for i in range(IM):
                     x = (x_min + _stretched(i, IM, Lx, rx)) / L_ref
                     fout.write(
-                        f"{format_picgrid_coordinate(x)} {format_picgrid_coordinate(y)} "
-                        f"{format_picgrid_coordinate(z)}\n"
+                        f"{format_coordinate(x)} {format_coordinate(y)} {format_coordinate(z)}\n"
                     )
     total_nodes = IM * JM * KM
     return {"nblk": 1, "dims": [(IM, JM, KM)], "total_nodes": total_nodes}
@@ -13564,9 +13424,9 @@ def resolve_grid_node_dims(case_cfg: dict, case_path: str,
     mode = grid_cfg.get("mode")
     try:
         if staged_grid and os.path.isfile(staged_grid):
-            return read_picgrid_header_dimensions(staged_grid, expected_nblk)
+            return load_shared_module("picgrid").read_picgrid_dimensions(staged_grid, expected_nblk)
         if mode == "file":
-            return read_picgrid_header_dimensions(
+            return load_shared_module("picgrid").read_picgrid_dimensions(
                 _resolve_case_relative_path(grid_cfg["source_file"], case_dir), expected_nblk)
         if mode == "programmatic_c":
             settings = translate_programmatic_grid_settings(grid_cfg.get("programmatic_settings") or {})
@@ -14440,8 +14300,7 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
         for name, value in table.items():
             if not isinstance(name, str) or not name.isidentifier() or name in reserved:
                 raise ValueError(f"{label}: '{name}' cannot name a constant.")
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"{label}.{name} must be a number.")
+            _to_finite_float(value, f"{label}.{name}", strict=True)
             merged[name] = value
     return merged
 
@@ -14815,18 +14674,17 @@ def normalize_inlet_fluctuations(spec, case_cfg: dict, where: str, block_path: t
     stress = [[_source_text(stresses.get(name, 0.0), constants, names, f"{where}.reynolds_stress.{name}", language)
                for name in group] for group in INLET_FLUCTUATION_STRESSES]
     lengths = spec["length_scales"]
-    if (not isinstance(lengths, list) or len(lengths) != 2 or
-            any(isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0 for v in lengths)):
+    if not isinstance(lengths, list) or len(lengths) != 2:
         raise ValueError(f"{where}.length_scales is two positive lengths, along the face's first and second "
                          "tangential grid axes.")
-    time_scale = spec["time_scale"]
-    if isinstance(time_scale, bool) or not isinstance(time_scale, (int, float)) or not time_scale > 0:
-        raise ValueError(f"{where}.time_scale must be a positive time.")
+    lengths = [_to_finite_float(v, f"{where}.length_scales[{i}]", positive=True, strict=True)
+               for i, v in enumerate(lengths)]
+    time_scale = _to_finite_float(spec["time_scale"], f"{where}.time_scale", positive=True, strict=True)
     scales = resolve_reference_scales(case_cfg)
     path = ("case", "boundary_conditions", "[]") + (("[]",) if block_path else ()) + ("fluctuations",)
     return {"stress": stress,
-            "length_scales": to_solver_units([float(v) for v in lengths], path + ("length_scales",), scales),
-            "time_scale": to_solver_units(float(time_scale), path + ("time_scale",), scales)}
+            "length_scales": to_solver_units(lengths, path + ("length_scales",), scales),
+            "time_scale": to_solver_units(time_scale, path + ("time_scale",), scales)}
 
 
 def case_seeds_particles(case_cfg: dict) -> bool:
@@ -14857,7 +14715,8 @@ def particle_seed_count(case_cfg: dict, case_path: str, staged_grid: "str | None
     particles = (((case_cfg or {}).get("models") or {}).get("physics") or {}).get("particles") or {}
     if "particles_per_cell" not in particles:
         return int(particles.get("count", 0) or 0)
-    per_cell = float(particles["particles_per_cell"])
+    per_cell = _to_finite_float(particles["particles_per_cell"], "models.physics.particles.particles_per_cell",
+                                positive=True, strict=True)
     dims = resolve_grid_node_dims(case_cfg, case_path, staged_grid)
     if not dims:
         raise ValueError("models.physics.particles.particles_per_cell needs the grid's cell counts, which this "
@@ -15747,7 +15606,7 @@ def _check_file_ic_matches_grid(payload: dict, staged_grid: str, resolved_ic: di
     """
     if not os.path.isfile(staged_grid):
         return
-    dims = read_picgrid_header_dimensions(staged_grid)
+    dims = load_shared_module("picgrid").read_picgrid_dimensions(staged_grid)
     if len(dims) != 1:
         return
     im, jm, km = dims[0]
@@ -19984,11 +19843,11 @@ def _picgrid_geometry_summary(path: str) -> dict:
     @param[in] path Staged PICGRID file.
     @return Mapping of block dimensions, bounds, and spacing extremes.
     """
-    dims = read_picgrid_header_dimensions(path)
+    dims = load_shared_module("picgrid").read_picgrid_dimensions(path)
     bounds = [[float("inf")] * 3, [float("-inf")] * 3]
     nodes = 0
     with open(path, "r", encoding="utf-8", errors="replace") as stream:
-        iterator = _iter_nonempty_noncomment_lines(stream)
+        iterator = load_shared_module("picgrid").content_lines(stream)
         # Header token, block count, and one dimension row per block.
         for _ in range(2 + len(dims)):
             next(iterator, None)
@@ -20034,7 +19893,7 @@ def _write_structured_grid_preview(picgrid_path: str, destination: str, dims) ->
         return False
     coordinates = []
     with open(picgrid_path, "r", encoding="utf-8", errors="replace") as stream:
-        iterator = _iter_nonempty_noncomment_lines(stream)
+        iterator = load_shared_module("picgrid").content_lines(stream)
         for _ in range(2 + len(dims)):
             next(iterator, None)
         for _lineno, line in iterator:

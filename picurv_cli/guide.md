@@ -16,8 +16,11 @@ This directory contains the importable implementation of the PICurv conductor.
 - `petsc_binary.py`: the PETSc binary Vec envelope - the reader `profile.gen` and `spectra.gen`
   share, the writer `ic.gen` and `core.py` share, and the stricter validator `core.py` applies
   to every vector it stages for the solver.
+- `picgrid.py`: the PICGRID text grid format - its coordinate precision, the header reader
+  `core.py` uses while streaming a grid to the run, and the block reader `ic.gen`,
+  `profile.gen`, `reduce.gen` and `spectra.gen` share.
 
-The last three are plain modules, not package imports: `core.py` and the `generators/*.gen`
+The last four are plain modules, not package imports: `core.py` and the `generators/*.gen`
 scripts put this directory on `sys.path` and import them by name, which also works when
 `core.py` is loaded as a lone file, as the tests do.
 

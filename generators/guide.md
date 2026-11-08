@@ -21,7 +21,8 @@ configuration.
 - Every file here is a runnable `.gen` script. The code they share is in `picurv_cli/`:
   `periodic_spectral.py` (Fourier machinery for uniform periodic axes),
   `petsc_binary.py` (the PETSc binary Vec reader and writer, at the PetscInt width
-  `--petsc-index-bytes` names) and `source_expressions.py` (the expression language);
+  `--petsc-index-bytes` names), `picgrid.py` (the PICGRID grid format and reader) and
+  `source_expressions.py` (the expression language);
   `periodic_spectral.py` also owns `require_numpy()`, the lazy NumPy import every script
   uses. Each script puts that directory on `sys.path` when it needs one.
 - `plot.gen`: normalized scalar-history, iterative-convergence, and spectrum

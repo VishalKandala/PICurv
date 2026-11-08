@@ -583,7 +583,10 @@ def test_constants_come_from_the_fluid_the_case_and_the_source():
         {"components": "normal", "expression": "U*H*nu*rho", "constants": {"H": 5.0}}, case, "src", True)
     assert source["expressions"] == ["(3.0)*(5.0)*(0.25)*(2.0)"]
     case["constants"] = {"U": "three"}
-    with pytest.raises(ValueError, match="constants.U must be a number"):
+    with pytest.raises(ValueError, match="constants.U' must be a number"):
+        CORE.resolve_velocity_source({"components": "normal", "expression": "U"}, case, "src", True)
+    case["constants"] = {"U": float("inf")}
+    with pytest.raises(ValueError, match="constants.U' must be finite"):
         CORE.resolve_velocity_source({"components": "normal", "expression": "U"}, case, "src", True)
 
 
@@ -850,7 +853,11 @@ def test_inlet_fluctuations_reach_the_control_file(tmp_path):
 
 @pytest.mark.parametrize("inlet, message", [
     ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
-      "fluctuations": dict(FLUCTUATIONS, time_scale=0)}, "positive time"),
+      "fluctuations": dict(FLUCTUATIONS, time_scale=0)}, "time_scale' must be positive"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, time_scale=float("inf"))}, "time_scale' must be finite"),
+    ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+      "fluctuations": dict(FLUCTUATIONS, length_scales=[1.0, float("inf")])}, r"length_scales\[1\]' must be finite"),
     ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
       "fluctuations": dict(FLUCTUATIONS, length_scales=[1.0])}, "two positive lengths"),
     ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},

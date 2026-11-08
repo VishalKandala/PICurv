@@ -47,11 +47,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+# Shared modules live with the CLI, beside this directory.
+_SHARED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "picurv_cli")
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
+from picgrid import PICGRID_FLOAT_FORMAT  # noqa: E402
+
 # Type alias for grid coordinates for clarity
 GridCoords = Tuple[np.ndarray, np.ndarray, np.ndarray]
-
-# Canonical PICGRID coordinates use round-trip-safe binary64 text precision.
-PICGRID_FLOAT_FORMAT = ".17e"
 
 # --- NEW: Helper function for hyperbolic stretching ---
 def create_stretched_linspace(
