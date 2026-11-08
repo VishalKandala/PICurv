@@ -98,64 +98,30 @@ class _LazyNumpyProxy:
 np = _LazyNumpyProxy()
 
 
-def _prune_incompatible_python_site_paths(paths):
+def load_shared_module(name: str):
     """!
-    @brief Remove site-package paths for a different Python major/minor version.
-    @param[in] paths Candidate sys.path entries.
-    @return Filtered path list.
+    @brief Load a module this file shares with the generators, such as `source_expressions`, from beside it.
+    @details A plain module rather than a package import, so this file works when it is loaded on
+             its own, as the tests do, and the generators load the same copy the same way.
+    @param[in] name Module name under `picurv_cli/`.
+    @return The module.
     """
-    current = (sys.version_info[0], sys.version_info[1])
-    pattern = re.compile(r"python(?:-)?(\d+)\.(\d+)", re.IGNORECASE)
-    filtered = []
-    for path in paths:
-        text = str(path)
-        match = pattern.search(text)
-        if match:
-            path_version = (int(match.group(1)), int(match.group(2)))
-            if path_version != current and ("site-packages" in text or "dist-packages" in text):
-                continue
-        filtered.append(path)
-    return filtered
-
-
-def _drop_imported_package(package_name: str):
-    """!
-    @brief Remove a failed/partial import package tree from sys.modules.
-    @param[in] package_name Top-level package name.
-    """
-    prefix = package_name + "."
-    for module_name in list(sys.modules):
-        if module_name == package_name or module_name.startswith(prefix):
-            sys.modules.pop(module_name, None)
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    return importlib.import_module(name)
 
 
 def require_numpy():
     """!
     @brief Import NumPy only for commands that need numeric reductions.
+    @details `periodic_spectral.require_numpy()` owns the import and its retry; this keeps the
+             module for the lazy `np` proxy.
     @return Imported NumPy module.
     """
     global _NUMPY_MODULE
-    if _NUMPY_MODULE is not None:
-        return _NUMPY_MODULE
-    try:
-        import numpy
-    except Exception as exc:
-        first_error = exc
-        original_path = list(sys.path)
-        try:
-            _drop_imported_package("numpy")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
-            import numpy
-        except Exception as retry_exc:
-            raise RuntimeError(
-                "NumPy is required for this operation, but no compatible NumPy "
-                "could be imported for this Python interpreter. PICurv ignored "
-                "site-packages paths for other Python versions and retried. "
-                f"First error: {first_error}. Retry error: {retry_exc}"
-            ) from retry_exc
-        finally:
-            sys.path = original_path
-    _NUMPY_MODULE = numpy
+    if _NUMPY_MODULE is None:
+        _NUMPY_MODULE = load_shared_module("periodic_spectral").require_numpy()
     return _NUMPY_MODULE
 
 
@@ -172,8 +138,9 @@ def optional_matplotlib_pyplot():
         import matplotlib.pyplot as pyplot
     except Exception:
         try:
-            _drop_imported_package("matplotlib")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
+            shared = load_shared_module("periodic_spectral")
+            shared.drop_imported_package("matplotlib")
+            sys.path = shared.prune_incompatible_python_site_paths(original_path)
             import matplotlib.pyplot as pyplot
         except Exception:
             return None
@@ -418,6 +385,9 @@ CANONICAL_RUN_PATHS = {
     "logs": "logs",
     "scheduler": "scheduler",
 }
+
+#: Run-relative path of the staged nondimensional PICGRID the solver reads.
+STAGED_GRID_RELPATH = os.path.join("inputs", "grid", "grid.run")
 
 #: Run-relative path of the staged initial-condition spectrum. It sits beside the
 #: post-produced spectra but is a reference overlay, not a selectable spectrum task.
@@ -1048,7 +1018,7 @@ def capture_continuation_records(run_dir: str, restart_dir: str) -> dict:
     records = {}
     for relative in CONTINUATION_STAGED_RECORDS:
         path = os.path.join(run_dir, *relative.split("/"))
-        records[relative] = open(path, "rb").read() if os.path.isfile(path) else None
+        records[relative] = Path(path).read_bytes() if os.path.isfile(path) else None
     checkpoints = os.path.join(restart_dir, "checkpoints")
     return {"records": records, "checkpoints": checkpoints,
             "checkpoint_entries": set(os.listdir(checkpoints)) if os.path.isdir(checkpoints) else None}
@@ -3695,13 +3665,13 @@ def resolve_scalar_transport(case_cfg: dict, solver_cfg: dict, warn: bool = Fals
             continue
         raw, label = (node[key], f"case.yml {case_label}") if in_case else \
                      (legacy[key], f"solver.yml scalar_transport.{key}")
-        try:
-            value = _to_finite_float(raw, label) if key == "iem_constant" else float(raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label} must be numeric.") from exc
         # iem_constant = 0 switches micromixing off; the Schmidt numbers divide.
-        if value < 0.0 or (value == 0.0 and key != "iem_constant"):
-            raise ValueError(f"{label} must be {'non-negative' if key == 'iem_constant' else 'positive'}.")
+        if key == "iem_constant":
+            value = _to_finite_float(raw, label, nonnegative=True)
+        else:
+            value = _to_float(raw, label)
+            if value <= 0.0:
+                raise ValueError(f"{label} must be positive.")
         if not in_case and warn:
             print(f"[WARNING] solver.yml scalar_transport.{key} is deprecated; set it in case.yml "
                   f"as {case_label}.", file=sys.stderr)
@@ -4082,7 +4052,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     script = os.path.join(GENERATORS_PATH, "spectra.gen")
     if not os.path.isfile(script):
         raise ValueError(f"spectra.gen script not found: {script}")
-    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     if not os.path.isfile(staged_grid):
         raise ValueError(f"spectra require a staged PICGRID at {staged_grid}.")
 
@@ -4323,9 +4293,10 @@ def normalize_post_reducers_config(post_cfg: dict) -> dict:
                     raise ValueError(f"{label}: friction_velocity '{friction}' needs a positive 'value'.")
                 task["value"] = float(value)
             if name == "cross_section":
-                task["fold"] = bool(entry.get("fold", True))
+                task["fold"] = _to_bool(entry.get("fold", True), f"reducers.tasks[{index}].fold")
             if name == "wall_profile" and entry.get("half_height") is not None:
-                task["half_height"] = float(entry["half_height"])
+                task["half_height"] = _to_finite_float(entry["half_height"], f"reducers.tasks[{index}].half_height",
+                                                       positive=True)
         tasks.append(task)
     return {"tasks": tasks}
 
@@ -4351,7 +4322,7 @@ def run_post_reducers_stage(run_dir: str, post_cfg: dict, quiet: bool = False) -
     if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
         post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
     script = os.path.join(GENERATORS_PATH, "reduce.gen")
-    grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     case_path = load_active_run_configuration(run_dir).get("case")
     case_cfg = read_yaml_file(case_path) if case_path and os.path.isfile(case_path) else {}
     scaling = resolve_fluid_scaling(case_cfg)
@@ -6993,7 +6964,7 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                     gen[key] = resolve_path(case_anchor_path, val)
     ic = (case_cfg.get("properties", {}) or {}).get("initial_conditions", {})
     if isinstance(ic, dict):
-        term = initial_field_term(ic)
+        term = initial_field_term(ic, case_cfg)
         if term.get("type") == "file":
             if isinstance(term.get("path"), str):
                 term["path"] = resolve_path(case_anchor_path, term["path"])
@@ -7426,6 +7397,18 @@ def _face_artifact_token(face: str) -> str:
     """
     return face.replace("+", "pos").replace("-", "neg")
 
+
+def inlet_profile_filename(block: int, face: str, sliced: bool = False) -> str:
+    """!
+    @brief File name of one inlet face's staged PICSLICE, or of the dimensional one field slicing writes.
+    @param[in] block Block index.
+    @param[in] face Canonical face token such as -Zeta.
+    @param[in] sliced Whether to name the dimensional `field_slice` output rather than the staged profile.
+    @return File name under the run's `inputs/inlet_profiles`.
+    """
+    stem = f"inlet_profile_block{block}_{_face_artifact_token(face)}"
+    return stem + (".sliced.dimensional.picslice" if sliced else ".picslice")
+
 def _resolve_run_artifact_path(run_dir: str, configured_path: str, default_path: str,
                                default_to_config_dir: bool = False) -> str:
     """!
@@ -7808,7 +7791,7 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
         candidate = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
         if os.path.isfile(candidate):
             return candidate
-        staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        staged = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(staged):
             return staged
         raise ValueError("field_slice requires the generated target PICGRID to exist before profile extraction.")
@@ -8194,26 +8177,35 @@ def raw_inlet_data_sources(case_cfg: dict) -> list:
     """!
     @brief The profile data sources named by a case's unprepared prescribed_velocity inlets.
     @details A source given by name resolves to its shared mapping under `sources:`, so
-             in-place edits reach every inlet that names it.
+             in-place edits reach every inlet that names it. Sums are searched to any depth, as
+             resolve_velocity_source() resolves them; nothing here raises, validation does.
     @param[in] case_cfg Parsed case.yml.
-    @return `(block_index, entry, source_mapping)` per inlet whose source has a `type`.
+    @return `(block_index, entry, source_mapping)` per data term with a `type`.
     """
-    named = case_cfg.get("sources") if isinstance(case_cfg.get("sources"), dict) else {}
-    raw_blocks = case_cfg.get("boundary_conditions") or []
-    if raw_blocks and isinstance(raw_blocks[0], dict):
-        raw_blocks = [raw_blocks]
+
+    def data_terms(spec, where, visiting):
+        """!
+        @brief The data terms of one source, its sum terms searched in turn.
+        @param[in] spec Source as written.
+        @param[in] where Configuration path of the source.
+        @param[in] visiting Names being expanded on this path, so a cycle ends the search.
+        @return Data-term mappings.
+        """
+        if isinstance(spec, str):
+            if spec in visiting:
+                return []
+            visiting = visiting | {spec}
+        where, spec, terms = expand_source(spec, case_cfg, where, strict=False)
+        if terms is None:
+            return [spec] if isinstance(spec, dict) and "type" in spec else []
+        return [found for term_where, term in terms for found in data_terms(term, term_where, visiting)]
+
     found = []
-    for block_index, block in enumerate(raw_blocks):
-        for entry in block if isinstance(block, list) else []:
+    for block_index, block in enumerate(normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions"))):
+        for entry in block:
             if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_velocity":
                 continue
-            source = entry.get("source")
-            source = named.get(source) if isinstance(source, str) else source
-            terms = source.get("sum", [source]) if isinstance(source, dict) else []
-            for term in terms if isinstance(terms, list) else []:
-                term = named.get(term) if isinstance(term, str) else term
-                if isinstance(term, dict) and "type" in term:
-                    found.append((block_index, entry, term))
+            found.extend((block_index, entry, term) for term in data_terms(entry.get("source"), "source", frozenset()))
     return found
 
 
@@ -8286,7 +8278,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         candidates = []
         if run_dir:
             candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
-            candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+            candidates.append(os.path.join(run_dir, STAGED_GRID_RELPATH))
         for candidate in candidates:
             if os.path.isfile(candidate):
                 return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
@@ -8296,63 +8288,6 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         )
 
     raise ValueError(f"Unsupported grid.mode '{grid_mode}' for inlet profile validation.")
-
-def materialize_inlet_profiles(run_dir: str, case_cfg: dict, case_path: str,
-                                                   profile_grid_dims: list = None) -> list:
-    """!
-    @brief Generate dimensional PICSLICE artifacts for field_slice inlet profile sources.
-    @param[in] run_dir Run/precompute directory root.
-    @param[in] case_cfg Parsed case.yml.
-    @param[in] case_path Path to case.yml for relative grid/source resolution.
-    @param[in] profile_grid_dims Optional pre-resolved block node dimensions.
-    @return List of generated profile summaries.
-    """
-    prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
-    if not any(
-        (profile_data_source(bc) or {}).get("type") in PROFILE_SOURCE_TYPES[1:]
-        for block in prepared_blocks for bc in block
-    ):
-        return []
-    if profile_grid_dims is None:
-        profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
-
-    profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
-    target_grid = None
-    summaries = []
-    for block_idx, block in enumerate(prepared_blocks):
-        for bc in block:
-            source = profile_data_source(bc) or {}
-            if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
-                continue
-            face = bc["face"]
-            dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
-            face_token = _face_artifact_token(face)
-            output_path = os.path.join(
-                profile_dir,
-                f"inlet_profile_block{block_idx}_{face_token}.sliced.dimensional.picslice",
-            )
-            if target_grid is None:
-                target_grid = resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
-            summary = generate_field_slice_picslice(
-                output_path,
-                dims,
-                source,
-                target_grid,
-                face,
-                block_idx,
-                case_path,
-            )
-            summary.update({"block": block_idx, "face": face})
-            summaries.append(summary)
-            print(
-                f"[SUCCESS] Materialized inlet profile for block {block_idx}, face {face}: "
-                f"{os.path.relpath(output_path)} dims={summary['dims']}"
-            )
-
-    if summaries:
-        info_path = write_profile_info(profile_dir, summaries)
-        print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
-    return summaries
 
 def _to_float(value, field_name: str) -> float:
     """!
@@ -8367,18 +8302,29 @@ def _to_float(value, field_name: str) -> float:
         raise ValueError(f"'{field_name}' must be numeric (got {value!r}).")
 
 
-def _to_finite_float(value, field_name: str) -> float:
+def _to_finite_float(value, field_name: str, *, positive: bool = False, nonnegative: bool = False,
+                     strict: bool = False) -> float:
     """!
-    @brief Convert a non-boolean YAML scalar to a finite float.
+    @brief Convert a non-boolean YAML scalar to a finite float, optionally of one sign.
     @param[in] value Raw YAML scalar.
     @param[in] field_name User-facing configuration path.
+    @param[in] positive Whether zero and negative values are refused.
+    @param[in] nonnegative Whether negative values are refused.
+    @param[in] strict Whether only a YAML number is accepted; otherwise a numeric string is parsed.
     @return Finite floating-point value.
+    @throws ValueError naming `field_name` for a boolean, non-number, non-finite or wrongly signed value.
     """
     if isinstance(value, bool):
         raise ValueError(f"'{field_name}' must be numeric, not boolean.")
+    if strict and not isinstance(value, (int, float)):
+        raise ValueError(f"'{field_name}' must be a number (got {value!r}).")
     parsed = _to_float(value, field_name)
     if not math.isfinite(parsed):
         raise ValueError(f"'{field_name}' must be finite (got {value!r}).")
+    if positive and parsed <= 0.0:
+        raise ValueError(f"'{field_name}' must be positive (got {value!r}).")
+    if nonnegative and parsed < 0.0:
+        raise ValueError(f"'{field_name}' must be non-negative (got {value!r}).")
     return parsed
 
 def _to_bool(value, field_name: str) -> bool:
@@ -8398,13 +8344,24 @@ def _to_bool(value, field_name: str) -> bool:
             return False
     raise ValueError(f"'{field_name}' must be boolean (got {value!r}).")
 
-def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
+def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: "int | None" = None):
     """!
-    @brief Normalize boundary_conditions to list-of-lists form and validate block count.
-    @param[in] all_blocks_bcs Argument passed to `normalize_boundary_conditions_layout()`.
-    @param[in] num_blocks Argument passed to `normalize_boundary_conditions_layout()`.
-    @return Value returned by `normalize_boundary_conditions_layout()`.
+    @brief Normalize boundary_conditions to list-of-lists form: one list of face entries per block.
+    @details A single face list, one whose first entry is a mapping, is block 0's. Given
+             `num_blocks`, the layout is validated: an empty section, a single list for a
+             multi-block case, or another block count raises. Without it the reading is lenient,
+             for code that inspects a case before validation reports its errors: anything but a
+             non-empty list is no blocks, and a block that is not a list has no entries.
+    @param[in] all_blocks_bcs The `boundary_conditions` value as written.
+    @param[in] num_blocks Declared block count, or None for the lenient reading.
+    @return The list of blocks; validated, it is the input itself when that was already one.
     """
+    if num_blocks is None:
+        if not isinstance(all_blocks_bcs, list) or not all_blocks_bcs:
+            return []
+        if isinstance(all_blocks_bcs[0], dict):
+            return [all_blocks_bcs]
+        return [block if isinstance(block, list) else [] for block in all_blocks_bcs]
     if not all_blocks_bcs:
         raise ValueError("The 'boundary_conditions' section in case.yml is empty.")
 
@@ -8431,10 +8388,7 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     """
     axis_faces = {"i": ("-Xi", "+Xi"), "j": ("-Eta", "+Eta"), "k": ("-Zeta", "+Zeta")}
     declared = {}
-    entries = case_cfg.get("boundary_conditions") or []
-    if entries and isinstance(entries[0], list):
-        entries = entries[0]
-    for entry in entries:
+    for entry in (normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions")) or [[]])[0]:
         if isinstance(entry, dict):
             declared[str(entry.get("face"))] = str(entry.get("type", "")).upper()
     return {
@@ -8465,12 +8419,12 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
     motions are modelled somewhere. Three combinations cannot be, and each fails here
     rather than after the mesh is built.
 
-    @param case_cfg Parsed case configuration, read for the Reynolds number.
-    @param les_cfg  `models.physics.turbulence.les`, or None.
-    @param wall_cfg `models.physics.turbulence.wall_function`, or None.
-    @param case_path Case path, for message prefixes.
-    @param errors   Collected blocking messages, appended to.
-    @param warnings Collected advisory messages, appended to.
+    @param[in] case_cfg Parsed case configuration, read for the Reynolds number.
+    @param[in] les_cfg `models.physics.turbulence.les`, or None.
+    @param[in] wall_cfg `models.physics.turbulence.wall_function`, or None.
+    @param[in] case_path Case path, for message prefixes.
+    @param[in,out] errors Collected blocking messages, appended to.
+    @param[in,out] warnings Collected advisory messages, appended to.
     """
     if not isinstance(wall_cfg, dict):
         return
@@ -8516,7 +8470,7 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
 def _case_reynolds_number(case_cfg: dict):
     """!
     @brief Reynolds number implied by a case's scaling and fluid properties.
-    @param case_cfg Parsed case configuration.
+    @param[in] case_cfg Parsed case configuration.
     @return The Reynolds number, or None when the inputs are absent or unusable.
     """
     try:
@@ -8718,7 +8672,10 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
     scales = resolve_reference_scales(case_cfg)
 
-    all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
+    raw_bcs = case_cfg.get('boundary_conditions', [])
+    all_blocks_bcs = normalize_boundary_conditions_layout(raw_bcs, num_blocks)
+    # Units are recorded per layout: a list of blocks addresses an entry by block and index.
+    block_path = (lambda bi: (bi,)) if all_blocks_bcs is raw_bcs else (lambda bi: ())
     prepared_blocks = []
     face_sources = 0
 
@@ -8886,8 +8843,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                 if bc_type != "INLET" or handler != "prescribed_velocity":
                     raise ValueError(f"{where}.fluctuations: only a prescribed_velocity INLET adds synthetic fluctuations.")
                 prepared_entry["fluctuations"] = normalize_inlet_fluctuations(
-                    bc["fluctuations"], case_cfg, f"{where}.fluctuations",
-                    (bi,) if isinstance((case_cfg.get("boundary_conditions") or [None])[0], list) else ())
+                    bc["fluctuations"], case_cfg, f"{where}.fluctuations", block_path(bi))
             if bc.get("particles") is not None:
                 if bc_type != "INLET":
                     raise ValueError(f"{where}.particles: only an INLET face injects particles.")
@@ -9532,7 +9488,7 @@ BC_PARAM_QUANTITIES = {
     "apply_trim": NOT_A_QUANTITY,
 }
 
-#: Initial-condition generator parameters (`properties.initial_conditions.params`), by
+#: Initial-condition generator parameters (the `params` of a `{generator, params}` source term), by
 #: generator. Nested mappings use dotted names.
 IC_PARAM_QUANTITIES = {
     "ic_gen": {
@@ -10133,7 +10089,7 @@ def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_
     wall_cfg = (physics.get("turbulence") or {}).get("wall_function")
     if isinstance(wall_cfg, dict) and "roughness_height" in wall_cfg:
         changed.append("models.physics.turbulence.wall_function.roughness_height")
-    initial_term = initial_field_term(ic)
+    initial_term = initial_field_term(ic, case_cfg)
     if initial_term.get("type") == "file":
         changed.append("properties.initial_conditions.source (file payload)")
     if str(initial_term.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
@@ -10397,8 +10353,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     if ic_is_analytical and resolved_ic and (resolved_ic["kind"] != "source" or resolved_ic["source"]["project"]):
         errors.append(f"  {case_path}: an analytical field is re-evaluated from its expressions every step, so its "
                       "source takes neither a generator or file term nor project.")
+    draw = load_shared_module("source_expressions").EXPRESSION_DRAW
     if ic_is_analytical and resolved_ic and resolved_ic["kind"] == "source" and any(
-            EXPRESSION_DRAW.search(text) for text in resolved_ic["source"]["expressions"]
+            draw.search(text) for text in resolved_ic["source"]["expressions"]
             + [resolved_ic["source"].get("pressure") or ""]):
         errors.append(f"  {case_path}: an analytical field is the exact answer at any point and time, so its source "
                       "cannot draw uniform() or normal().")
@@ -10521,7 +10478,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
             if pinit_code == 2:
                 for entry in particle_fields:
-                    if not any(EXPRESSION_DRAW.search(e) for e in entry["expressions"]):
+                    if not any(draw.search(e) for e in entry["expressions"]):
                         warnings.append(
                             f"{case_path}: models.physics.particles.fields.{entry['name']} has no random draw, "
                             "but init_mode is PointSource: every particle starts at one point and gets the "
@@ -10537,12 +10494,12 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     "(restart_mode: load); their values come from the checkpoint.")
 
     if ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
-        raw_blocks = case_cfg.get('boundary_conditions') or []
-        for entry in (raw_blocks if raw_blocks and isinstance(raw_blocks[0], dict) else []):
-            if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
-                errors.append(
-                    f"  {case_path}: boundary_conditions {entry.get('face')}.particles.fields cannot be combined with "
-                    f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
+        for bi, block in enumerate(normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions'))):
+            for idx, entry in enumerate(block):
+                if isinstance(entry, dict) and isinstance(entry.get('particles'), dict) and entry['particles'].get('fields'):
+                    errors.append(
+                        f"  {case_path}: boundary_conditions[{bi}][{idx}].particles.fields cannot be combined with "
+                        f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
 
     # --- case.yml: domain and physics switches ---
     # Multi-block coupling, immersed boundaries and moving bodies are planned, not
@@ -12175,7 +12132,7 @@ def restart_grid_inputs(run_dir: str, case_cfg: dict) -> dict:
     @param[in] case_cfg That run's case configuration.
     @return Mapping of input name to a comparable value.
     """
-    staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged = os.path.join(run_dir, STAGED_GRID_RELPATH)
     grid = {key: value for key, value in (case_cfg.get("grid") or {}).items()
             if not str(key).startswith("da_processors_")}
     try:
@@ -13297,8 +13254,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     params["source_repeat"] = True
                 velocity_scale = profile_velocity_scale / bc["source"].get("data_scale", 1.0)
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
-                staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
-                staged_path = os.path.join(profile_dir, staged_name)
+                staged_path = os.path.join(profile_dir, inlet_profile_filename(i, face))
                 if os.path.isfile(staged_path):
                     with open(staged_path, "r", encoding="utf-8") as stream:
                         header = [line.strip() for line in stream if line.strip() and not line.lstrip().startswith("#")]
@@ -13324,10 +13280,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                         source["path"], os.path.dirname(os.path.abspath(case_path))
                     )
                 elif source["type"] == "field_slice":
-                    source_path = os.path.join(
-                        profile_dir,
-                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.sliced.dimensional.picslice",
-                    )
+                    source_path = os.path.join(profile_dir, inlet_profile_filename(i, face, sliced=True))
                     if os.path.abspath(source_path) == os.path.abspath(staged_path):
                         raise ValueError(
                             f"field_slice output_file for block {i}, face {face} must differ from staged solver profile."
@@ -14431,34 +14384,11 @@ def load_ic_generator_module():
     return load_generator_module("ic.gen", "picurv_ic_generator")
 
 
-def load_source_expressions():
-    """!
-    @brief Load `source_expressions`, the expression language's Python side, from beside this file.
-    @details A plain module rather than a package import, so this file works when it is loaded on
-             its own, as the tests do, and the generators load it the same way.
-    @return The module.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    return importlib.import_module("source_expressions")
-
-
-#: Variables a prescribed velocity source may use, in physical units; the runtime's list is
-#: `kPicurvSourceVariableNames` in `src/expression.c`. `xi`, `eta`, `zeta` are arc-length
-#: fractions along the grid lines through the point, and `L_xi`, `L_eta`, `L_zeta` those lines'
-#: lengths [m].
-SOURCE_EXPRESSION_NAMES = frozenset({"x", "y", "z", "t", "xi", "eta", "zeta", "L_xi", "L_eta", "L_zeta"})
-#: On a face a source also reads `r`, the distance from the face's centre [m].
-FACE_SOURCE_EXPRESSION_NAMES = SOURCE_EXPRESSION_NAMES | {"r"}
 #: Component frames a velocity source may be written in, and the value names each takes; the
 #: normal frame takes one value, the speed into the domain through a face.
 SOURCE_FRAMES = {"cartesian": ("u", "v", "w"), "curvilinear": ("u_xi", "u_eta", "u_zeta"),
                  "contravariant": ("u_xi", "u_eta", "u_zeta"), "normal": None}
 _SOURCE_KEYS = {"expression", "components", "constants", "pressure"}
-_SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
-#: A call to a random draw in expression text.
-EXPRESSION_DRAW = re.compile(r"\b(uniform|normal)\s*\(")
 
 
 def _source_text(value, constants: dict, names, where: str, language, random: bool = False) -> str:
@@ -14479,8 +14409,8 @@ def _source_text(value, constants: dict, names, where: str, language, random: bo
         return language.lower_value(dict(value, params=constants), names, random=random, where=where)
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError(f"{where} must be a number, an expression string, or regions over a background.")
-    text = repr(float(value)) if not isinstance(value, str) else language._substitute_params(value, constants)
-    language._validate_at(text, names, random, where)
+    text = repr(float(value)) if not isinstance(value, str) else language.substitute_params(value, constants)
+    language.validate_at(text, names, random, where)
     return text
 
 
@@ -14494,7 +14424,8 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     @param[in] language The loaded `source_expressions` module.
     @return Mapping of names to numbers.
     """
-    reserved = set(FACE_SOURCE_EXPRESSION_NAMES) | set(language.FUNCTION_ARITY) | {"pi"}
+    # Constants are shared by every source, so no source's variable may name one.
+    reserved = language.FACE_SOURCE_EXPRESSION_NAMES | language.PARTICLE_EXPRESSION_NAMES | language.RESERVED_WORDS
     merged = {}
     fluid = ((case_cfg.get("properties") or {}).get("fluid")) or {}
     density, viscosity = fluid.get("density"), fluid.get("viscosity")
@@ -14515,6 +14446,44 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     return merged
 
 
+def expand_source(spec, case_cfg: dict, where: str, strict: bool = True, missing: str = ""):
+    """!
+    @brief Dereference a source named under the case's `sources:`, and expand its `sum`.
+    @details Every reader of a source walks it with this: a name becomes its mapping and the
+             path `sources.<name>`, and a `sum` gives its terms with their paths. A term may
+             itself be a name or a sum, which the caller expands in turn.
+    @param[in] spec Source as written: a name, a mapping, or anything else.
+    @param[in] case_cfg Case configuration holding `sources:`.
+    @param[in] where Configuration path of the source.
+    @param[in] strict Whether a `sources:` that is not a mapping, an unknown name, or a malformed
+               sum raises. When false they read as no sources, an unresolved name, and the
+               sum's list, if it is one.
+    @param[in] missing Text the unknown-name error ends with.
+    @return `(where, spec, terms)`: the path and value after dereferencing, and the sum's
+            `(path, term)` pairs, or None when the source is not a sum.
+    @throws ValueError when strict, as above.
+    """
+    named = (case_cfg or {}).get("sources") or {}
+    if not isinstance(named, dict):
+        if strict:
+            raise ValueError("sources must map names to source definitions.")
+        named = {}
+    if isinstance(spec, str):
+        if spec in named:
+            where, spec = f"sources.{spec}", named[spec]
+        elif strict:
+            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'})."
+                             f"{missing}")
+    if not isinstance(spec, dict) or "sum" not in spec:
+        return where, spec, None
+    terms = spec["sum"]
+    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
+        if strict:
+            raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
+        terms = terms if isinstance(terms, list) else []
+    return where, spec, [(f"{where}.sum[{index}]", term) for index, term in enumerate(terms)]
+
+
 def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool) -> dict:
     """!
     @brief Resolve a velocity source, given inline or by its name under the case's `sources:`.
@@ -14532,18 +14501,12 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     @return `{"frame", "expressions", "constants", "data"}`; `data` is the normalized profile
             source, or None for expressions.
     """
-    language = load_source_expressions()
-    named = case_cfg.get("sources") or {}
-    if not isinstance(named, dict):
-        raise ValueError("sources must map names to source definitions.")
-    if isinstance(spec, str):
-        if spec not in named:
-            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}).")
-        where, spec = f"sources.{spec}", named[spec]
+    language = load_shared_module("source_expressions")
+    where, spec, terms = expand_source(spec, case_cfg, where)
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources.")
-    if "sum" in spec:
-        return _resolve_source_sum(spec, case_cfg, where, allow_normal)
+    if terms is not None:
+        return _resolve_source_sum(terms, case_cfg, where, allow_normal)
     if "type" in spec:
         if not allow_normal:
             raise ValueError(f"{where}: a '{spec['type']}' data source is a face's normal-speed profile, "
@@ -14560,7 +14523,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     if frame not in SOURCE_FRAMES or frame == (cells_only if allow_normal else face_only):
         allowed = [name for name in SOURCE_FRAMES if name != (cells_only if allow_normal else face_only)]
         raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
-    names = FACE_SOURCE_EXPRESSION_NAMES if allow_normal else SOURCE_EXPRESSION_NAMES
+    names = language.FACE_SOURCE_EXPRESSION_NAMES if allow_normal else language.SOURCE_EXPRESSION_NAMES
     constants = _source_constants(spec, case_cfg, where, language)
     expression = spec["expression"]
     if frame == "normal":
@@ -14582,20 +14545,16 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
-def _resolve_source_sum(spec: dict, case_cfg: dict, where: str, allow_normal: bool) -> dict:
+def _resolve_source_sum(terms: list, case_cfg: dict, where: str, allow_normal: bool) -> dict:
     """!
     @brief Add a source's `sum` terms: expressions in one frame, and at most one data term.
-    @param[in] spec Mapping with `sum`, a non-empty list of sources.
+    @param[in] terms The sum's `(path, term)` pairs, from expand_source().
     @param[in] case_cfg Case configuration holding `sources:`.
-    @param[in] where Configuration path of the sum.
+    @param[in] where Configuration path of the source holding the sum.
     @param[in] allow_normal Whether the target is a face.
     @return The resolved source; see resolve_velocity_source().
     """
-    terms = spec["sum"]
-    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    resolved = [resolve_velocity_source(term, case_cfg, f"{where}.sum[{index}]", allow_normal)
-                for index, term in enumerate(terms)]
+    resolved = [resolve_velocity_source(term, case_cfg, term_where, allow_normal) for term_where, term in terms]
     data = [source["data"] for source in resolved if source["data"] is not None]
     if len(data) > 1:
         raise ValueError(f"{where}.sum takes at most one data term.")
@@ -14638,20 +14597,18 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     if unknown:
         raise ValueError(f"{where}: {unknown} are not constraints of this target; it takes {sorted(allowed)}.")
     if "scale" in constraints:
-        scale = constraints["scale"]
-        if isinstance(scale, bool) or not isinstance(scale, (int, float)):
-            raise ValueError(f"{where}.scale must be a number.")
+        scale = _to_finite_float(constraints["scale"], f"{where}.scale", strict=True)
         if resolved["data"] is not None:
             if scale <= 0:
                 raise ValueError(f"{where}.scale must be positive for a profile of speeds.")
-            resolved["data_scale"] = float(scale)
-        resolved["expressions"] = [f"({text})*({float(scale)!r})" for text in resolved["expressions"]]
+            resolved["data_scale"] = scale
+        resolved["expressions"] = [f"({text})*({scale!r})" for text in resolved["expressions"]]
     if "bulk_velocity" in constraints and "flow_rate" in constraints:
         raise ValueError(f"{where} gives either bulk_velocity or flow_rate.")
     for target in ("bulk_velocity", "flow_rate"):
         if target in constraints:
             resolved[target] = _source_text(constraints[target], source["constants"], {"t"},
-                                            f"{where}.{target}", load_source_expressions())
+                                            f"{where}.{target}", load_shared_module("source_expressions"))
     return resolved
 
 
@@ -14677,7 +14634,7 @@ def verification_field_text(field, name: str) -> str:
     if not isinstance(constants, dict):
         raise ValueError(f"{where}.constants must map names to numbers.")
     return _source_text(field["expression"], constants, ("x", "y", "z", "t"), f"{where}.expression",
-                        load_source_expressions())
+                        load_shared_module("source_expressions"))
 
 
 def expression_control_value(text: str, where: str) -> str:
@@ -14737,21 +14694,13 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     @return Expression text.
     @throws ValueError on an invalid or retired form.
     """
-    language = load_source_expressions()
-    named = case_cfg.get("sources") or {}
-    if isinstance(spec, str):
-        if spec not in (named if isinstance(named, dict) else {}):
-            raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'}). "
-                             "An expression is written {expression: ...}.")
-        where, spec = f"sources.{spec}", named[spec]
+    language = load_shared_module("source_expressions")
+    where, spec, terms = expand_source(spec, case_cfg, where, missing=" An expression is written {expression: ...}.")
     if not isinstance(spec, dict):
         raise ValueError(f"{where} must be a source mapping or the name of one under sources; "
                          "a number or expression is written {expression: ...}.")
-    if "sum" in spec:
-        terms = spec["sum"]
-        if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-            raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-        return " + ".join(f"({resolve_particle_source(term, case_cfg, f'{where}.sum[{n}]')})" for n, term in enumerate(terms))
+    if terms is not None:
+        return " + ".join(f"({resolve_particle_source(term, case_cfg, term_where)})" for term_where, term in terms)
     retired = sorted(set(spec) & {"params", "value", "background", "regions"})
     if retired:
         raise ValueError(f"{where} keys {retired} are retired: write {{expression: <number, expression, or "
@@ -14821,10 +14770,10 @@ def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
                          "the entering fluid carries; the solver converts it with the grid's cells and volume.")
     if not isinstance(spec, dict) or "particles_per_cell" not in spec or set(spec) - {"particles_per_cell", "fields"}:
         raise ValueError(f"{where} takes particles_per_cell and optionally fields.")
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     per_cell = spec["particles_per_cell"]
-    if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool) and per_cell <= 0:
-        raise ValueError(f"{where}.particles_per_cell must be positive (got {per_cell}).")
+    if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool):
+        _to_finite_float(per_cell, f"{where}.particles_per_cell", positive=True)
     text = _source_text(per_cell, _source_constants({}, case_cfg, where, language), ("t",),
                         f"{where}.particles_per_cell", language)
     fields = normalize_particle_fields(spec["fields"], case_cfg, f"{where}.fields") if spec.get("fields") else []
@@ -14860,9 +14809,9 @@ def normalize_inlet_fluctuations(spec, case_cfg: dict, where: str, block_path: t
     stresses = spec["reynolds_stress"]
     if not isinstance(stresses, dict) or not stresses or set(stresses) - {c for g in INLET_FLUCTUATION_STRESSES for c in g}:
         raise ValueError(f"{where}.reynolds_stress maps uu, vv, ww, uv, uw and vw to expressions; omitted ones are zero.")
-    language = load_source_expressions()
+    language = load_shared_module("source_expressions")
     constants = _source_constants({}, case_cfg, where, language)
-    names = set(FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
+    names = set(language.FACE_SOURCE_EXPRESSION_NAMES) - {"t"}
     stress = [[_source_text(stresses.get(name, 0.0), constants, names, f"{where}.reynolds_stress.{name}", language)
                for name in group] for group in INLET_FLUCTUATION_STRESSES]
     lengths = spec["length_scales"]
@@ -14915,10 +14864,9 @@ def particle_seed_count(case_cfg: dict, case_path: str, staged_grid: "str | None
                          "grid source does not declare before it is generated.")
     cells = [n - 1 for n in dims[0]]
     if normalize_particle_init_mode(particles.get("init_mode", "Surface")) == 0:
-        raw_blocks = case_cfg.get("boundary_conditions") or []
-        entries = raw_blocks[0] if raw_blocks and isinstance(raw_blocks[0], list) else raw_blocks
+        entries = (normalize_boundary_conditions_layout(case_cfg.get("boundary_conditions")) or [[]])[0]
         inlets = [e.get("face") for e in entries if isinstance(e, dict) and e.get("type") == "INLET"]
-        order = ["-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"]
+        order = list(BC_FACE_MAP.values())
         faces = [f for f in order if f in inlets]
         if not faces:
             raise ValueError("Surface seeding needs an INLET face on block 0.")
@@ -14933,14 +14881,12 @@ def case_injects_particles(case_cfg: dict) -> bool:
     @param[in] case_cfg Parsed case.yml.
     @return True when a boundary entry carries `particles`; validation reports its errors.
     """
-    raw_blocks = (case_cfg or {}).get("boundary_conditions") or []
-    if raw_blocks and isinstance(raw_blocks[0], dict):
-        raw_blocks = [raw_blocks]
+    blocks = normalize_boundary_conditions_layout((case_cfg or {}).get("boundary_conditions"))
     return any(isinstance(entry, dict) and entry.get("particles") is not None
-               for block in raw_blocks for entry in (block if isinstance(block, list) else []))
+               for block in blocks for entry in block)
 
 
-def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
+def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict, where: str) -> dict:
     """!
     @brief Convert a provider's validated physical parameters to solver units.
     @details Providers work on the staged nondimensional grid, so every dimensional
@@ -14949,6 +14895,7 @@ def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dic
     @param[in] generator Provider identifier.
     @param[in] params Validated parameter mapping in physical units.
     @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @param[in] where Configuration path of the parameter mapping.
     @return A copy of the mapping with dimensional values in solver units.
     """
     converted = copy.deepcopy(params)
@@ -14961,17 +14908,19 @@ def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dic
             holder = holder.get(parent) if isinstance(holder, dict) else None
         if isinstance(holder, dict) and leaf in holder:
             holder[leaf] = quantity_to_solver_units(
-                holder[leaf], quantity, scales, f"initial_conditions.params.{name}")
+                holder[leaf], quantity, scales, f"{where}.{name}")
     return converted
 
 
-def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
+def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks, scales: dict,
+                                      provider_context=None) -> dict:
     """!
     @brief Validate `resampled_velocity` parameters and convert them to the provider contract.
     @details The provider brings an external triply periodic velocity field onto the case's
              grid. Its box must be the case's box; the source's container, layout, and sample
              positions are declared because no standard format records them all.
     @param[in] params Raw provider parameters, physical units.
+    @param[in] where Configuration path of `params`.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales.
     @param[in] provider_context Optional conductor-derived provider context.
@@ -15011,7 +14960,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
     if not isinstance(box, list) or len(box) != 3:
         raise ValueError(f"{name} requires params.box_length: the source's periods along x, y, z, "
                          "in physical length.")
-    box = [_to_finite_float(value, f"initial_conditions.params.box_length[{index}]")
+    box = [_to_finite_float(value, f"{where}.box_length[{index}]")
            for index, value in enumerate(box)]
     if any(value <= 0 for value in box):
         raise ValueError(f"{name} params.box_length values must be positive.")
@@ -15019,7 +14968,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
     offset = offset if isinstance(offset, list) else [offset, offset, offset]
     if len(offset) != 3:
         raise ValueError(f"{name} params.sample_offset is one number or three, along x, y, z.")
-    offset = [_to_finite_float(value, f"initial_conditions.params.sample_offset[{index}]")
+    offset = [_to_finite_float(value, f"{where}.sample_offset[{index}]")
               for index, value in enumerate(offset)]
     if any(value < 0.0 or value >= 1.0 for value in offset):
         raise ValueError(f"{name} params.sample_offset is a fraction of the source spacing in [0, 1): "
@@ -15068,7 +15017,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
                          f"{sorted(expected[filter_type]) or 'no parameters'}.")
     normalized_filter = {"type": filter_type}
     for key in expected[filter_type]:
-        value = _to_finite_float(filter_cfg[key], f"initial_conditions.params.filter.{key}")
+        value = _to_finite_float(filter_cfg[key], f"{where}.filter.{key}")
         if value <= 0:
             raise ValueError(f"{name} filter.{key} must be positive.")
         normalized_filter[key] = value
@@ -15084,7 +15033,7 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
                   "projection": projection, "remove_mean": remove_mean}
     if cells is not None:
         normalized["cells"] = list(cells)
-    resolved = ic_provider_params_to_solver_units(name, normalized, scales)
+    resolved = ic_provider_params_to_solver_units(name, normalized, scales, where)
     resolved["velocity_divisor"] = float(scales["velocity_ref"])
     return {"kind": name, "label": name,
             "field_name": field_name, "field_code": field_code,
@@ -15115,17 +15064,18 @@ def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
     return spectra["tasks"]
 
 
-def initial_field_term(ic: dict) -> dict:
+def initial_field_term(ic: dict, case_cfg: "dict | None" = None) -> dict:
     """!
     @brief Find the term of an initial condition's source that stages a field.
+    @details The term resolve_initial_condition_config() stages, found the same way, a name under
+             `sources:` included; nothing here raises, validation does.
     @param[in] ic Raw `properties.initial_conditions` mapping.
-    @return The generator or file term, or an empty mapping when the source has none.
+    @param[in] case_cfg Case configuration holding `sources:`, or None.
+    @return The generator or file term, the shared mapping when named, or an empty mapping when
+            the source has none.
     """
-    source = ic.get("source")
-    terms = source.get("sum", [source]) if isinstance(source, dict) else []
-    if not isinstance(terms, list):
-        return {}
-    return next((term for term in terms if isinstance(term, dict) and ("generator" in term or "type" in term)), {})
+    return _split_initial_field_term(ic.get("source"), "properties.initial_conditions.source", case_cfg,
+                                     strict=False)[1] or {}
 
 
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None,
@@ -15155,9 +15105,9 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     where = "properties.initial_conditions.source"
     spec = ic["source"]
     project = isinstance(spec, dict) and "sum" in spec
-    spec, field_term = _split_initial_field_term(spec, where, (case_cfg or {}).get("sources"))
+    spec, field_term, field_where = _split_initial_field_term(spec, where, case_cfg)
     field = None if field_term is None else _resolve_initial_field_term(
-        field_term, where, prepared_blocks, scales, provider_context)
+        field_term, field_where, prepared_blocks, scales, provider_context)
     source = {"frame": "cartesian", "expressions": [], "constants": {}, "data": None} if spec is None else \
         resolve_velocity_source(spec, case_cfg or {}, where, allow_normal=False)
     constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
@@ -15213,31 +15163,32 @@ def _retired_initial_condition_message(ic: dict) -> "str | None":
             f"Write {replacement}.")
 
 
-def _split_initial_field_term(spec, where: str, named_sources):
+def _split_initial_field_term(spec, where: str, case_cfg, strict: bool = True):
     """!
     @brief Split an initial source into its expression terms and at most one staged-field term.
+    @details The field term is the source itself, a name of one, or a term of an inline sum,
+             itself possibly a name. A named sum is left whole, for resolve_velocity_source().
     @param[in] spec Raw source: a name, a mapping, or a `sum`.
     @param[in] where Configuration path of the source.
-    @param[in] named_sources The case's `sources:` mapping.
-    @return `(source specification or None when only a field term remains, field term or None)`.
+    @param[in] case_cfg Case configuration holding `sources:`, or None.
+    @param[in] strict Whether a malformed source raises; when false the first field term is taken.
+    @return `(source specification or None when only a field term remains, field term or None,
+            the field term's configuration path or None)`.
     """
-    named = named_sources if isinstance(named_sources, dict) else {}
     is_field = lambda term: isinstance(term, dict) and ("generator" in term or "type" in term)
-    if isinstance(spec, str) and is_field(named.get(spec)):
-        spec = named[spec]
-    if is_field(spec):
-        return None, spec
-    if not (isinstance(spec, dict) and "sum" in spec):
-        return spec, None
-    terms = spec["sum"]
-    if set(spec) != {"sum"} or not isinstance(terms, list) or not terms:
-        raise ValueError(f"{where}.sum must be the only key, a non-empty list of terms.")
-    resolved = [named.get(term, term) if isinstance(term, str) else term for term in terms]
-    fields = [term for term in resolved if is_field(term)]
-    if len(fields) > 1:
+    value_where, value, terms = expand_source(spec, case_cfg, where, strict=strict)
+    if is_field(value):
+        return None, value, value_where
+    if terms is None or isinstance(spec, str):
+        return spec, None, None
+    # Unknown term names stay names: resolve_velocity_source() reports them.
+    resolved = [expand_source(term, case_cfg, term_where, strict=False)[:2] for term_where, term in terms]
+    fields = [(term_where, value) for term_where, value in resolved if is_field(value)]
+    if len(fields) > 1 and strict:
         raise ValueError(f"{where}.sum: a sum takes at most one generator or file term.")
-    rest = [term for term, value in zip(terms, resolved) if not is_field(value)]
-    return ({"sum": rest} if rest else None), (fields[0] if fields else None)
+    rest = [term for (_, term), (_, value) in zip(terms, resolved) if not is_field(value)]
+    field_where, field = fields[0] if fields else (None, None)
+    return ({"sum": rest} if rest else None), field, field_where
 
 
 def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales: dict, provider_context) -> dict:
@@ -15254,8 +15205,8 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
         unknown = sorted(set(term) - {"generator", "params"})
         if unknown:
             raise ValueError(f"{where}: unknown keys {unknown}; a generator term takes generator and params.")
-        return _resolve_initial_generator(term["generator"], term.get("params") or {}, prepared_blocks, scales,
-                                          provider_context)
+        return _resolve_initial_generator(term["generator"], term.get("params") or {}, f"{where}.params",
+                                          prepared_blocks, scales, provider_context)
     if term["type"] != "file":
         raise ValueError(f"{where}: a '{term['type']}' data source is a face's normal-speed profile, "
                          "so only an inlet reads it; an initial condition takes type: file.")
@@ -15264,7 +15215,7 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
         raise ValueError(f"{where}: unknown keys {unknown}; a file term takes field, path, and source_case or "
                          "velocity_scale and length_scale.")
     if prepared_blocks and len(prepared_blocks) > 1:
-        raise ValueError("File-backed initial conditions currently support single-block cases only.")
+        raise ValueError("File-backed initial conditions support single-block cases only.")
     path = term.get("path")
     if not isinstance(path, str) or not path.strip():
         raise ValueError(f"{where}.path is required for a file term.")
@@ -15274,11 +15225,14 @@ def _resolve_initial_field_term(term: dict, where: str, prepared_blocks, scales:
             "scales": dict(scales)}
 
 
-def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict, provider_context) -> dict:
+def _resolve_initial_generator(generator, params, where: str, prepared_blocks, scales: dict,
+                               provider_context) -> dict:
     """!
     @brief Resolve a named initial-field generator and its parameters into a staging contract.
     @param[in] generator Generator name.
     @param[in] params Generator parameters.
+    @param[in] where Configuration path of `params`: under the initial condition's source, or
+               `sources.<name>.params`.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] scales Reference scales.
     @param[in] provider_context Optional conductor-derived provider context.
@@ -15286,13 +15240,25 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
     """
     generator = str(generator).strip().lower().replace("-", "_").replace(" ", "_")
     if not isinstance(params, dict):
-        raise ValueError("initial_conditions.params must be a mapping.")
+        raise ValueError(f"{where} must be a mapping.")
     for key in RETIRED_INITIAL_CONDITION_DESTINATION_KEYS:
         if key in params:
-            raise ValueError(retired_destination_message("initial_conditions.params", key))
+            raise ValueError(retired_destination_message(where, key))
+
+    def validated(validate):
+        """!
+        @brief Run one of `ic.gen`'s validators, naming the parameters' path in its refusal.
+        @param[in] validate Validator taking the raw parameters.
+        @return Normalized parameters.
+        """
+        try:
+            return validate(params)
+        except ValueError as exc:
+            raise ValueError(f"{where}: {exc}") from None
+
     if generator == "ic_gen":
         if prepared_blocks and len(prepared_blocks) > 1:
-            raise ValueError("File-backed initial conditions currently support single-block cases only.")
+            raise ValueError("File-backed initial conditions support single-block cases only.")
         script = params.get("script")
         if script is None:
             raise ValueError("generator 'ic_gen' runs your own script, and its [expression] config is retired. Write "
@@ -15300,16 +15266,16 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
                              "{components: contravariant, expression: {u_xi, u_eta, u_zeta}} for Ucont. In a source, "
                              "xi, eta and zeta are arc-length fractions, not index fractions, and i, j, k do not exist.")
         if not isinstance(script, str) or not script.strip():
-            raise ValueError("initial_conditions.params.script must be a non-empty path.")
+            raise ValueError(f"{where}.script must be a non-empty path.")
         field_name, field_code = normalize_initial_condition_field(params.get("field"))
         config_file = params.get("config_file")
         if not isinstance(config_file, str) or not config_file.strip():
-            raise ValueError("initial_conditions.params.config_file is required for generator 'ic_gen'.")
+            raise ValueError(f"{where}.config_file is required for generator 'ic_gen'.")
         cli_args = params.get("cli_args", [])
         if cli_args is None:
             cli_args = []
         if not isinstance(cli_args, list):
-            raise ValueError("initial_conditions.params.cli_args must be a list.")
+            raise ValueError(f"{where}.cli_args must be a list.")
         return {
             "kind": "ic_gen", "label": "ic_gen",
             "field_name": field_name, "field_code": field_code,
@@ -15323,7 +15289,7 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
         raise ValueError(f"initial_conditions generator '{generator}' is retired: use generator: spectral_velocity "
                          f"with params.wall_axes: {RETIRED_SPECTRAL_IC_PROVIDERS[generator]}.")
     if generator == "spectral_velocity":
-        normalized = load_ic_generator_module().validate_spectral_velocity_params(params)
+        normalized = validated(load_ic_generator_module().validate_spectral_velocity_params)
         if not prepared_blocks or len(prepared_blocks) != 1:
             raise ValueError("spectral_velocity requires exactly one block with resolved boundaries.")
         faces = prepared_blocks[0]
@@ -15354,11 +15320,11 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
                              "six faces; give wall_axes for a channel or duct.")
         return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
-                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales, where),
                 "provider_context": dict(provider_context or {})}
 
     if generator == "stability_mode_velocity":
-        normalized = load_ic_generator_module().validate_stability_mode_params(params)
+        normalized = validated(load_ic_generator_module().validate_stability_mode_params)
         if not prepared_blocks or len(prepared_blocks) != 1:
             raise ValueError("stability_mode_velocity requires exactly one block with resolved boundaries.")
         face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
@@ -15378,11 +15344,11 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
         context.update({"length_ref": scales["length_ref"], "velocity_ref": scales["velocity_ref"]})
         return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
-                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales, where),
                 "provider_context": context}
 
     if generator == "resampled_velocity":
-        return resolve_resampled_velocity_params(params, prepared_blocks, scales, provider_context)
+        return resolve_resampled_velocity_params(params, where, prepared_blocks, scales, provider_context)
 
     raise ValueError(f"initial_conditions generator '{generator}' is not one of: "
                      f"{sorted(_PYTHON_INITIAL_CONDITION_PROVIDERS)}.")
@@ -15596,24 +15562,13 @@ def petsc_index_arguments(index_bytes: int) -> list:
 def validate_petsc_vec_binary(path: str, index_bytes: "int | None" = None) -> dict:
     """!
     @brief Validate the basic PETSc binary VecView envelope used by ReadFieldData.
+    @details `petsc_binary.validate_petsc_vec_binary()` owns the check; this supplies the width.
     @param[in] path PETSc binary vector path.
     @param[in] index_bytes PetscInt width of the reading build; the driven solver's when None.
     @return Summary containing the absolute path, scalar count and index width.
     """
-    import struct
-    index_bytes = index_bytes or runtime_petsc_index_bytes()
-    header_bytes = 2 * index_bytes
-    with open(path, "rb") as fin:
-        header = fin.read(header_bytes)
-        if len(header) != header_bytes:
-            raise ValueError(f"PETSc Vec file is too short: {path}")
-        class_id, scalar_count = struct.unpack(">ii" if index_bytes == 4 else ">qq", header)
-        payload = fin.read()
-    if class_id != 1211214 or scalar_count < 0 or len(payload) != scalar_count * 8:
-        raise ValueError(
-            f"Invalid PETSc Vec file {path} for a PETSc with {index_bytes}-byte indices; a file "
-            f"written for the other index width (or truncated) does not fit its header.")
-    return {"path": os.path.abspath(path), "scalar_count": scalar_count, "index_bytes": index_bytes}
+    return load_shared_module("petsc_binary").validate_petsc_vec_binary(
+        path, index_bytes or runtime_petsc_index_bytes())
 
 
 def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float) -> dict:
@@ -15630,7 +15585,7 @@ def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float)
     from array import array
     index_bytes = validate_petsc_vec_binary(source)["index_bytes"]
     with open(source, "rb") as fin:
-        header = fin.read(2 * index_bytes)
+        fin.seek(2 * index_bytes)
         values = array("d")
         values.frombytes(fin.read())
     if sys.byteorder == "little":
@@ -15639,9 +15594,7 @@ def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float)
         values[index] = value / divisor
     if sys.byteorder == "little":
         values.byteswap()
-    with open(destination, "wb") as fout:
-        fout.write(header)
-        fout.write(values.tobytes())
+    load_shared_module("petsc_binary").write_petsc_vec_binary(destination, values.tobytes(), index_bytes)
     return validate_petsc_vec_binary(destination, index_bytes)
 
 def initial_condition_diagnostic_paths(run_dir, resolved_ic):
@@ -15711,7 +15664,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         script = os.path.join(GENERATORS_PATH, "ic.gen")
         output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if not os.path.isfile(staged_grid):
             raise ValueError(f"{resolved_ic['kind']} requires a staged PICGRID at inputs/grid/grid.run.")
         summary_path = os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json")
@@ -15766,7 +15719,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     cmd = [sys.executable, script, "-c", config_file, "--field",
            "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
            "--output", output_path, *petsc_index_arguments(runtime_petsc_index_bytes())]
-    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(run_dir, STAGED_GRID_RELPATH)
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
     # The script is given the scales and writes solver units, like every other provider.
@@ -15840,7 +15793,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         if not os.path.isfile(source_path):
             raise ValueError(f"Initial-condition source file not found: {source_path}")
         payload = validate_petsc_vec_binary(source_path)
-        _check_file_ic_matches_grid(payload, os.path.join(run_dir, "inputs", "grid", "grid.run"), resolved_ic)
+        _check_file_ic_matches_grid(payload, os.path.join(run_dir, STAGED_GRID_RELPATH), resolved_ic)
         divisor = ic_payload_divisor(resolved_ic, case_dir)
     if divisor != 1.0:
         write_scaled_petsc_vec_binary(source_path, staged_path, divisor)
@@ -16308,13 +16261,7 @@ def resolve_les_diagnostics(case_cfg: dict, monitor_cfg: dict, warn: bool = Fals
             raise ValueError(f"{label}.cadence must be a positive integer.")
         resolved["cadence"] = value["cadence"]
     if "yoshizawa_ci" in value:
-        try:
-            ci = _to_finite_float(value["yoshizawa_ci"], f"{label}.yoshizawa_ci")
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label}.yoshizawa_ci must be numeric.") from exc
-        if ci < 0.0:
-            raise ValueError(f"{label}.yoshizawa_ci must be non-negative.")
-        resolved["yoshizawa_ci"] = ci
+        resolved["yoshizawa_ci"] = _to_finite_float(value["yoshizawa_ci"], f"{label}.yoshizawa_ci", nonnegative=True)
     if monitor_value is None and warn:
         print("[WARNING] case.yml models.physics.turbulence.les.diagnostics is deprecated; "
               "set it in monitor.yml as diagnostics.les.", file=sys.stderr)
@@ -17227,7 +17174,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if grid_mode == 'file':
         print("[INFO] Grid Mode: Using external file...")
         case_file_dir = os.path.dirname(configs['case_path'])
-        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(nondim_grid_path):
             print(f"[INFO] Reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
@@ -17247,7 +17194,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
                 sys.exit(1)
     elif grid_mode == 'grid_gen':
-        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
         if os.path.isfile(nondim_grid_path):
             print(f"[INFO] Grid Mode: grid.gen, reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
@@ -17282,7 +17229,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             # the identical formula as ComputeStretchedCoord in src/grid.c, so the two are
             # guaranteed to agree. Nothing above is changed: -grid_file is never emitted,
             # so the solver still builds its own grid exactly as before.
-            nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+            nondim_grid_path = os.path.join(run_dir, STAGED_GRID_RELPATH)
             if not os.path.isfile(nondim_grid_path):
                 try:
                     generate_picgrid_from_programmatic_settings(
@@ -17321,28 +17268,28 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
     for block_index, block in enumerate(prepared_blocks):
-        for entry in block:
+        for entry_index, entry in enumerate(block):
             if "source" in entry:
                 control_lines.extend(velocity_source_control_lines(
                     f"-face_source_{entry['params']['source_id']}", entry["source"],
-                    f"boundary_conditions[{block_index}] {entry['face']}.source"))
+                    f"boundary_conditions[{block_index}][{entry_index}].source"))
             if "fluctuations" in entry:
                 prefix, fluct = f"-face_source_{entry['params']['source_id']}", entry["fluctuations"]
-                where = f"boundary_conditions[{block_index}] {entry['face']}.fluctuations"
+                where = f"boundary_conditions[{block_index}][{entry_index}].fluctuations"
                 control_lines.append(f"{prefix}_fluct true")
                 for group, texts in enumerate(fluct["stress"]):
-                    control_lines.append(f"{prefix}_fluct_stress_{group}_frame cartesian")
-                    for component, text in enumerate(texts):
-                        control_lines.append(f"{prefix}_fluct_stress_{group}_expr_{component} \"{expression_control_value(text, where)}\"")
+                    control_lines.extend(velocity_source_control_lines(
+                        f"{prefix}_fluct_stress_{group}", {"frame": "cartesian", "expressions": texts}, where))
                 control_lines.append(f"{prefix}_fluct_length {fluct['length_scales'][0]!r},{fluct['length_scales'][1]!r}")
                 control_lines.append(f"{prefix}_fluct_time {fluct['time_scale']!r}")
     if any("fluctuations" in entry for block in prepared_blocks for entry in block):
         control_lines.append("-inflow_fluctuations true")
-    inlets = [entry for block in prepared_blocks for entry in block if "particles" in entry]
+    inlets = [(f"boundary_conditions[{block_index}][{entry_index}].particles", entry)
+              for block_index, block in enumerate(prepared_blocks)
+              for entry_index, entry in enumerate(block) if "particles" in entry]
     if inlets:
         control_lines.append(f"-particle_inlet_count {len(inlets)}")
-    for index, entry in enumerate(inlets):
-        where = f"boundary_conditions {entry['face']}.particles"
+    for index, (where, entry) in enumerate(inlets):
         prefix = f"-particle_inlet_{index}"
         control_lines.append(f"{prefix}_face {list(BC_FACE_MAP.values()).index(entry['face'])}")
         control_lines.append(f"{prefix}_particles_per_cell \"{expression_control_value(entry['particles']['particles_per_cell'], where)}\"")
@@ -17352,12 +17299,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     configs["decomposition_resolved"] = append_grid_da_processor_layout(
         control_lines, grid_cfg, num_procs,
         block_dims=resolve_grid_node_dims(
-            case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")),
+            case_cfg, configs["case_path"], os.path.join(run_dir, STAGED_GRID_RELPATH)),
         solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg),
         explicit=configs.get("decomposition"), cluster_cfg=configs.get("cluster_cfg"))
     
     parse_and_add_model_flags(case_cfg, control_lines, particle_seed_count(
-        case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")))
+        case_cfg, configs["case_path"], os.path.join(run_dir, STAGED_GRID_RELPATH)))
     append_les_diagnostics_flags(resolve_les_diagnostics(case_cfg, configs.get('monitor') or {}), control_lines)
     
     if 'solver_parameters' in case_cfg:
@@ -17464,7 +17411,7 @@ def resolve_post_decomposition(run_dir: str, num_procs: int, explicit=None,
     case_cfg = read_yaml_file(active["case"]) if active.get("case") and os.path.isfile(active["case"]) else {}
     solver_cfg = read_yaml_file(active["solver"]) if active.get("solver") and os.path.isfile(active["solver"]) else {}
     block_dims = resolve_grid_node_dims(case_cfg, active.get("case") or os.path.join(run_dir, "config", "case.yml"),
-                                        os.path.join(run_dir, "inputs", "grid", "grid.run"))
+                                        os.path.join(run_dir, STAGED_GRID_RELPATH))
     return resolve_decomposition(num_procs, case_cfg.get("grid") or {}, block_dims, solver_cfg,
                                  case_declares_periodic_axis(case_cfg), explicit, cluster_cfg)
 
@@ -18956,7 +18903,7 @@ def build_run_dry_plan(args) -> dict:
         # cluster, after the queue wait; it is decidable here from the grid's size.
         block_dims = resolve_grid_node_dims(
             loaded_case_cfg, case_path,
-            os.path.join(run_dir, "inputs", "grid", "grid.run") if continue_mode else None)
+            os.path.join(run_dir, STAGED_GRID_RELPATH) if continue_mode else None)
         decomposition = resolve_decomposition(
             solver_num_procs_effective, loaded_case_cfg.get("grid") or {}, block_dims, solver_cfg,
             case_declares_periodic_axis(loaded_case_cfg), getattr(args, "decomposition", None),
@@ -19352,7 +19299,7 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
 
 def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
     """!
-    @brief Add generated inlet profile artifacts to a dry-run plan.
+    @brief Add the profiles a `field_slice` inlet source slices, and their staged copies, to a dry-run plan.
     @param[in,out] plan Dry-run plan to update.
     @param[in] case_cfg Parsed case configuration.
     @param[in] run_dir Preview run directory.
@@ -19362,21 +19309,16 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
     except ValueError:
         return
     profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
-    has_generated = False
+    has_sliced = False
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
             source = profile_data_source(bc) or {}
             if source.get("type") not in PROFILE_SOURCE_TYPES[1:]:
                 continue
-            has_generated = True
-            face_token = _face_artifact_token(bc["face"])
-            generated_path = os.path.join(
-                profile_dir, f"inlet_profile_block{block_idx}_{face_token}.sliced.dimensional.picslice"
-            )
-            staged_path = os.path.join(profile_dir, f"inlet_profile_block{block_idx}_{face_token}.picslice")
-            plan["artifacts"].append(generated_path)
-            plan["artifacts"].append(staged_path)
-    if has_generated:
+            has_sliced = True
+            plan["artifacts"].append(os.path.join(profile_dir, inlet_profile_filename(block_idx, bc["face"], sliced=True)))
+            plan["artifacts"].append(os.path.join(profile_dir, inlet_profile_filename(block_idx, bc["face"])))
+    if has_sliced:
         plan["artifacts"].append(os.path.join(profile_dir, "profile.info"))
 
 def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_cfg: dict, run_dir: str) -> None:
@@ -19412,7 +19354,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
     )
     if is_generated_ic_provider(resolved):
         if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
-            plan["artifacts"].append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+            plan["artifacts"].append(os.path.join(run_dir, STAGED_GRID_RELPATH))
         plan["artifacts"].append(os.path.join(initial_dir, "initial_condition.generated.dat"))
         plan["artifacts"].extend(initial_condition_diagnostic_paths(run_dir, resolved))
 
@@ -19770,7 +19712,7 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
     initial = copy.deepcopy(
         ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
     )
-    initial_term = initial_field_term(initial)
+    initial_term = initial_field_term(initial, case_cfg)
     initial_file = initial_term.get("type") == "file"
     initial_generator = str(initial_term.get("generator", "source")).strip().lower()
     generated_python = initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
@@ -19971,7 +19913,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
 
     grid_cfg = case_cfg.get("grid", {}) or {}
     expected_nblk = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
-    staged_grid = os.path.join(build_root, "inputs", "grid", "grid.run")
+    staged_grid = os.path.join(build_root, STAGED_GRID_RELPATH)
     if "grid" in selected_kinds:
         before = fingerprint("grid")
         if grid_cfg.get("mode") in _FILE_BACKED_GRID_VALUES:
@@ -20145,7 +20087,7 @@ def _build_asset_inspection(kind: str, build_root: str, provider: dict,
     }
 
     if kind == "grid":
-        staged = os.path.join(build_root, "inputs", "grid", "grid.run")
+        staged = os.path.join(build_root, STAGED_GRID_RELPATH)
         if os.path.isfile(staged):
             try:
                 geometry = _picgrid_geometry_summary(staged)
@@ -22629,16 +22571,16 @@ def _parse_continuity_metrics_log(log_dir: str) -> "tuple[dict, list[int]]":
     return {step: list(blocks.values()) for step, blocks in rows_by_step.items()}, step_order
 
 
-def _parse_particle_metrics_log(log_dir: str, metrics_dir: str) -> "tuple[dict, list[int]]":
+def _rows_by_step(rows: list, keep_step: bool = True) -> "tuple[dict, list[int]]":
     """!
-    @brief Read the per-step particle record into rows by step plus observed order.
-    @param[in] log_dir Run log directory.
-    @param[in] metrics_dir Run analysis metrics directory.
+    @brief Index a one-row-per-step record's `(segment, row)` pairs by step; a step's last row wins.
+    @param[in] rows Pairs from one of the record readers, such as `_particle_step_rows()`.
+    @param[in] keep_step Whether each indexed row keeps its `step` key.
     @return Mapping step -> row, and the steps in file order.
     """
     rows_by_step, step_order = {}, []
-    for _, row in _particle_step_rows(log_dir, metrics_dir)[1]:
-        rows_by_step[row["step"]] = {key: value for key, value in row.items() if key != "step"}
+    for _, row in rows:
+        rows_by_step[row["step"]] = row if keep_step else {key: value for key, value in row.items() if key != "step"}
         step_order.append(row["step"])
     return rows_by_step, step_order
 
@@ -22765,19 +22707,6 @@ def _parse_runtime_memory_log(filepath: str) -> "tuple[dict, list[int], dict]":
         "final_row": final_row,
     }
     return rows_by_step, step_order, meta
-
-
-def _parse_solution_convergence_log(log_dir: str) -> "tuple[dict, list[int]]":
-    """!
-    @brief Read the solution-convergence record into rows by step plus observed order.
-    @param[in] log_dir Run log directory.
-    @return Mapping step -> row of every column, and the steps in file order.
-    """
-    rows_by_step, step_order = {}, []
-    for _, row in _solution_convergence_rows(log_dir)[1]:
-        rows_by_step[row["step"]] = row
-        step_order.append(row["step"])
-    return rows_by_step, step_order
 
 
 def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> "list[str]":
@@ -23268,7 +23197,7 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
                              or os.path.join(metrics_dir, "search_metrics.csv"))
 
     continuity_rows, continuity_order = _parse_continuity_metrics_log(log_dir)
-    particle_rows, particle_order = _parse_particle_metrics_log(log_dir, metrics_dir)
+    particle_rows, particle_order = _rows_by_step(_particle_step_rows(log_dir, metrics_dir)[1], keep_step=False)
     momentum_rows, momentum_sources, momentum_order = _parse_momentum_convergence_logs(log_dir)
     poisson_rows, poisson_sources, poisson_order = _parse_poisson_convergence_logs(log_dir)
 
@@ -23283,7 +23212,7 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
 
     convergence_log_path = (_log_family_path(log_dir, "solution_convergence")
                             or os.path.join(log_dir, "solution_convergence.csv"))
-    convergence_rows, convergence_order = _parse_solution_convergence_log(log_dir)
+    convergence_rows, convergence_order = _rows_by_step(_solution_convergence_rows(log_dir)[1])
     step_orders = _order_summary_step_orders(
         [
             (continuity_order, continuity_path),
@@ -24174,7 +24103,7 @@ def _read_runtime_diagnostics_csv(path):
     continuations seen so far, so a caller can keep restarts as separate series instead of
     drawing a line across the seam.
 
-    @param path CSV to read.
+    @param[in] path CSV to read.
     @return Generator of `(segment_index, {column: text})` pairs.
     """
     segment = 0
@@ -24196,6 +24125,24 @@ def _read_runtime_diagnostics_csv(path):
             yield segment, dict(zip(header, parts))
 
 
+def _read_legacy_log_lines(path):
+    """!
+    @brief Yields `(segment, line)` for each line of the text log an older run wrote for a record.
+    @details The text counterpart of _read_runtime_diagnostics_csv(): `segment` counts the
+             `Continuation from step N` markers seen so far, which are consumed; each record's
+             reader parses the lines itself, since every text format differed.
+    @param[in] path Text log to read.
+    @return Generator of `(segment_index, raw_line)` pairs.
+    """
+    segment = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            if _is_summary_plot_continuation_marker(raw_line):
+                segment += 1
+                continue
+            yield segment, raw_line
+
+
 def _log_family_path(log_dir: str, base: str) -> "str | None":
     """!
     @brief Return a solver record's CSV, or the text log an older run wrote instead.
@@ -24210,6 +24157,28 @@ def _log_family_path(log_dir: str, base: str) -> "str | None":
     return None
 
 
+def _record_is_csv(path: str) -> bool:
+    """!
+    @brief Whether a solver record holds CSV, whatever its extension.
+    @details Some older runs wrote a record's CSV under a `.log` name; others wrote text, with
+             `|` or whitespace-aligned columns. A CSV header, the first line that is neither
+             blank nor a comment, is comma-separated column names without spaces.
+    @param[in] path Record path.
+    @return True for CSV.
+    """
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line.strip() and not line.lstrip().startswith("#"):
+                fields = line.strip().split(",")
+                return len(fields) > 1 and all(field and "|" not in field and not any(ch.isspace() for ch in field)
+                                               for field in fields)
+    return False
+
+
+#: The block suffix of a per-block solver record's file name.
+_BLOCK_RECORD_SUFFIX = re.compile(r"_Block_(\d+)\.(csv|log)$")
+
+
 def _block_family_paths(log_dir: str, *bases: str) -> "list[tuple[int, str]]":
     """!
     @brief Return `(block, path)` for each per-block solver record, CSV preferred per block.
@@ -24221,7 +24190,7 @@ def _block_family_paths(log_dir: str, *bases: str) -> "list[tuple[int, str]]":
     for base in bases:
         for extension in (".csv", ".log"):
             for path in glob.glob(os.path.join(log_dir, f"{base}_Block_*{extension}")):
-                match = re.search(r"_Block_(\d+)\.(csv|log)$", path)
+                match = _BLOCK_RECORD_SUFFIX.search(path)
                 if match and int(match.group(1)) not in chosen:
                     chosen[int(match.group(1))] = path
     return sorted(chosen.items())
@@ -24255,30 +24224,25 @@ def _continuity_rows(log_dir: str) -> "tuple[str | None, list]":
                 "net_flux": _parse_float_loose(row.get("net_flux")),
             }))
         return path, rows
-    segment = 0
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            if _is_summary_plot_continuation_marker(raw_line):
-                segment += 1
-                continue
-            line = raw_line.strip()
-            if not line or line.startswith("-") or line.startswith("Timestep"):
-                continue
-            parts = [part.strip() for part in raw_line.split("|")]
-            if len(parts) < 8:
-                continue
-            step, block = _parse_int_loose(parts[0]), _parse_int_loose(parts[1])
-            if step is None or block is None:
-                continue
-            rows.append((segment, {
-                "step": step, "block": block,
-                "max_divergence": _parse_float_loose(parts[2]),
-                "max_divergence_location": parts[3],
-                "rhs_sum": _parse_float_loose(parts[4]),
-                "flux_in": _parse_float_loose(parts[5]),
-                "flux_out": _parse_float_loose(parts[6]),
-                "net_flux": _parse_float_loose(parts[7]),
-            }))
+    for segment, raw_line in _read_legacy_log_lines(path):
+        line = raw_line.strip()
+        if not line or line.startswith("-") or line.startswith("Timestep"):
+            continue
+        parts = [part.strip() for part in raw_line.split("|")]
+        if len(parts) < 8:
+            continue
+        step, block = _parse_int_loose(parts[0]), _parse_int_loose(parts[1])
+        if step is None or block is None:
+            continue
+        rows.append((segment, {
+            "step": step, "block": block,
+            "max_divergence": _parse_float_loose(parts[2]),
+            "max_divergence_location": parts[3],
+            "rhs_sum": _parse_float_loose(parts[4]),
+            "flux_in": _parse_float_loose(parts[5]),
+            "flux_out": _parse_float_loose(parts[6]),
+            "net_flux": _parse_float_loose(parts[7]),
+        }))
     return path, rows
 
 
@@ -24322,34 +24286,29 @@ def _particle_step_rows(log_dir: str, metrics_dir: str) -> "tuple[str | None, li
     path = os.path.join(log_dir, "Particle_Metrics.log")
     if not os.path.isfile(path):
         return None, rows
-    segment = 0
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            if _is_summary_plot_continuation_marker(raw_line):
-                segment += 1
-                continue
-            line = raw_line.strip()
-            if not line or line.startswith("-") or line.startswith("Stage"):
-                continue
-            parts = [part.strip() for part in raw_line.split("|")]
-            if len(parts) < 8:
-                continue
-            step = _parse_int_loose(parts[1])
-            if step is None:
-                continue
-            offset = 1 if len(parts) >= 9 else 0
-            rows.append((segment, {
-                "step": step,
-                "total_particles": _parse_int_loose(parts[2]),
-                "lost_particles": _parse_int_loose(parts[3]),
-                "lost_particles_cumulative": _parse_int_loose(parts[4]) if offset else None,
-                "migrated_particles": _parse_int_loose(parts[4 + offset]),
-                "occupied_cells": _parse_int_loose(parts[5 + offset]),
-                "load_imbalance": _parse_float_loose(parts[6 + offset]),
-                "migration_passes": _parse_int_loose(parts[7 + offset]),
-                "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
-                "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
-            }))
+    for segment, raw_line in _read_legacy_log_lines(path):
+        line = raw_line.strip()
+        if not line or line.startswith("-") or line.startswith("Stage"):
+            continue
+        parts = [part.strip() for part in raw_line.split("|")]
+        if len(parts) < 8:
+            continue
+        step = _parse_int_loose(parts[1])
+        if step is None:
+            continue
+        offset = 1 if len(parts) >= 9 else 0
+        rows.append((segment, {
+            "step": step,
+            "total_particles": _parse_int_loose(parts[2]),
+            "lost_particles": _parse_int_loose(parts[3]),
+            "lost_particles_cumulative": _parse_int_loose(parts[4]) if offset else None,
+            "migrated_particles": _parse_int_loose(parts[4 + offset]),
+            "occupied_cells": _parse_int_loose(parts[5 + offset]),
+            "load_imbalance": _parse_float_loose(parts[6 + offset]),
+            "migration_passes": _parse_int_loose(parts[7 + offset]),
+            "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
+            "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
+        }))
     return path, rows
 
 
@@ -24399,30 +24358,25 @@ def _picard_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
                     "cfl_eff_after": _parse_float_loose(row.get("cfl_eff_after")),
                 }))
         else:
-            segment = 0
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                for raw_line in f:
-                    if _is_summary_plot_continuation_marker(raw_line):
-                        segment += 1
-                        continue
-                    match = _LEGACY_PICARD_REGEX.search(raw_line)
-                    if not match:
-                        continue
-                    rows.append((segment, {
-                        "step": int(match.group("step")), "block": block,
-                        "pseudo_iterations": int(match.group("pseudo_iter")),
-                        "dtau": _parse_float_loose(match.group("dtau")),
-                        "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
-                        "delta_norm": float(match.group("delta")),
-                        "delta_rel": float(match.group("delta_rel")),
-                        "residual_norm": float(match.group("resid")),
-                        "residual_rel": float(match.group("resid_rel")),
-                        "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
-                        "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
-                        "status": match.group("status"),
-                        "dtau_after": _parse_float_loose(match.group("dtau_after")),
-                        "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
-                    }))
+            for segment, raw_line in _read_legacy_log_lines(path):
+                match = _LEGACY_PICARD_REGEX.search(raw_line)
+                if not match:
+                    continue
+                rows.append((segment, {
+                    "step": int(match.group("step")), "block": block,
+                    "pseudo_iterations": int(match.group("pseudo_iter")),
+                    "dtau": _parse_float_loose(match.group("dtau")),
+                    "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
+                    "delta_norm": float(match.group("delta")),
+                    "delta_rel": float(match.group("delta_rel")),
+                    "residual_norm": float(match.group("resid")),
+                    "residual_rel": float(match.group("resid_rel")),
+                    "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
+                    "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
+                    "status": match.group("status"),
+                    "dtau_after": _parse_float_loose(match.group("dtau_after")),
+                    "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
+                }))
         out.append((block, path, rows))
     return out
 
@@ -24460,17 +24414,12 @@ def _newton_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
                                            "newton_iterations": _parse_int_loose(row.get("newton")),
                                            "residual_norm": _parse_float_loose(row.get("nonlinear_norm"))}))
         else:
-            segment = 0
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                for raw_line in f:
-                    if _is_summary_plot_continuation_marker(raw_line):
-                        segment += 1
-                        continue
-                    match = _LEGACY_NEWTON_HISTORY_REGEX.search(raw_line)
-                    if match:
-                        rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
-                                               "newton_iterations": int(match.group("newton")),
-                                               "residual_norm": float(match.group("norm"))}))
+            for segment, raw_line in _read_legacy_log_lines(path):
+                match = _LEGACY_NEWTON_HISTORY_REGEX.search(raw_line)
+                if match:
+                    rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
+                                           "newton_iterations": int(match.group("newton")),
+                                           "residual_norm": float(match.group("norm"))}))
         out.append((block, path, rows))
     return out
 
@@ -24502,27 +24451,22 @@ def _newton_summary_rows(log_dir: str) -> "list[tuple[int, str, list]]":
                     "state": row.get("state"),
                 }))
         else:
-            segment = 0
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                for raw_line in f:
-                    if _is_summary_plot_continuation_marker(raw_line):
-                        segment += 1
-                        continue
-                    match = _LEGACY_NEWTON_SUMMARY_REGEX.search(raw_line)
-                    if not match:
-                        continue
-                    initial_text = match.group("initial")
-                    rows.append((segment, {
-                        "step": int(match.group("step")), "block": int(match.group("block")),
-                        "solver": match.group("solver").strip(), "reason": match.group("reason"),
-                        "reason_code": int(match.group("reason_code")),
-                        "newton_iterations": int(match.group("newton")),
-                        "residual_evaluations": int(match.group("evals")),
-                        "krylov_iterations": int(match.group("krylov")),
-                        "initial_norm": None if initial_text == "unavailable" else float(initial_text),
-                        "final_norm": float(match.group("final")),
-                        "state": match.group("state"),
-                    }))
+            for segment, raw_line in _read_legacy_log_lines(path):
+                match = _LEGACY_NEWTON_SUMMARY_REGEX.search(raw_line)
+                if not match:
+                    continue
+                initial_text = match.group("initial")
+                rows.append((segment, {
+                    "step": int(match.group("step")), "block": int(match.group("block")),
+                    "solver": match.group("solver").strip(), "reason": match.group("reason"),
+                    "reason_code": int(match.group("reason_code")),
+                    "newton_iterations": int(match.group("newton")),
+                    "residual_evaluations": int(match.group("evals")),
+                    "krylov_iterations": int(match.group("krylov")),
+                    "initial_norm": None if initial_text == "unavailable" else float(initial_text),
+                    "final_norm": float(match.group("final")),
+                    "state": match.group("state"),
+                }))
         out.append((block, path, rows))
     return out
 
@@ -24554,19 +24498,14 @@ def _poisson_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
                                            "true_norm": _parse_float_loose(row.get("true_norm")),
                                            "relative_norm": _parse_float_loose(row.get("relative_norm"))}))
         else:
-            segment = 0
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                for raw_line in f:
-                    if _is_summary_plot_continuation_marker(raw_line):
-                        segment += 1
-                        continue
-                    match = _LEGACY_POISSON_REGEX.search(raw_line)
-                    if match:
-                        rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
-                                               "iterations": int(match.group("iter")),
-                                               "unpreconditioned_norm": float(match.group("unpre")),
-                                               "true_norm": float(match.group("true")),
-                                               "relative_norm": _parse_float_loose(match.group("rel"))}))
+            for segment, raw_line in _read_legacy_log_lines(path):
+                match = _LEGACY_POISSON_REGEX.search(raw_line)
+                if match:
+                    rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
+                                           "iterations": int(match.group("iter")),
+                                           "unpreconditioned_norm": float(match.group("unpre")),
+                                           "true_norm": float(match.group("true")),
+                                           "relative_norm": _parse_float_loose(match.group("rel"))}))
         out.append((block, path, rows))
     return out
 
@@ -24583,13 +24522,7 @@ def _runtime_memory_rows(path: str) -> list:
         return rows
     keys = ("process_current_mb_max", "process_peak_mb_max", "petsc_allocated_mb_max",
             "petsc_peak_allocated_mb_max", "process_change_mb_max")
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        first = ""
-        for line in f:
-            if line.strip() and not line.lstrip().startswith("#"):
-                first = line
-                break
-    if first.startswith("step,"):
+    if _record_is_csv(path):
         for segment, row in _read_runtime_diagnostics_csv(path):
             step = _parse_int_loose(row.get("step"))
             if step is None:
@@ -24598,21 +24531,16 @@ def _runtime_memory_rows(path: str) -> list:
                                    "step_wall_s": _parse_float_loose(row.get("step_wall_s")),
                                    **{key: _parse_float_loose(row.get(key)) for key in keys}}))
         return rows
-    segment = 0
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            if _is_summary_plot_continuation_marker(raw_line):
-                segment += 1
-                continue
-            line = raw_line.strip()
-            if not line or line.startswith("#") or line.startswith("Step"):
-                continue
-            parts = line.split()
-            step = _parse_int_loose(parts[0]) if parts else None
-            if len(parts) < 8 or step is None:
-                continue
-            rows.append((segment, {"step": step, "event": parts[1], "reason": parts[7],
-                                   **{key: _parse_float_loose(parts[2 + i]) for i, key in enumerate(keys)}}))
+    for segment, raw_line in _read_legacy_log_lines(path):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("Step"):
+            continue
+        parts = line.split()
+        step = _parse_int_loose(parts[0]) if parts else None
+        if len(parts) < 8 or step is None:
+            continue
+        rows.append((segment, {"step": step, "event": parts[1], "reason": parts[7],
+                               **{key: _parse_float_loose(parts[2 + i]) for i, key in enumerate(keys)}}))
     return rows
 
 
@@ -24656,33 +24584,29 @@ def _solution_convergence_rows(log_dir: str) -> "tuple[str | None, list]":
             values["step"] = step
             rows.append((segment, values))
         return path, rows
-    mode, col_names, segment = None, None, 0
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if _is_summary_plot_continuation_marker(line):
-                segment += 1
-                continue
-            if not line:
-                continue
-            if line.startswith("="):
-                found = re.search(r"\[mode:\s*([\w_]+)", line)
-                if found:
-                    mode = found.group(1)
-                continue
-            if line.startswith("-"):
-                continue
-            if col_names is None:
-                col_names = [p.strip() for p in raw_line.split("|")]
-                continue
-            parts = [p.strip() for p in raw_line.split("|")]
-            step = _parse_int_loose(parts[0]) if col_names[0] == "step" and len(parts) >= 4 else None
-            if step is None:
-                continue
-            values = {"mode": mode}
-            values.update({name: _typed_csv_value(text) for name, text in zip(col_names, parts) if name})
-            values["step"] = step
-            rows.append((segment, values))
+    mode, col_names = None, None
+    for segment, raw_line in _read_legacy_log_lines(path):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("="):
+            found = re.search(r"\[mode:\s*([\w_]+)", line)
+            if found:
+                mode = found.group(1)
+            continue
+        if line.startswith("-"):
+            continue
+        if col_names is None:
+            col_names = [p.strip() for p in raw_line.split("|")]
+            continue
+        parts = [p.strip() for p in raw_line.split("|")]
+        step = _parse_int_loose(parts[0]) if col_names[0] == "step" and len(parts) >= 4 else None
+        if step is None:
+            continue
+        values = {"mode": mode}
+        values.update({name: _typed_csv_value(text) for name, text in zip(col_names, parts) if name})
+        values["step"] = step
+        rows.append((segment, values))
     return path, rows
 
 
@@ -25326,7 +25250,8 @@ def _summary_table_path(context: dict, name: str) -> str:
     @brief Resolve a `summarize --table` name to the CSV it prints.
     @param[in] context Summary context returned by `_build_summary_context()`.
     @param[in] name Table name from SUMMARY_TABLES, optionally `:<block>`.
-    @return Path to the CSV, or to the text log an older run wrote instead (it may not exist).
+    @return Path to the CSV (it may not exist), or to the `.log` an older run wrote the CSV under.
+            An older run's text log is not a table, so it is not returned.
     @throws ValueError When the name is unknown or the block is not an integer.
     """
     base, _, block = name.partition(":")
@@ -25340,7 +25265,8 @@ def _summary_table_path(context: dict, name: str) -> str:
     elif block:
         raise ValueError(f"Table '{base}' is not per-block; drop ':{block}'.")
     path = os.path.join(context[directory_key], file_name)
-    return _log_family_path(os.path.dirname(path), os.path.splitext(file_name)[0]) or path
+    found = _log_family_path(os.path.dirname(path), os.path.splitext(file_name)[0])
+    return found if found and found != path and _record_is_csv(found) else path
 
 
 def _list_summary_tables(context: dict, output_format: str):
@@ -25352,9 +25278,9 @@ def _list_summary_tables(context: dict, output_format: str):
     found = []
     for name in sorted(SUMMARY_TABLES):
         names = [name]
-        if "{block}" in (SUMMARY_TABLES[name][1] or ""):
+        if "{block}" in SUMMARY_TABLES[name][1]:
             pattern = os.path.join(context["log_dir"], SUMMARY_TABLES[name][1].format(block="*"))
-            blocks = sorted(int(re.search(r"_Block_(\d+)\.csv$", path).group(1)) for path in glob.glob(pattern))
+            blocks = sorted(int(_BLOCK_RECORD_SUFFIX.search(path).group(1)) for path in glob.glob(pattern))
             names = [name if b == 0 else f"{name}:{b}" for b in blocks]
         for table in names:
             path = _summary_table_path(context, table)

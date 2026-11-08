@@ -195,7 +195,7 @@ def test_the_documented_duct_series_is_the_duct_solution():
            both at unit bulk velocity, and its own normalization gives a unit area mean.
     """
     xi, eta = np.meshgrid((np.arange(64) + 0.5) / 64, (np.arange(64) + 0.5) / 64)
-    expression = IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": 1.0})
+    expression = IC_GEN.substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": 1.0})
     IC_GEN.validate_expression(expression, {"xi", "eta"})
     series = IC_GEN.evaluate_values(expression, {"xi": xi, "eta": eta})
     # An independent form of the same solution: the double sine series, normalized to its own mean.
@@ -208,6 +208,6 @@ def test_the_documented_duct_series_is_the_duct_solution():
             mean += coefficient * 4.0 / (np.pi * np.pi * m * n)
     assert np.max(np.abs(series - shape / mean)) < 1e-5
     for beta in (0.25, 8.0):  # wide and tall sections: finite, with the requested mean
-        other = IC_GEN.evaluate_values(IC_GEN._substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": beta}),
+        other = IC_GEN.evaluate_values(IC_GEN.substitute_params(DUCT_POISEUILLE, {"U": 1.0, "beta": beta}),
                                        {"xi": xi, "eta": eta})
         assert np.all(np.isfinite(other)) and float(np.mean(other)) == pytest.approx(1.0, abs=5e-3)

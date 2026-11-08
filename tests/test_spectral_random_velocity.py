@@ -25,6 +25,7 @@ def load(path, name):
 IC = load(ROOT / "generators" / "ic.gen", "picurv_spectral_random_velocity_tests")
 SPECTRA = load(ROOT / "generators" / "spectra.gen", "picurv_spectra_for_ic_tests")
 PS = load(ROOT / "picurv_cli" / "periodic_spectral.py", "picurv_periodic_spectral_for_ic_tests")
+PB = load(ROOT / "picurv_cli" / "petsc_binary.py", "picurv_petsc_binary_for_ic_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_core_spectral_random_velocity_tests")
 
 
@@ -83,7 +84,7 @@ def test_public_option_matrix(spectrum, projection, normalization):
                   "random": {"distribution": "gaussian", "mean": [0.0, 0.0, 0.0]},
                   "spectrum": spectrum, "projection": projection,
                   "normalization": normalization, "remove_mean": True}
-    full, summary = IC.generate_spectral_random_velocity(cartesian_nodes((9, 9, 9)), configured)
+    full, summary = IC.generate_spectral_velocity(cartesian_nodes((9, 9, 9)), configured)
     physical = full[1:-1, 1:-1, 1:-1]
     continuum, discrete = independent_symbols(physical.shape[:3])
     chi_c = normalized_divergence(physical, continuum)
@@ -102,10 +103,10 @@ def test_public_option_matrix(spectrum, projection, normalization):
 
 def test_seed_mean_normalization_storage_and_selected_projection_invariants():
     """! @brief Verify reusable numerical and storage contracts. """
-    first, summary = IC.generate_spectral_random_velocity(cartesian_nodes(), params(), {"kinematic_viscosity": 0.0125})
-    repeat, _ = IC.generate_spectral_random_velocity(cartesian_nodes(), params(), {"kinematic_viscosity": 0.0125})
+    first, summary = IC.generate_spectral_velocity(cartesian_nodes(), params(), {"kinematic_viscosity": 0.0125})
+    repeat, _ = IC.generate_spectral_velocity(cartesian_nodes(), params(), {"kinematic_viscosity": 0.0125})
     changed_params = params(); changed_params["seed"] = 54321
-    changed, _ = IC.generate_spectral_random_velocity(cartesian_nodes(), changed_params)
+    changed, _ = IC.generate_spectral_velocity(cartesian_nodes(), changed_params)
     assert np.array_equal(first, repeat)
     assert not np.array_equal(first, changed)
     assert first.shape == (18, 18, 18, 3)
@@ -140,7 +141,7 @@ def test_projection_choice_retains_two_polarizations():
         realized = np.stack([IC.project_coefficients(np.eye(3, dtype=complex)[index].reshape(1,1,1,3), symbols)[0,0,0]
                              for index in range(3)], axis=1)
         assert np.linalg.matrix_rank(realized, tol=1e-12) == 2
-    field, summary = IC.generate_spectral_random_velocity(cartesian_nodes(), params("continuum"))
+    field, summary = IC.generate_spectral_velocity(cartesian_nodes(), params("continuum"))
     assert summary["continuum_divergence_max"] < 2e-14
     assert summary["picurv_discrete_divergence_rms"] > 1e-5
     assert np.all(np.isfinite(field))
@@ -152,7 +153,7 @@ def test_white_unprojected_unnormalized_field_preserves_defined_sampling_semanti
                   "random": {"distribution": "gaussian", "mean": [2.0, -1.0, 0.5]},
                   "spectrum": {"type": "white"}, "projection": {"type": "none"},
                   "normalization": {"type": "none"}, "remove_mean": False}
-    full, summary = IC.generate_spectral_random_velocity(cartesian_nodes((9, 9, 9)), raw_params)
+    full, summary = IC.generate_spectral_velocity(cartesian_nodes((9, 9, 9)), raw_params)
     physical = full[1:-1, 1:-1, 1:-1]
     expected = np.random.default_rng(77).standard_normal((9, 9, 9, 3)) + [2.0, -1.0, 0.5]
     assert np.allclose(physical, expected, rtol=0.0, atol=1e-14)
@@ -166,7 +167,7 @@ def test_seeded_solenoidal_field_has_balanced_component_energy_and_cutoff():
     statistical["random"]["mean"] = [0.0, 0.0, 0.0]
     statistical["spectrum"] = {"type": "k4_exponential", "k0": 4.0, "k_cut": 8.0}
     statistical["normalization"]["target"] = 1.0
-    full, _ = IC.generate_spectral_random_velocity(cartesian_nodes((24, 24, 24)), statistical)
+    full, _ = IC.generate_spectral_velocity(cartesian_nodes((24, 24, 24)), statistical)
     physical = full[1:-1, 1:-1, 1:-1]
     component_rms = np.sqrt(np.mean(physical**2, axis=(0, 1, 2)))
     assert np.max(component_rms)/np.min(component_rms) < 1.08
@@ -185,7 +186,7 @@ def test_k4_exponential_finite_shell_target_peaks_at_k0():
                       "spectrum": {"type": "k4_exponential", "k0": 4.0, "k_cut": 8.0},
                       "projection": {"type": "none"}, "normalization": {"type": "none"},
                       "remove_mean": True}
-        full, _ = IC.generate_spectral_random_velocity(cartesian_nodes((24, 24, 24)), configured)
+        full, _ = IC.generate_spectral_velocity(cartesian_nodes((24, 24, 24)), configured)
         measured = SPECTRA.shell_spectrum(full[1:-1, 1:-1, 1:-1], (2*np.pi, 2*np.pi, 2*np.pi))
         energy = np.array([row["energy"] for row in measured["shell_spectrum"]])
         accumulated = energy if accumulated is None else accumulated + energy
@@ -208,7 +209,7 @@ def test_seed_ensemble_directional_isotropy_and_spectral_tensor(operator):
         configured = {"seed": seed, "spectrum": {"type": "white"},
                       "projection": {"type": "solenoidal", "operator": operator},
                       "normalization": {"type": "none"}, "remove_mean": True}
-        full, _ = IC.generate_spectral_random_velocity(cartesian_nodes(), configured)
+        full, _ = IC.generate_spectral_velocity(cartesian_nodes(), configured)
         physical = full[1:-1, 1:-1, 1:-1]
         component_energy += np.mean(physical**2, axis=(0, 1, 2))
         coeff = np.fft.fftn(physical, axes=(0, 1, 2))
@@ -244,7 +245,7 @@ def test_axis_mapping_nyquist_reality_and_petsc_layout(tmp_path):
     """! @brief Guard x/i mapping, real reconstruction, dummy planes, and PETSc layout. @param[in] tmp_path Temporary path. """
     configured = params("continuum")
     configured["random"]["mean"] = [0.0, 0.0, 0.0]
-    full, _ = IC.generate_spectral_random_velocity(cartesian_nodes(), configured)
+    full, _ = IC.generate_spectral_velocity(cartesian_nodes(), configured)
     physical = full[1:-1, 1:-1, 1:-1]
     continuum, _ = independent_symbols(physical.shape[:3])
     coeff = np.fft.fftn(physical, axes=(0, 1, 2))
@@ -260,7 +261,7 @@ def test_axis_mapping_nyquist_reality_and_petsc_layout(tmp_path):
     path = tmp_path/"field.dat"
     IC.write_petsc_vec_binary(str(path), full)
     raw = path.read_bytes()
-    assert struct.unpack(">ii", raw[:8]) == (IC.PETSC_VEC_CLASS_ID, full.size)
+    assert struct.unpack(">ii", raw[:8]) == (PB.PETSC_VEC_CLASS_ID, full.size)
     assert np.array_equal(np.frombuffer(raw[8:], dtype=">f8").reshape(full.shape), full)
 
 
@@ -286,14 +287,14 @@ def test_composable_schema_and_grid_safeguards_reject_invalid_contracts():
                {**params(), "viscosity": 0.1}]
     for value in invalid:
         with pytest.raises(ValueError):
-            IC.generate_spectral_random_velocity(cartesian_nodes(), value)
+            IC.generate_spectral_velocity(cartesian_nodes(), value)
     nonuniform = cartesian_nodes(); nonuniform[..., 0] **= 2
     with pytest.raises(ValueError, match="uniform"):
-        IC.generate_spectral_random_velocity(nonuniform, params())
+        IC.generate_spectral_velocity(nonuniform, params())
     beyond = params()
     beyond["spectrum"] = {"type": "k4_exponential", "k0": 2.0, "k_cut": 100.0}
     with pytest.raises(ValueError, match="two-thirds-resolution"):
-        IC.generate_spectral_random_velocity(cartesian_nodes(), beyond)
+        IC.generate_spectral_velocity(cartesian_nodes(), beyond)
 
 
 def test_provider_registry_periodicity_and_shared_fluid_scaling_contract():
@@ -419,8 +420,8 @@ def test_wall_seed_discrete_flux_and_stretched_grid(walls):
         nodes[..., a] = coordinates.reshape(shape)
     options = {'wall_axes': walls, 'streamwise_axis': next(a for a in 'kij' if a not in walls),
                'normalization': {'type': 'component_rms', 'target': 0.15}, 'seed': 17}
-    full, summary = IC.generate_wall_spectral_velocity(nodes, options)
-    again, _ = IC.generate_wall_spectral_velocity(nodes, options)
+    full, summary = IC.generate_spectral_velocity(nodes, options)
+    again, _ = IC.generate_spectral_velocity(nodes, options)
     assert np.array_equal(full, again)
     assert summary['perturbation_rms'] == pytest.approx(0.15)
     assert summary['picurv_discrete_divergence_max'] < 1e-12
@@ -456,7 +457,7 @@ def test_wall_seed_is_linear_in_wall_distance():
     nodes = cartesian_nodes((32, 64, 32), (2., 2., 2.))
     options = {'wall_axes': ['j'], 'streamwise_axis': 'k', 'seed': 5,
                'spectrum': {'type': 'k4_exponential', 'k0': 4.0, 'k_cut': 8.0}}
-    full, _ = IC.generate_wall_spectral_velocity(nodes, options)
+    full, _ = IC.generate_spectral_velocity(nodes, options)
     u = full[1:-1, 1:-1, 1:-1]
     fluctuation = u - u.mean(axis=(0, 2), keepdims=True)
     rms = np.sqrt((fluctuation[..., 0]**2 + fluctuation[..., 2]**2).mean(axis=(0, 2)))
@@ -492,7 +493,7 @@ def test_writer_uses_the_requested_petsc_index_width(tmp_path, monkeypatch):
     monkeypatch.setattr(IC, "PETSC_INDEX_BYTES", 8)
     IC.write_petsc_vec_binary(str(tmp_path / "wide.dat"), field)
     raw = (tmp_path / "wide.dat").read_bytes()
-    assert struct.unpack(">qq", raw[:16]) == (IC.PETSC_VEC_CLASS_ID, 6)
+    assert struct.unpack(">qq", raw[:16]) == (PB.PETSC_VEC_CLASS_ID, 6)
     assert len(raw) == 16 + 6 * 8
 
 

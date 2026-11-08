@@ -141,6 +141,8 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
     (None, None, {"source": {"type": "field_slice", "field_file": "u.dat"}}, "only an inlet reads it"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "file", "path": "inlet.picslice"},
             "constraints": {"scale": -1.0}}, None, "must be positive"),
+    (None, {"handler": "prescribed_velocity", "source": DUCT, "constraints": {"scale": float("inf")}}, None,
+     "scale' must be finite"),
     (None, {"handler": "prescribed_velocity", "source": {"type": "generated", "generator": "square_duct_poiseuille"}},
      None, "is retired"),
     (None, {"handler": "prescribed_velocity", "source": {"expression": {"u_xi": "1"}}}, None,
@@ -149,6 +151,13 @@ def test_inlet_bcs_line_carries_only_the_source_id(tmp_path):
      "unsupported expression name 'q'"),
     (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
                                                          "constants": {"xi": 2}}}, None,
+     "cannot name a constant"),
+    # Constants are shared, so a particle's pid or a draw's name is reserved on a face too.
+    (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
+                                                         "constants": {"pid": 2}}}, None,
+     "cannot name a constant"),
+    (None, {"handler": "prescribed_velocity", "source": {"components": "normal", "expression": "1",
+                                                         "constants": {"normal": 2}}}, None,
      "cannot name a constant"),
     (None, {"handler": "prescribed_velocity", "source": DUCT, "constraints": {"project": True}}, None,
      "not constraints of this target"),
@@ -279,6 +288,27 @@ def test_invalid_sums_are_refused(terms, message):
         resolve_initial(case)
 
 
+@pytest.mark.parametrize("source, sources, path", [
+    ({"sum": [DUCT, dict(DUCT_SEED, params=dict(DUCT_SEED["params"], seed="one"))]}, None,
+     "properties.initial_conditions.source.sum[1].params: params.seed must be an integer"),
+    ({"sum": [DUCT, "seed"]}, {"seed": dict(DUCT_SEED, params=dict(DUCT_SEED["params"], wall_modes=0))},
+     "sources.seed.params: wall_modes must be a positive integer"),
+    ({"generator": "ic_gen", "params": {"field": "Ucat", "script": "", "config_file": "c"}}, None,
+     "properties.initial_conditions.source.params.script must be a non-empty path"),
+])
+def test_a_generator_refusal_names_its_parameters_path(source, sources, path):
+    """!
+    @brief A generator's parameters are refused at the path the case writes them, inline or named.
+    @param[in] source Initial-condition source.
+    @param[in] sources `sources:` mapping, or None.
+    @param[in] path The refusal's expected opening.
+    """
+    case, _, _ = load_configs(sources=sources, initial_conditions={"source": source})
+    with pytest.raises(ValueError) as caught:
+        resolve_initial(case)
+    assert str(caught.value).startswith(path)
+
+
 def test_a_lone_generator_is_a_source_and_is_not_projected():
     """!
     @brief A generator alone is staged as it writes it: nothing is added and no projection runs
@@ -311,14 +341,51 @@ def test_a_generator_inside_a_source_resolves_its_paths(wrap):
     ({"sum": [DUCT, DUCT_SEED]}, "spectral_velocity"),
     (DUCT, None),
     ("duct", None),
+    ("seed", "spectral_velocity"),
+    ({"sum": ["duct", "seed"]}, "spectral_velocity"),
 ])
 def test_initial_field_term_finds_the_generator(source, name):
     """!
-    @brief The generator is found alone or in a sum, and a plain source has none.
+    @brief The generator is found alone, in a sum, or by its name under sources; a plain source has none.
     @param[in] source Initial-condition source.
     @param[in] name Expected generator, or None.
     """
-    assert CORE.initial_field_term({"source": source}).get("generator") == name
+    case = {"sources": {"duct": DUCT, "seed": DUCT_SEED}}
+    assert CORE.initial_field_term({"source": source}, case).get("generator") == name
+
+
+def test_a_named_generator_resolves_its_paths():
+    """!
+    @brief A generator named under sources is anchored too, in place, where the case defines it.
+    """
+    term = {"generator": "ic_gen", "params": {"field": "Ucat", "config_file": "ic.cfg", "script": "tools/ic.py"}}
+    case = {"sources": {"custom": term}, "properties": {"initial_conditions": {"source": {"sum": [DUCT, "custom"]}}}}
+    CORE.absolutize_case_external_paths(case, "/work/case.yml")
+    assert term["params"]["config_file"] == "/work/ic.cfg"
+
+
+def test_a_data_term_in_a_nested_sum_is_found():
+    """!
+    @brief A data term inside a sum inside a named sum is found as resolve_velocity_source() finds it.
+    """
+    profile = {"type": "file", "path": "inlet.picslice"}
+    pulse = {"components": "normal", "expression": "0.1*sin(2*pi*t)"}
+    case = {"sources": {"measured": {"sum": [{"sum": [profile, pulse]}, pulse]}},
+            "boundary_conditions": [[{"face": "-Zeta", "handler": "prescribed_velocity", "source": "measured"}]]}
+    assert [term for _, _, term in CORE.raw_inlet_data_sources(case)] == [profile]
+
+
+@pytest.mark.parametrize("resolve", [
+    lambda case: CORE.resolve_velocity_source({"expression": {"w": "1"}}, case, "src", False),
+    lambda case: CORE.resolve_particle_source({"expression": "1"}, case, "src"),
+])
+def test_sources_that_is_not_a_mapping_is_refused(resolve):
+    """!
+    @brief Every source reader refuses a `sources:` that is not a mapping, not only the velocity one.
+    @param[in] resolve Reads one source.
+    """
+    with pytest.raises(ValueError, match="sources must map names"):
+        resolve({"sources": ["duct"]})
 
 
 @pytest.mark.parametrize("source, provider, execution", [
@@ -743,6 +810,42 @@ def test_inlet_fluctuations_are_resolved_in_solver_units():
     assert fluct["stress"] == [["0.01*(1 - r)", "0.0", "0.04"], ["0.0", "-0.005", "0.0"]]
     assert fluct["length_scales"] == pytest.approx([0.5, 0.25])
     assert fluct["time_scale"] == pytest.approx(0.5 * 2.0 / 0.5)
+
+
+def test_inlet_fluctuations_reach_the_control_file(tmp_path):
+    """!
+    @brief Each stress group travels as a Cartesian source under the face's prefix, beside the
+           lengths and time in solver units.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    case, solver, monitor = load_configs(
+        inlet={"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+               "fluctuations": FLUCTUATIONS})
+    case_path, solver_path, monitor_path = (tmp_path / name for name in ("case.yml", "solver.yml", "monitor.yml"))
+    for path, config in ((case_path, case), (solver_path, solver), (monitor_path, monitor)):
+        CORE.write_yaml_file(str(path), config)
+    run_dir = tmp_path / "run"
+    CORE.ensure_run_layout(str(run_dir))
+    sources = {"Case": str(case_path), "Solver": str(solver_path), "Monitor": str(monitor_path)}
+    control = CORE.generate_solver_control_file(
+        str(run_dir), "fluct",
+        {"case": case, "case_path": str(case_path), "solver": solver, "solver_path": str(solver_path),
+         "monitor": monitor, "monitor_path": str(monitor_path)},
+        1, CORE.prepare_monitor_files(str(run_dir), "fluct", monitor, sources))
+    lines = [line for line in Path(control).read_text(encoding="utf-8").splitlines() if line.startswith("-face_source_0_fluct")]
+    assert lines == [
+        "-face_source_0_fluct true",
+        "-face_source_0_fluct_stress_0_frame cartesian",
+        '-face_source_0_fluct_stress_0_expr_0 "0.01*(1 - r)"',
+        '-face_source_0_fluct_stress_0_expr_1 "0.0"',
+        '-face_source_0_fluct_stress_0_expr_2 "0.04"',
+        "-face_source_0_fluct_stress_1_frame cartesian",
+        '-face_source_0_fluct_stress_1_expr_0 "0.0"',
+        '-face_source_0_fluct_stress_1_expr_1 "(-0.005)"',
+        '-face_source_0_fluct_stress_1_expr_2 "0.0"',
+        "-face_source_0_fluct_length 0.25,0.125",
+        "-face_source_0_fluct_time 0.5",
+    ]
 
 
 @pytest.mark.parametrize("inlet, message", [

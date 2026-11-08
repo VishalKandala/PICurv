@@ -17,67 +17,11 @@ import math
 import sys
 
 
-def _drop_imported_package(package_name: str):
-    """!
-    @brief Remove a failed/partial import package tree from sys.modules.
-    @param[in] package_name Top-level package name.
-    """
-    prefix = package_name + "."
-    for module_name in list(sys.modules):
-        if module_name == package_name or module_name.startswith(prefix):
-            sys.modules.pop(module_name, None)
-
-
-def _prune_incompatible_python_site_paths(paths):
-    """!
-    @brief Remove site-package paths for a different Python major/minor version.
-    @param[in] paths Candidate sys.path entries.
-    @return Filtered path list.
-    """
-    current = (sys.version_info[0], sys.version_info[1])
-    filtered = []
-    for path in paths:
-        text = str(path)
-        marker = "python"
-        idx = text.lower().find(marker)
-        if idx >= 0 and ("site-packages" in text or "dist-packages" in text):
-            version_text = text[idx + len(marker):idx + len(marker) + 4].strip("-/")
-            parts = version_text.split(".")
-            try:
-                path_version = (int(parts[0]), int(parts[1]))
-            except (IndexError, ValueError):
-                filtered.append(path)
-                continue
-            if path_version != current:
-                continue
-        filtered.append(path)
-    return filtered
-
-
-def require_numpy():
-    """!
-    @brief Import NumPy with the same compatibility retry used by the conductor.
-    @return Imported NumPy module.
-    """
-    try:
-        import numpy
-        return numpy
-    except Exception as exc:
-        first_error = exc
-        original_path = list(sys.path)
-        try:
-            _drop_imported_package("numpy")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
-            import numpy
-            return numpy
-        except Exception as retry_exc:
-            raise RuntimeError(
-                "NumPy is required for profile generation, but no compatible "
-                "NumPy could be imported. "
-                f"First error: {first_error}. Retry error: {retry_exc}"
-            ) from retry_exc
-        finally:
-            sys.path = original_path
+# Shared modules live with the CLI, beside this directory.
+_SHARED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "picurv_cli")
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
+from periodic_spectral import require_numpy  # noqa: E402
 
 
 BC_FACE_MAP = {
@@ -169,14 +113,10 @@ PETSC_INDEX_BYTES = 4
 def read_petsc_vec_binary(path: str):
     """!
     @brief Read a PETSc binary VecView payload written by PICurv, at PETSC_INDEX_BYTES.
-    @details Imported when a field is read rather than when this file loads.
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
-    shared = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "picurv_cli")
-    if shared not in sys.path:
-        sys.path.insert(0, shared)
-    from petsc_binary import read_petsc_vec_binary as read
+    from petsc_binary import read_petsc_vec_binary as read  # in picurv_cli/, on sys.path above
     return read(path, require_numpy(), PETSC_INDEX_BYTES, "field_file")
 
 

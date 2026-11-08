@@ -10,8 +10,12 @@ This directory contains the importable implementation of the PICurv conductor.
   variables, validation, constant substitution, region lowering, NumPy evaluation. `core.py`
   checks every source with it; `generators/ic.gen` evaluates one.
 - `periodic_spectral.py`: Fourier machinery for uniform periodic axes, shared by `ic.gen`,
-  `spectra.gen` and `reduce.gen`.
-- `petsc_binary.py`: the PETSc binary Vec reader `profile.gen` and `spectra.gen` share.
+  `spectra.gen` and `reduce.gen`; also `require_numpy()`, the one lazy NumPy import (with
+  its retry without other Pythons' site-packages) that `core.py`, `source_expressions.py`
+  and every generator use.
+- `petsc_binary.py`: the PETSc binary Vec envelope - the reader `profile.gen` and `spectra.gen`
+  share, the writer `ic.gen` and `core.py` share, and the stricter validator `core.py` applies
+  to every vector it stages for the solver.
 
 The last three are plain modules, not package imports: `core.py` and the `generators/*.gen`
 scripts put this directory on `sys.path` and import them by name, which also works when
