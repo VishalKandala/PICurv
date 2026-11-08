@@ -582,58 +582,18 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = VecZeroEntries(countVec); CHKERRQ(ierr); // Ensure global vector is zeroed before accumulation
     ierr = DMLocalToGlobalBegin(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
     ierr = DMLocalToGlobalEnd(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
-    /* 
-     * OPTIONAL: Synchronize Ghosts for Stencil Operations
-     * If a future function needs to read ParticleCount from neighbor cells (e.g., density smoothing 
-     * or gradient calculations), uncomment the following lines to update the ghost slots 
-     * in user->lParticleCount with the final summed values.
-     * 
-     ierr = UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT); CHKERRQ(ierr);
-     */
+    // The ghost cells of localcountVec still hold only this rank's particles. A caller that
+    // reads neighbour counts refreshes them with UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT).
 
-    // --- Verification Logging ---
-    PetscReal total_counted_particles = 0.0, max_count_in_cell = 0.0;
-    ierr = VecSum(countVec, &total_counted_particles); CHKERRQ(ierr);
-    PetscInt max_idx_global = -1;
-    ierr = VecMax(countVec, &max_idx_global, &max_count_in_cell); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Total counted globally = %.0f, Max count in cell = %.0f\n",
-              total_counted_particles, max_count_in_cell);
-
-    // --- ADD THIS DEBUGGING BLOCK ---
-    if (max_idx_global >= 0) { // Check if VecMax found a location
-         // Need to convert the flat global index back to 3D global index (I, J, K)
-         // Get global grid dimensions (Nodes, NOT Cells IM/JM/KM)
-         PetscInt M, N;
-         M = user->info.mx; N = user->info.my;
-         // Note: Assuming DOF=1 for countVec, index mapping uses node dimensions M,N,P from DMDA creation (IM+1, etc)
-         // Re-check if your DMDA uses cell counts (IM) or node counts (IM+1) for Vec layout. Let's assume Node counts M,N,P.
-         PetscInt Kmax = max_idx_global / (M * N);
-         PetscInt Jmax = (max_idx_global % (M * N)) / M;
-         PetscInt Imax = max_idx_global % M;
-         LOG_ALLOW(GLOBAL, LOG_INFO, "  -> Max count located at global index (I,J,K) = (%d, %d, %d) [Flat index: %d]\n",
-                   (int)Imax, (int)Jmax, (int)Kmax, (int)max_idx_global);
-
-        // Also, let's explicitly check the count at (0,0,0)
-        PetscScalar count_at_origin = 0.0;
-        PetscScalar ***count_arr_for_check;
-        ierr = DMDAVecGetArrayRead(da, countVec, &count_arr_for_check); CHKERRQ(ierr);
-        // Check bounds before accessing - crucial if using global indices
-        PetscInt xs, ys, zs, xm, ym, zm;
-        xs = user->info.xs; ys = user->info.ys; zs = user->info.zs;
-        xm = user->info.xm; ym = user->info.ym; zm = user->info.zm;
-        if (0 >= xs && 0 < xs+xm && 0 >= ys && 0 < ys+ym && 0 >= zs && 0 < zs+zm) {
-             count_at_origin = count_arr_for_check[0][0][0]; // Access using global index (0,0,0)
-        } else {
-            // Origin is not on this rank (relevant for parallel, but check anyway)
-            count_at_origin = -999.0; // Indicate it wasn't accessible locally
-        }
-        ierr = DMDAVecRestoreArrayRead(da, countVec, &count_arr_for_check); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  -> Count at global index (0,0,0) = %.1f\n", count_at_origin);
-
-    } else {
-         LOG_ALLOW(GLOBAL, LOG_WARNING, "  -> VecMax did not return a location for the maximum value.\n");
+    // The total and the fullest cell are reductions, so they are taken only when they are
+    // printed; the level and the allow-list are the same on every rank.
+    if (LOG_LEVEL_ADMITS(LOG_INFO)) {
+        PetscReal total_counted_particles = 0.0, max_count_in_cell = 0.0;
+        ierr = VecSum(countVec, &total_counted_particles); CHKERRQ(ierr);
+        ierr = VecMax(countVec, NULL, &max_count_in_cell); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Total counted globally = %.0f, Max count in cell = %.0f\n",
+                  total_counted_particles, max_count_in_cell);
     }
-    // --- END DEBUGGING BLOCK ---
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle counting complete.\n");
 
