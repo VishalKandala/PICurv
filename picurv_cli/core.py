@@ -17243,9 +17243,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 where = f"boundary_conditions[{block_index}] {entry['face']}.fluctuations"
                 control_lines.append(f"{prefix}_fluct true")
                 for group, texts in enumerate(fluct["stress"]):
-                    control_lines.append(f"{prefix}_fluct_stress_{group}_frame cartesian")
-                    for component, text in enumerate(texts):
-                        control_lines.append(f"{prefix}_fluct_stress_{group}_expr_{component} \"{expression_control_value(text, where)}\"")
+                    control_lines.extend(velocity_source_control_lines(
+                        f"{prefix}_fluct_stress_{group}", {"frame": "cartesian", "expressions": texts}, where))
                 control_lines.append(f"{prefix}_fluct_length {fluct['length_scales'][0]!r},{fluct['length_scales'][1]!r}")
                 control_lines.append(f"{prefix}_fluct_time {fluct['time_scale']!r}")
     if any("fluctuations" in entry for block in prepared_blocks for entry in block):

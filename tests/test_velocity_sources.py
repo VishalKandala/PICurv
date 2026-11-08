@@ -789,6 +789,42 @@ def test_inlet_fluctuations_are_resolved_in_solver_units():
     assert fluct["time_scale"] == pytest.approx(0.5 * 2.0 / 0.5)
 
 
+def test_inlet_fluctuations_reach_the_control_file(tmp_path):
+    """!
+    @brief Each stress group travels as a Cartesian source under the face's prefix, beside the
+           lengths and time in solver units.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    case, solver, monitor = load_configs(
+        inlet={"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
+               "fluctuations": FLUCTUATIONS})
+    case_path, solver_path, monitor_path = (tmp_path / name for name in ("case.yml", "solver.yml", "monitor.yml"))
+    for path, config in ((case_path, case), (solver_path, solver), (monitor_path, monitor)):
+        CORE.write_yaml_file(str(path), config)
+    run_dir = tmp_path / "run"
+    CORE.ensure_run_layout(str(run_dir))
+    sources = {"Case": str(case_path), "Solver": str(solver_path), "Monitor": str(monitor_path)}
+    control = CORE.generate_solver_control_file(
+        str(run_dir), "fluct",
+        {"case": case, "case_path": str(case_path), "solver": solver, "solver_path": str(solver_path),
+         "monitor": monitor, "monitor_path": str(monitor_path)},
+        1, CORE.prepare_monitor_files(str(run_dir), "fluct", monitor, sources))
+    lines = [line for line in Path(control).read_text(encoding="utf-8").splitlines() if line.startswith("-face_source_0_fluct")]
+    assert lines == [
+        "-face_source_0_fluct true",
+        "-face_source_0_fluct_stress_0_frame cartesian",
+        '-face_source_0_fluct_stress_0_expr_0 "0.01*(1 - r)"',
+        '-face_source_0_fluct_stress_0_expr_1 "0.0"',
+        '-face_source_0_fluct_stress_0_expr_2 "0.04"',
+        "-face_source_0_fluct_stress_1_frame cartesian",
+        '-face_source_0_fluct_stress_1_expr_0 "0.0"',
+        '-face_source_0_fluct_stress_1_expr_1 "(-0.005)"',
+        '-face_source_0_fluct_stress_1_expr_2 "0.0"',
+        "-face_source_0_fluct_length 0.25,0.125",
+        "-face_source_0_fluct_time 0.5",
+    ]
+
+
 @pytest.mark.parametrize("inlet, message", [
     ({"handler": "prescribed_velocity", "source": {"components": "normal", "expression": 1.0},
       "fluctuations": dict(FLUCTUATIONS, time_scale=0)}, "positive time"),
