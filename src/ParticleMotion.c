@@ -1129,7 +1129,31 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
     PetscBool exit_yp = particle->loc.y > localBBox->max_coords.y;
     PetscBool exit_zm = particle->loc.z < localBBox->min_coords.z;
     PetscBool exit_zp = particle->loc.z > localBBox->max_coords.z;
-    
+
+    // The neighbour across the face, edge or corner it left by: this rank's process-grid
+    // coordinates stepped by the exit direction on every axis, in FindOwnerOfCell's numbering.
+    {
+        const PetscInt  *procs = user->RankCellInfoProcs;
+        const PetscBool  low[3] = {exit_xm, exit_ym, exit_zm}, high[3] = {exit_xp, exit_yp, exit_zp};
+        PetscInt         c[3] = {rank % procs[0], (rank / procs[0]) % procs[1], rank / (procs[0] * procs[1])};
+        PetscBool        exists = PETSC_TRUE;
+        for (PetscInt d = 0; d < 3; ++d) {
+            c[d] += high[d] ? 1 : (low[d] ? -1 : 0);
+            if (c[d] < 0 || c[d] >= procs[d]) {
+                if (user->boundary_faces[2 * d].mathematical_type != PERIODIC) exists = PETSC_FALSE;
+                c[d] = (c[d] + procs[d]) % procs[d];
+            }
+        }
+        if (exists) {
+            const PetscMPIInt across = (PetscMPIInt)(c[0] + procs[0] * (c[1] + procs[1] * c[2]));
+            if (across != rank && IsParticleInBox(&bboxlist[across], &particle->loc)) {
+                *guess_rank_out = across;
+                PROFILE_FUNCTION_END;
+                PetscFunctionReturn(0);
+            }
+        }
+    }
+
     if (exit_xm && neighbors->rank_xm != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xm], &particle->loc)) {
         *guess_rank_out = neighbors->rank_xm;
     } else if (exit_xp&& neighbors->rank_xp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xp], &particle->loc)) {
@@ -1143,7 +1167,8 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
     } else if (exit_zp && neighbors->rank_zp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_zp], &particle->loc)) {
         *guess_rank_out = neighbors->rank_zp;
     }
-    // Note: This does not handle corner/edge neighbors, which is why the fallback is essential.
+    // Bounding boxes of curvilinear subdomains overlap, so a face neighbour may hold a particle
+    // that left across an edge; any other owner is found by the scan below.
 
     if (*guess_rank_out != MPI_PROC_NULL) {
         PROFILE_FUNCTION_END;
