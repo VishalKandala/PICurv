@@ -1,0 +1,1 @@
+- The moving wall handler is supported, on the lid-driven cavity, Stokes second problem and Couette measurements. Measurement records now back the Womersley and recording inlets, keyed source draws, particle injection, particle field sources, the IEM linear reconstruction and 64-rank stratified seeding.
