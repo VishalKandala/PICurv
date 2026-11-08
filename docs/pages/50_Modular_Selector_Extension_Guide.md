@@ -162,7 +162,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
 - C parser:
   - `-interpolation_method` in @ref CreateSimulationContext (`src/setup.c`)
 - Runtime dispatch:
-  - @ref InterpolateEulerFieldToSwarm in `src/interpolation.c`
+  - @ref InterpolateAllFieldsToSwarm in `src/interpolation.c`
 - Tests/docs to update:
   - `tests/test_cli_smoke.py`
   - **@subpage 27_Trilinear_Interpolation_and_Projection**

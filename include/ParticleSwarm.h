@@ -183,27 +183,6 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *psi);                
               
 /**
- * @brief Checks if a particle's location is within a specified bounding box.
- *
- * This function determines whether the given particle's location lies inside the provided bounding box.
- * It performs an axis-aligned bounding box (AABB) check by comparing the particle's coordinates to the
- * minimum and maximum coordinates of the bounding box in each dimension (x, y, z).
- *
- * Logging statements are included to provide detailed information about the function's execution.
- *
- * @param[in]  bbox     Pointer to the BoundingBox structure containing minimum and maximum coordinates.
- * @param[in]  particle Pointer to the Particle structure containing the particle's location and identifier.
- *
- * @return PetscBool    Returns `PETSC_TRUE` if the particle is inside the bounding box, `PETSC_FALSE` otherwise.
- *
- * @note
- * - The function assumes that the `bbox` and `particle` pointers are valid and non-NULL.
- * - The function includes logging statements that start with the function name.
- * - Be cautious when logging in performance-critical code sections, especially if the function is called frequently.
- */
-PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle);
-
-/**
  * @brief Updates a particle's interpolation weights based on distances to cell faces.
  *
  * This function computes interpolation weights using distances to the six

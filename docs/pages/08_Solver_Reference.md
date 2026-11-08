@@ -334,7 +334,7 @@ user-supplied expression path.
 @anchor p08_cap_interp_trilinear
 
 **Identity.** `interpolation.method: Trilinear` -> `-interpolation_method 0` ->
-`InterpolationMethod` -> @ref InterpolateEulerFieldToSwarm.
+`InterpolationMethod` -> @ref InterpolateAllFieldsToSwarm.
 
 **What it does.** Interpolates directly from the eight surrounding cell centres to the
 particle position.
@@ -392,7 +392,7 @@ maximum error converges at first order.
 @anchor p08_cap_interp_faceflux
 
 **Identity.** `interpolation.method: FaceFlux` -> `-interpolation_method 2` ->
-`INTERP_FACE_FLUX` -> @ref InterpolateEulerFieldToSwarm.
+`INTERP_FACE_FLUX` -> @ref InterpolateAllFieldsToSwarm.
 
 **What it does.** Builds the particle velocity from its host cell's face fluxes `Ucont`
 instead of from cell-centre `Ucat`. Each contravariant flux varies linearly between the

@@ -33,7 +33,7 @@ Key properties:
   crosses a periodic seam is wrapped by the walking search (@ref p44_ppol_sec), so
   a dual cell next to the seam combines in-domain centres with translated images.
 
-Code path: @ref InterpolateEulerFieldToSwarm dispatches to `InterpolateEulerFieldFromCenterToSwarm`.
+Code path: @ref InterpolateAllFieldsToSwarm dispatches to `InterpolateEulerFieldFromCenterToSwarm`.
 
 @subsection p27_corner_averaged_ssec 1.2 Corner-Averaged (Legacy)
 
@@ -44,7 +44,7 @@ The original two-stage method:
 
 This is second-order on uniform Cartesian grids but degrades to first-order on curvilinear grids because the unweighted averaging does not account for the asymmetric placement of cell centers around nodes.
 
-Code path: @ref InterpolateEulerFieldToSwarm dispatches to `InterpolateEulerFieldFromCornerToSwarm`.
+Code path: @ref InterpolateAllFieldsToSwarm dispatches to `InterpolateEulerFieldFromCornerToSwarm`.
 
 @subsection p27_face_flux_ssec 1.2a Face-Flux Velocity
 
@@ -63,7 +63,7 @@ and a uniform tracer density is preserved; a wall face carries no flux, so the w
 velocity is zero there. Each component is linear only along its own axis, so the method is
 first-order accurate (see @ref p08_cap_interp_faceflux).
 
-Code path: @ref InterpolateEulerFieldToSwarm dispatches `Ucat` to `InterpolateEulerVelocityFromFacesToSwarm`; other fields use the Trilinear path.
+Code path: @ref InterpolateAllFieldsToSwarm dispatches `Ucat` to `InterpolateEulerVelocityFromFacesToSwarm`; other fields use the Trilinear path.
 
 @subsection p27_shared_ssec 1.3 Shared Kernels
 
@@ -72,8 +72,7 @@ Both methods share the same underlying trilinear kernels:
 - scalar kernel: @ref TrilinearInterpolation_Scalar
 - vector kernel: @ref TrilinearInterpolation_Vector
 - weight computation: @ref ComputeTrilinearWeights
-- field-by-field dispatcher: @ref InterpolateEulerFieldToSwarm
-- stage wrapper: @ref InterpolateAllFieldsToSwarm
+- method dispatcher and stage entry point: @ref InterpolateAllFieldsToSwarm
 
 @subsection p27_config_ssec 1.4 Configuration
 

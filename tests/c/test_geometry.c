@@ -75,22 +75,26 @@ static PetscErrorCode TestVectorInterpolationConstantField(void)
 
 static PetscErrorCode TestSignedDistanceAndClassification(void)
 {
-    const Cmpnts v1 = {0.0, 0.0, 0.0};
-    const Cmpnts v2 = {1.0, 0.0, 0.0};
-    const Cmpnts v3 = {1.0, 1.0, 0.0};
-    const Cmpnts v4 = {0.0, 1.0, 0.0};
-    const Cmpnts centroid = {0.5, 0.5, 0.5};
+    /* The unit cube in walking-search vertex order; its z = 0 face is BACK. */
+    const PetscReal corner[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                                    {0, 1, 1}, {1, 1, 1}, {1, 0, 1}, {0, 0, 1}};
     const Cmpnts inside_point = {0.5, 0.5, 0.25};
     const Cmpnts outside_point = {0.5, 0.5, -1.0};
-    PetscReal d_inside = 0.0, d_outside = 0.0;
+    Cell           cell;
+    CellFacePlanes planes;
+    PetscReal d_inside[NUM_FACES], d_outside[NUM_FACES];
     PetscReal distances[NUM_FACES] = {1.0, 1.0, 0.0, 1.0, 1.0, 1.0};
     PetscInt result = -99;
 
     PetscFunctionBeginUser;
-    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, inside_point, &d_inside, 1.0e-12, NULL));
-    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, outside_point, &d_outside, 1.0e-12, NULL));
-    PetscCall(PicurvAssertBool((PetscBool)(d_inside > 0.0), "inside point should yield positive signed distance"));
-    PetscCall(PicurvAssertBool((PetscBool)(d_outside < 0.0), "outside point should yield negative signed distance"));
+    for (int v = 0; v < 8; ++v) {
+        cell.vertices[v].x = corner[v][0]; cell.vertices[v].y = corner[v][1]; cell.vertices[v].z = corner[v][2];
+    }
+    MetricBuildCellFacePlanes(&cell, &planes);
+    PetscCall(CalculateDistancesToCellFacePlanes(inside_point, &planes, d_inside, 1.0e-12, NULL));
+    PetscCall(CalculateDistancesToCellFacePlanes(outside_point, &planes, d_outside, 1.0e-12, NULL));
+    PetscCall(PicurvAssertRealNear(0.25, d_inside[BACK], 1.0e-14, "inside point should yield its positive distance to the face"));
+    PetscCall(PicurvAssertRealNear(-1.0, d_outside[BACK], 1.0e-14, "outside point should yield its negative distance to the face"));
 
     PetscCall(DeterminePointPosition(distances, &result));
     PetscCall(PicurvAssertIntEqual(1, result, "one zero face distance should classify as on-face"));

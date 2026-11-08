@@ -446,60 +446,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
 }
 
 /**
- * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Scalar()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode PieceWiseLinearInterpolation_Scalar(
-    const char   *fieldName,
-    PetscReal  ***fieldScal,
-    PetscInt      iCell,
-    PetscInt      jCell,
-    PetscInt      kCell,
-    PetscReal    *val)
-{
-  PetscFunctionBegin;
-  PROFILE_HELPER_BEGIN;
-  *val = fieldScal[kCell][jCell][iCell];
-  
-  // Optional logging
-  LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT ") => val=%.6f\n",
-      fieldName, iCell, jCell, kCell, *val);
-
-  PROFILE_HELPER_END;
-  PetscFunctionReturn(0);
-}
-
-/**
- * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Vector()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode PieceWiseLinearInterpolation_Vector(
-    const char   *fieldName,
-    Cmpnts     ***fieldVec,
-    PetscInt      iCell,
-    PetscInt      jCell,
-    PetscInt      kCell,
-    Cmpnts       *vec)
-{
-  PetscFunctionBegin;
-  PROFILE_HELPER_BEGIN;
-  vec->x = fieldVec[kCell][jCell][iCell].x;
-  vec->y = fieldVec[kCell][jCell][iCell].y;
-  vec->z = fieldVec[kCell][jCell][iCell].z;
-
-  // Optional logging
-  LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT ") => (x=%.6f, y=%.6f, z=%.6f)\n",
-      fieldName, iCell, jCell, kCell, vec->x, vec->y, vec->z);
-
-  PROFILE_HELPER_END;
-  PetscFunctionReturn(0);
-}
-
-
-
-/**
  * @brief Compute the eight trilinear interpolation weights for a particle's local coordinates.
  */
 static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
@@ -715,19 +661,11 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     PetscReal ***fieldScal = (PetscReal ***) fieldPtr;
     PetscReal val;
 
-    // Currently using trilinear.
     ierr = TrilinearInterpolation(fieldName, fieldScal,
                                    iCell, jCell, kCell,
                                    a1, a2, a3,
                                    &val);
      CHKERRQ(ierr);
-
-    // Alternative (commented) call to PiecewiseLinearInterpolation (zeroth order) :
-    //   PetscErrorCode ierr = PiecewiseLinearInterpolation(fieldName,
-    //                                                   fieldScal,
-    //                                                   iCell, jCell, kCell,
-    //                                                   &val);
-    // CHKERRQ(ierr);
 
     // Write the scalar result to the swarm output at index [p].
     ((PetscReal*)swarmOut)[p] = val;
@@ -737,17 +675,6 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     Cmpnts ***fieldVec = (Cmpnts ***) fieldPtr;
     Cmpnts vec;
 
-
-    
-    
-    // Piecewise interpolation (zeroth order).
-    //  PetscErrorCode ierr = PieceWiseLinearInterpolation(fieldName,
-    //                                                   fieldVec,
-    //                                                   iCell, jCell, kCell,
-    //                                                   &vec);
-    // CHKERRQ(ierr);
-
-    // Alternative (commented) call to trilinear:
      ierr = TrilinearInterpolation(fieldName, fieldVec,
                                    iCell, jCell, kCell,
                                    a1, a2, a3,
@@ -1642,24 +1569,6 @@ static PetscErrorCode InterpolateEulerFieldsToSwarm(UserCtx *user, PetscInt n, c
     PetscFunctionReturn(0);
 }
 
-
-/**
- * @brief Dispatches grid-to-particle interpolation to the method selected in the control file.
- * @details Routes to InterpolateEulerFieldFromCenterToSwarm (direct trilinear, second-order)
- *          or InterpolateEulerFieldFromCornerToSwarm (corner-averaged, legacy) based on
- *          user->simCtx->interpolationMethod.
- */
-PetscErrorCode InterpolateEulerFieldToSwarm(
-    UserCtx    *user,
-    FieldId      source_field_id,
-    ParticleFieldId target_field_id)
-{
-    PetscFunctionBegin;
-    PROFILE_HELPER_BEGIN;
-    PetscCall(InterpolateEulerFieldsToSwarm(user, 1, &source_field_id, &target_field_id));
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
 
 /**
  * @brief Internal helper implementation: `InterpolateAllFieldsToSwarm()`.

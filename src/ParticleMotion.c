@@ -30,7 +30,6 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 {
     const SimCtx  *simCtx = user->simCtx;
     PetscReal      u[4], n[4], sigma;
-    uint64_t       hash;
 
     PetscFunctionBeginUser;
     displacement->x = displacement->y = displacement->z = 0.0;
@@ -38,8 +37,7 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
-    hash = PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
-    for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
+    ParticleUniformsFromHash(PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step), u);
     GenerateGaussianNoise(1.0 - u[0], u[1], &n[0], &n[1]); /* 1 - u lies in (0, 1]: log finite */
     GenerateGaussianNoise(1.0 - u[2], u[3], &n[2], &n[3]);
 
@@ -164,98 +162,6 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   PetscFunctionReturn(0);
 }
 
-
-/**
- * @brief Test whether a particle position lies within an axis-aligned bounding box.
- */
-static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *pos) {
-    return (pos->x >= bbox->min_coords.x && pos->x <= bbox->max_coords.x &&
-            pos->y >= bbox->min_coords.y && pos->y <= bbox->max_coords.y &&
-            pos->z >= bbox->min_coords.z && pos->z <= bbox->max_coords.z);
-}
-
-
-
-/**
- * @brief Internal helper implementation: `CheckAndRemoveOutOfBoundsParticles()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
-                                              PetscInt *removedCountLocal,
-                                              PetscInt *removedCountGlobal,
-                                              const BoundingBox *bboxlist)
-{
-    PetscErrorCode ierr;
-    DM             swarm = user->swarm;
-    PetscInt       nLocalInitial;
-    PetscReal      *pos_p = NULL;
-    PetscInt64     *pid_p = NULL; // For better logging
-    PetscBool      *remove = NULL;
-    PetscInt       local_removed_count = 0;
-    PetscInt       global_removed_count_mpi = 0;
-    PetscMPIInt    rank, size;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    rank = user->simCtx->rank;
-    size = user->simCtx->size;
-    LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Checking for out-of-bounds particles...", rank);
-
-    // Initialize output parameters to ensure clean state
-    *removedCountLocal = 0;
-    if (removedCountGlobal) *removedCountGlobal = 0;
-
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalInitial); CHKERRQ(ierr);
-
-    // Only proceed if there are particles to check on this rank.
-    // All ranks will still participate in the final collective MPI_Allreduce.
-    if (nLocalInitial > 0) {
-        // Get access to swarm fields once before the loop begins.
-        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
-        ierr = PetscMalloc1(nLocalInitial, &remove); CHKERRQ(ierr);
-
-        // --- Flag escaped particles BACKWARDS, the order the removal below fills their slots in ---
-        for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
-            Cmpnts current_pos = {pos_p[3*p + 0], pos_p[3*p + 1], pos_p[3*p + 2]};
-
-            // Remove the particle unless it is inside ANY of the rank bounding boxes
-            remove[p] = PETSC_TRUE;
-            for (PetscMPIInt proc = 0; proc < size; proc++) {
-                if (IsParticleInBox(&bboxlist[proc], &current_pos)) {
-                    remove[p] = PETSC_FALSE;
-                    break; // Particle is inside a valid domain, stop checking.
-                }
-            }
-
-            if (remove[p]) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing out-of-bounds particle [PID %lld] at local index %" PetscInt_FMT ". Pos: (%g, %g, %g)\n",
-                          rank, (long long)pid_p[p], p, current_pos.x, current_pos.y, current_pos.z);
-                local_removed_count++;
-            }
-        }
-
-        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
-        ierr = RemoveFlaggedParticles(swarm, nLocalInitial, remove, PETSC_TRUE); CHKERRQ(ierr);
-        ierr = PetscFree(remove); CHKERRQ(ierr);
-    } // End of if (nLocalInitial > 0)
-
-    PetscInt nLocalFinal;
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalFinal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Finished removing %" PetscInt_FMT " out-of-bounds particles. Final local size: %" PetscInt_FMT ".\n", rank, local_removed_count, nLocalFinal);
-
-    // --- Synchronize counts across all ranks ---
-    *removedCountLocal = local_removed_count;
-    if (removedCountGlobal) {
-        ierr = MPI_Allreduce(&local_removed_count, &global_removed_count_mpi, 1, MPIU_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRQ(ierr);
-        *removedCountGlobal = global_removed_count_mpi;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " out-of-bounds particles globally.\n", *removedCountGlobal);
-    }
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
 
 /**
  * @brief Internal helper implementation: `CheckAndRemoveLostParticles()`.

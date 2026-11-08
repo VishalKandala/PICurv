@@ -330,8 +330,7 @@ static PetscErrorCode DrawSeedingPoint(
     // little accepts almost every draw. The cap only guards a degenerate envelope.
     for (PetscInt attempt = 0; attempt < 1000; ++attempt) {
         PetscReal density;
-        uint64_t  hash = PicurvDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt);
-        for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
+        ParticleUniformsFromHash(PicurvDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt), u);
         // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
         for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - 1.0e-7), 0.0);
         if (table->face >= 0) logic[table->face / 2] = (table->face % 2) ? 1.0 - 1.0e-6 : 1.0e-6;
@@ -987,46 +986,6 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-
-/**
- * @brief Internal helper implementation: `IsParticleInsideBoundingBox()`.
- * @details Local to this translation unit.
- */
-PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    // Validate input pointers
-    if (!bbox) {
-        // LOG_ALLOW error message and return PETSC_FALSE
-    LOG_ALLOW(LOCAL,LOG_ERROR, "Error - 'bbox' pointer is NULL.");
-        PROFILE_FUNCTION_END;
-        return PETSC_FALSE;
-    }
-    if (!particle) {
-    LOG_ALLOW(LOCAL,LOG_ERROR,"Error - 'particle' pointer is NULL.");
-        PROFILE_FUNCTION_END;
-        return PETSC_FALSE;
-    }
-
-    // Extract particle location and bounding box coordinates
-    const Cmpnts loc = particle->loc;
-    const Cmpnts min_coords = bbox->min_coords;
-    const Cmpnts max_coords = bbox->max_coords;
-
-    // Check if the particle's location is within the bounding box
-    if ((loc.x >= min_coords.x && loc.x <= max_coords.x) &&
-        (loc.y >= min_coords.y && loc.y <= max_coords.y) &&
-        (loc.z >= min_coords.z && loc.z <= max_coords.z)) {
-        PROFILE_FUNCTION_END;
-        return PETSC_TRUE;
-    }
-
-    PROFILE_FUNCTION_END;
-    return PETSC_FALSE;
-}
-
 
 /**
  * @brief Internal helper implementation: `UpdateParticleWeights()`.
