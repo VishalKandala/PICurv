@@ -17,7 +17,6 @@ PetscErrorCode VerificationFieldCompile(const char *text, VerificationFieldConfi
     PROFILE_HELPER_BEGIN;
     PetscCall(PicurvExpressionDestroy(&field->expression));
     PetscCall(PicurvExpressionCompile(text, kVerificationVariableNames, 4, PETSC_FALSE, &field->expression));
-    field->enabled = PETSC_TRUE;
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -37,10 +36,10 @@ PetscErrorCode VerificationFieldsCreate(SimCtx *simCtx)
     if (found) PetscCall(VerificationFieldCompile(text, &simCtx->verificationDiffusivity));
     PetscCall(PetscOptionsGetString(NULL, NULL, "-verification_scalar_expr", text, sizeof(text), &found));
     if (found) PetscCall(VerificationFieldCompile(text, &simCtx->verificationScalar));
-    PetscCheck(!simCtx->verificationDiffusivity.enabled || strcmp(simCtx->eulerianSource, "analytical") == 0,
+    PetscCheck(!simCtx->verificationDiffusivity.expression || strcmp(simCtx->eulerianSource, "analytical") == 0,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                "verification diffusivity overrides require -euler_field_source \"analytical\".");
-    PetscCheck(!simCtx->verificationScalar.enabled || strcmp(simCtx->eulerianSource, "analytical") == 0,
+    PetscCheck(!simCtx->verificationScalar.expression || strcmp(simCtx->eulerianSource, "analytical") == 0,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                "verification scalar overrides require -euler_field_source \"analytical\".");
     PROFILE_FUNCTION_END;
@@ -85,10 +84,10 @@ PetscErrorCode VerificationFieldEvaluate(const SimCtx *simCtx, const Verificatio
  */
 PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (!simCtx) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return simCtx->verificationDiffusivity.enabled;
+    PROFILE_HELPER_BEGIN;
+    const PetscBool active = (PetscBool)(simCtx && simCtx->verificationDiffusivity.expression);
+    PROFILE_HELPER_END;
+    return active;
 }
 
 /**
@@ -97,10 +96,10 @@ PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
  */
 PetscBool VerificationScalarOverrideActive(const SimCtx *simCtx)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (!simCtx) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
-    PROFILE_FUNCTION_END;
-    return simCtx->verificationScalar.enabled;
+    PROFILE_HELPER_BEGIN;
+    const PetscBool active = (PetscBool)(simCtx && simCtx->verificationScalar.expression);
+    PROFILE_HELPER_END;
+    return active;
 }
 
 /**

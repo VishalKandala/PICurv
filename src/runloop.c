@@ -41,9 +41,10 @@ static void RuntimeRequestAutoWalltimeGuard(void)
  */
 static PetscBool RuntimeShutdownRequested(void)
 {
-    PROFILE_FUNCTION_BEGIN;
-    PROFILE_FUNCTION_END;
-    return (PetscBool)(g_runtime_shutdown_signal != 0 || g_runtime_shutdown_auto_requested);
+    PROFILE_HELPER_BEGIN;
+    const PetscBool requested = (PetscBool)(g_runtime_shutdown_signal != 0 || g_runtime_shutdown_auto_requested);
+    PROFILE_HELPER_END;
+    return requested;
 }
 
 /**
@@ -194,8 +195,9 @@ PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previ
 {
     PROFILE_HELPER_BEGIN;
     if (!has_previous) { PROFILE_HELPER_END; return latest_step_seconds; }
+    const PetscReal ewma = alpha * latest_step_seconds + (1.0 - alpha) * previous_ewma_seconds;
     PROFILE_HELPER_END;
-    return alpha * latest_step_seconds + (1.0 - alpha) * previous_ewma_seconds;
+    return ewma;
 }
 
 /**
@@ -207,8 +209,9 @@ PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previ
 PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds)
 {
     PROFILE_HELPER_BEGIN;
+    const PetscReal estimate = PetscMax(warmup_average_seconds, PetscMax(ewma_seconds, latest_step_seconds));
     PROFILE_HELPER_END;
-    return PetscMax(warmup_average_seconds, PetscMax(ewma_seconds, latest_step_seconds));
+    return estimate;
 }
 
 /**
@@ -220,8 +223,9 @@ PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seco
 PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal multiplier, PetscReal conservative_estimate_seconds)
 {
     PROFILE_HELPER_BEGIN;
+    const PetscReal headroom = PetscMax(min_seconds, multiplier * conservative_estimate_seconds);
     PROFILE_HELPER_END;
-    return PetscMax(min_seconds, multiplier * conservative_estimate_seconds);
+    return headroom;
 }
 
 /**
@@ -366,8 +370,8 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
 }
 
 /**
- * @brief Internal helper implementation: `UpdateSolverHistoryVectors()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateSolverHistoryVectors().
+ * @see UpdateSolverHistoryVectors()
  */
 PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_previous_state)
 {
@@ -416,8 +420,8 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
 }
 
 /**
- * @brief Internal helper implementation: `PerformInitializedParticleSetup()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PerformInitializedParticleSetup().
+ * @see PerformInitializedParticleSetup()
  */
 PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 {
@@ -490,8 +494,8 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `PerformLoadedParticleSetup()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PerformLoadedParticleSetup().
+ * @see PerformLoadedParticleSetup()
  */
 PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 {
@@ -552,8 +556,8 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `FinalizeRestartState()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FinalizeRestartState().
+ * @see FinalizeRestartState()
  */
 PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 {
@@ -593,8 +597,8 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `AdvanceSimulation()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AdvanceSimulation().
+ * @see AdvanceSimulation()
  */
 PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 {

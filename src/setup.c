@@ -541,9 +541,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->solutionConvergenceSamplesRecorded = 0;
     simCtx->solutionConvergenceMeanSpeedHistory = NULL;
     simCtx->solutionConvergenceMeanKEHistory = NULL;
-    simCtx->verificationDiffusivity.enabled = PETSC_FALSE;
     simCtx->verificationDiffusivity.expression = NULL;
-    simCtx->verificationScalar.enabled = PETSC_FALSE;
     simCtx->verificationScalar.expression = NULL;
 
     // --- Group 6: Physical & Geometric Parameters ---
@@ -1718,8 +1716,8 @@ static PetscBool LogDirectoryIsSafeToWipe(const char *log_dir, const char *outpu
 }
 
 /**
- * @brief Internal helper implementation: `SetupSimulationEnvironment()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetupSimulationEnvironment().
+ * @see SetupSimulationEnvironment()
  */
 PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 {
@@ -2089,8 +2087,8 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 
 
 /**
- * @brief Internal helper implementation: `CreateAndInitializeAllVectors()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CreateAndInitializeAllVectors().
+ * @see CreateAndInitializeAllVectors()
  */
 PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 {
@@ -2745,8 +2743,8 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
 }
 
 /**
- * @brief Internal helper implementation: `SetupBoundaryConditions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetupBoundaryConditions().
+ * @see SetupBoundaryConditions()
  */
 PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 {
@@ -2809,8 +2807,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `Allocate3DArrayScalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Allocate3DArrayScalar().
+ * @see Allocate3DArrayScalar()
  */
 PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt ny, PetscInt nx)
 {
@@ -2846,8 +2844,8 @@ PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt 
 }
 
 /**
- * @brief Internal helper implementation: `Deallocate3DArrayScalar()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Deallocate3DArrayScalar().
+ * @see Deallocate3DArrayScalar()
  */
 PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt ny)
 {
@@ -3011,8 +3009,8 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
 }
 
 /**
- * @brief Internal helper implementation: `GetOwnedCellRange()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GetOwnedCellRange().
+ * @see GetOwnedCellRange()
  */
 PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt dim,
@@ -3106,8 +3104,8 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
 }
 
 /**
- * @brief Internal helper implementation: `ComputeAndStoreNeighborRanks()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeAndStoreNeighborRanks().
+ * @see ComputeAndStoreNeighborRanks()
  */
 PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 {
@@ -3220,8 +3218,8 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `SetDMDAProcLayout()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetDMDAProcLayout().
+ * @see SetDMDAProcLayout()
  */
 PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
 {
@@ -3367,8 +3365,8 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `Contra2Cart()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref Contra2Cart().
+ * @see Contra2Cart()
  */
 PetscErrorCode Contra2Cart(UserCtx *user)
 {
@@ -3521,8 +3519,8 @@ PetscErrorCode Cart2Contra(UserCtx *user)
  * The public header owns the rendered API contract.
  */
 /**
- * @brief Internal helper implementation: `SetupDomainCellDecompositionMap()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetupDomainCellDecompositionMap().
+ * @see SetupDomainCellDecompositionMap()
  */
 PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
 {
@@ -3853,8 +3851,8 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
 }
 
 /**
- * @brief Internal helper implementation: `ComputeScalarFieldDerivatives()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeScalarFieldDerivatives().
+ * @see ComputeScalarFieldDerivatives()
  */
 PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
                                              PetscReal ***field_data, Cmpnts *grad)
@@ -3896,8 +3894,8 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 }
 
 /**
- * @brief Internal helper implementation: `ComputeVectorFieldDerivatives()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeVectorFieldDerivatives().
+ * @see ComputeVectorFieldDerivatives()
  */
 PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
                                              Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
@@ -3948,8 +3946,8 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 //================================================================================
 
 /**
- * @brief Internal helper implementation: `DestroyUserVectors()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref DestroyUserVectors().
+ * @see DestroyUserVectors()
  */
 PetscErrorCode DestroyUserVectors(UserCtx *user)
 {
@@ -4100,8 +4098,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Internal helper implementation: `DestroyUserContext()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref DestroyUserContext().
+ * @see DestroyUserContext()
  */
 PetscErrorCode DestroyUserContext(UserCtx *user)
 {

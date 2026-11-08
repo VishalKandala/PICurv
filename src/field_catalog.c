@@ -415,11 +415,11 @@ PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t
  */
 const char *FieldCanonicalName(FieldId field_id)
 {
-    PROFILE_FUNCTION_BEGIN;
-    if (field_id < 0 || field_id >= FIELD_ID_COUNT) { PROFILE_FUNCTION_END; return "InvalidField"; }
-    if (gFieldCatalog[field_id].id != field_id) { PROFILE_FUNCTION_END; return "InvalidField"; }
-    PROFILE_FUNCTION_END;
-    return gFieldCatalog[field_id].canonical_name;
+    PROFILE_HELPER_BEGIN;
+    const char *name = (field_id >= 0 && field_id < FIELD_ID_COUNT && gFieldCatalog[field_id].id == field_id)
+                           ? gFieldCatalog[field_id].canonical_name : "InvalidField";
+    PROFILE_HELPER_END;
+    return name;
 }
 
 /**
@@ -428,17 +428,19 @@ const char *FieldCanonicalName(FieldId field_id)
  */
 const char *FieldLayoutName(FieldLayout layout)
 {
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
+    const char *name;
     switch (layout) {
-        case FIELD_LAYOUT_NODE_CENTERED:       PROFILE_FUNCTION_END; return "Node-Centered";
-        case FIELD_LAYOUT_CELL_CENTERED:       PROFILE_FUNCTION_END; return "Cell-Centered";
-        case FIELD_LAYOUT_I_FACE:              PROFILE_FUNCTION_END; return "I-Face";
-        case FIELD_LAYOUT_J_FACE:              PROFILE_FUNCTION_END; return "J-Face";
-        case FIELD_LAYOUT_K_FACE:              PROFILE_FUNCTION_END; return "K-Face";
-        case FIELD_LAYOUT_COMPONENT_STAGGERED: PROFILE_FUNCTION_END; return "Component-Staggered";
-        default:                               PROFILE_FUNCTION_END; return "Invalid-Layout";
+        case FIELD_LAYOUT_NODE_CENTERED:       name = "Node-Centered"; break;
+        case FIELD_LAYOUT_CELL_CENTERED:       name = "Cell-Centered"; break;
+        case FIELD_LAYOUT_I_FACE:              name = "I-Face"; break;
+        case FIELD_LAYOUT_J_FACE:              name = "J-Face"; break;
+        case FIELD_LAYOUT_K_FACE:              name = "K-Face"; break;
+        case FIELD_LAYOUT_COMPONENT_STAGGERED: name = "Component-Staggered"; break;
+        default:                               name = "Invalid-Layout"; break;
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
+    return name;
 }
 
 /**

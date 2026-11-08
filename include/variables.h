@@ -262,10 +262,9 @@ typedef struct MigrationInfo {
     PetscInt target_rank;
 } MigrationInfo;
 
-/** @brief A verification-only prescribed field: an expression in physical x, y, z and t. */
+/** @brief A verification-only prescribed field: an expression in physical x, y, z and t, enabled when set. */
 typedef struct VerificationFieldConfig {
-    PetscBool enabled;
-    struct PicurvExpression *expression;
+    struct PicurvExpression *expression; /**< Compiled expression, or NULL when the field is not configured. */
 } VerificationFieldConfig;
 
 /** @brief Aggregated per-timestep search instrumentation counters. */

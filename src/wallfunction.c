@@ -62,8 +62,8 @@
 // ============================================================================
 
 /**
- * @brief Internal helper implementation: `noslip()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref noslip().
+ * @see noslip()
  */
 void noslip(UserCtx *user, 
             double distance_reference, double distance_boundary,
@@ -97,8 +97,8 @@ void noslip(UserCtx *user,
 }
 
 /**
- * @brief Internal helper implementation: `freeslip()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref freeslip().
+ * @see freeslip()
  */
 void freeslip(UserCtx *user,
               double distance_reference, double distance_boundary,
@@ -138,8 +138,8 @@ void freeslip(UserCtx *user,
 // ============================================================================
 
 /**
- * @brief Internal helper implementation: `E_coeff()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref E_coeff().
+ * @see E_coeff()
  */
 double E_coeff(double friction_velocity, double roughness_height, double kinematic_viscosity)
 {
@@ -172,8 +172,8 @@ double E_coeff(double friction_velocity, double roughness_height, double kinemat
 }
 
 /**
- * @brief Internal helper implementation: `u_hydset_roughness()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref u_hydset_roughness().
+ * @see u_hydset_roughness()
  */
 double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
                           double friction_velocity, double roughness_height)
@@ -211,8 +211,8 @@ double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
 // ============================================================================
 
 /**
- * @brief Internal helper implementation: `f_hydset()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref f_hydset().
+ * @see f_hydset()
  */
 double f_hydset(double kinematic_viscosity, double known_velocity, 
                 double wall_distance, double friction_velocity_guess, 
@@ -311,8 +311,8 @@ double find_utau_hydset(double kinematic_viscosity, double known_velocity,
 // ============================================================================
 
 /**
- * @brief Internal helper implementation: `nu_t()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref nu_t().
+ * @see nu_t()
  */
 double nu_t(double yplus)
 {
@@ -416,8 +416,8 @@ double u_Cabot(double kinematic_viscosity, double wall_distance,
 }
 
 /**
- * @brief Internal helper implementation: `f_Cabot()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref f_Cabot().
+ * @see f_Cabot()
  */
 double f_Cabot(double kinematic_viscosity, double velocity, double wall_distance,
                double friction_velocity_guess, double pressure_gradient_tangent,
@@ -518,8 +518,8 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 // ============================================================================
 
 /**
- * @brief Internal helper implementation: `u_Werner()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref u_Werner().
+ * @see u_Werner()
  */
 double u_Werner(double kinematic_viscosity, double wall_distance,
                 double friction_velocity)
@@ -667,19 +667,21 @@ double find_utau_Werner(double kinematic_viscosity, double velocity,
 double u_loglaw(double wall_distance, double friction_velocity, double roughness_length)
 {
     PROFILE_HELPER_BEGIN;
+    const double velocity = friction_velocity * (1.0 / KAPPA) * log((roughness_length + wall_distance) / roughness_length);
     PROFILE_HELPER_END;
-    return friction_velocity * (1.0 / KAPPA) * log((roughness_length + wall_distance) / roughness_length);
+    return velocity;
 }
 
 /**
- * @brief Internal helper implementation: `find_utau_loglaw()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref find_utau_loglaw().
+ * @see find_utau_loglaw()
  */
 double find_utau_loglaw(double velocity, double wall_distance, double roughness_length)
 {
     PROFILE_HELPER_BEGIN;
+    const double friction_velocity = KAPPA * velocity / log((wall_distance + roughness_length) / roughness_length);
     PROFILE_HELPER_END;
-    return KAPPA * velocity / log((wall_distance + roughness_length) / roughness_length);
+    return friction_velocity;
 }
 
 // ============================================================================
@@ -758,8 +760,8 @@ void wall_function(UserCtx *user, double distance_reference, double distance_bou
 }
 
 /**
- * @brief Internal helper implementation: `wall_function_loglaw()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref wall_function_loglaw().
+ * @see wall_function_loglaw()
  */
 void wall_function_loglaw(UserCtx *user, double roughness_height,
                           double distance_reference, double distance_boundary,
@@ -822,8 +824,8 @@ void wall_function_loglaw(UserCtx *user, double roughness_height,
 }
 
 /**
- * @brief Internal helper implementation: `wall_function_Cabot()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref wall_function_Cabot().
+ * @see wall_function_Cabot()
  */
 void wall_function_Cabot(UserCtx *user, double roughness_height,
                          double distance_reference, double distance_boundary,
