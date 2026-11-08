@@ -1001,7 +1001,9 @@ static PetscErrorCode OpenPrescribedProfile(InletPrescribedVelocityData *data, U
         PetscCheck(fclose(data->file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Cannot close %s.", data->source_file);
         data->file = NULL;
     } else {
-        PetscCall(PetscMalloc2(n_slots, &data->bracket[0], n_slots, &data->bracket[1]));
+        /* Two allocations: the brackets swap as time advances, so neither stays the first of a pair. */
+        PetscCall(PetscMalloc1(n_slots, &data->bracket[0]));
+        PetscCall(PetscMalloc1(n_slots, &data->bracket[1]));
         data->bracket_frame[0] = data->bracket_frame[1] = -1;
     }
     LOG_ALLOW(GLOBAL, LOG_INFO, "Face %s: PICSLICE %s, %" PetscInt_FMT " x %" PetscInt_FMT ", %" PetscInt_FMT " component(s), %" PetscInt_FMT " frame(s).\n",
@@ -1321,7 +1323,8 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
         if (data->file) PetscCheck(fclose(data->file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Cannot close a PICSLICE file.");
         PetscCall(PetscFree(data->profile));
         PetscCall(PetscFree(data->file_values));
-        PetscCall(PetscFree2(data->bracket[0], data->bracket[1]));
+        PetscCall(PetscFree(data->bracket[0]));
+        PetscCall(PetscFree(data->bracket[1]));
         if (data->built) PetscCall(PicurvSourceFaceSlotsDestroy(&data->slots));
         PetscCall(PetscFree(data->velocity));
         if (data->fluctuate) {

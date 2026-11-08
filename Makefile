@@ -114,6 +114,10 @@ DRIVEN_PERIODIC_RUNNER := $(SMOKEDIR)/run_driven_periodic_regression.sh
 DRIVEN_PERIODIC_NPROCS ?= 4 10
 TEST_NPROCS ?= 1
 TEST_MPI_NPROCS ?= 2
+# The debug PETSc gives each buffer of a PetscMalloc2..7 its own allocation; an optimized
+# build coalesces them into one, so a free that names them out of order corrupts the heap
+# only there. The unit tests coalesce too, so such a free fails here as well.
+unit unit-%: export PETSC_OPTIONS += -malloc_coalesce 1
 SMOKE_MPI_NPROCS ?= $(TEST_MPI_NPROCS)
 SMOKE_MPI_MATRIX_NPROCS ?= 2 3
 PY_COVERAGE_MIN ?= 40

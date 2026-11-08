@@ -358,6 +358,10 @@ Useful env knobs:
   changing C I/O, MPI calls or printed `PetscInt` values, or Python code that reads or writes
   PETSc binary files: a `%d` for a `PetscInt`, `MPI_INT` for a `PetscInt`, or a fixed 4-byte
   header is silent on 32-bit builds.
+- `unit` and every `unit-*` target add `-malloc_coalesce 1` to `PETSC_OPTIONS`. An optimized PETSc
+  places the buffers of one `PetscMalloc2`..`7` in a single allocation and a debug one does not, so a
+  free that names them out of order corrupts the heap only in production builds; coalescing makes it
+  fail in the unit tests as well.
 - geometric-periodic harnesses are included in the standard gates.
 - compatibility aliases (`install-check`, `ctest-*`) still exist, but canonical names are preferred in docs and CI.
 
