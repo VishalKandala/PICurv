@@ -166,7 +166,7 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `projection-linear-phi-corrects-velocity`
 - `test_runtime_kernels.c`:
   - `distribute-particles-remainder-handling`
-  - `is-particle-inside-bbox-basic-cases`
+  - `is-particle-in-box-basic-cases`
   - `update-particle-weights-computes-expected-ratios`
   - `update-particle-position-without-brownian-contribution`
   - `update-particle-field-iem-relaxation`

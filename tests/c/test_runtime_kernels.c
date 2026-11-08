@@ -104,7 +104,7 @@ static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
  * @brief Tests basic particle-inside-bounding-box classification cases.
  */
 
-static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
+static PetscErrorCode TestIsParticleInBoxBasicCases(void)
 {
     BoundingBox bbox;
     Cmpnts      pos;
@@ -1719,7 +1719,7 @@ int main(int argc, char **argv)
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"distribute-particles-remainder-handling", TestDistributeParticlesRemainderHandling},
-        {"is-particle-inside-bbox-basic-cases", TestIsParticleInsideBoundingBoxBasicCases},
+        {"is-particle-in-box-basic-cases", TestIsParticleInBoxBasicCases},
         {"update-particle-weights-computes-expected-ratios", TestUpdateParticleWeightsComputesExpectedRatios},
         {"update-particle-position-without-brownian-contribution", TestUpdateParticlePositionWithoutBrownianContribution},
         {"update-particle-position-diffusivity-gradient-only", TestUpdateParticlePositionDiffusivityGradientOnly},

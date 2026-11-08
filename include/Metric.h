@@ -443,8 +443,8 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx);
 /**
  * @brief Builds one face plane: the unit outward normal of (v2 - v1) x (v4 - v1) and the vertex mean.
  *
- * The single definition of a cell face plane: ComputeSignedDistanceToPlane() and the
- * precomputed planes both use it, so their distances are bit-identical. The normal points
+ * The single definition of a cell face plane: the per-cell planes of MetricBuildCellFacePlanes() and
+ * the precomputed per-face planes both use it, so their distances are bit-identical. The normal points
  * away from `cell_centroid`. A degenerate face (normal magnitude below 1e-12) is reported
  * through `degenerate` and left unnormalised.
  *
@@ -467,7 +467,7 @@ PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, con
  * used; degenerate faces set their bit in `degenerate`. `size` is set to 0. This per-cell form
  * serves callers holding only a Cell; MetricComputeFacePlanes() precomputes the shared per-face form.
  *
- * @param[in]  cell   The cell, vertices in GetCellVerticesFromGrid() order.
+ * @param[in]  cell   The cell, vertices in RetrieveCurrentCell() order.
  * @param[out] planes The cell's face planes.
  */
 void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes);

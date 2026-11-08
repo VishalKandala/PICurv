@@ -171,7 +171,7 @@ static PetscErrorCode FacePlaneFieldSlots(UserCtx *user, FieldId id, DM *dm, Vec
 }
 
 /**
- * @brief The eight vertices of the cell whose origin node is (i, j, k), in GetCellVerticesFromGrid()
+ * @brief The eight vertices of the cell whose origin node is (i, j, k), in RetrieveCurrentCell()
  *        order, from a flat ghosted local array indexed as MetricCellFacePlanesIndex().
  */
 static inline void MetricGatherHexVertices(const Cmpnts *X, const DMDALocalInfo *info,

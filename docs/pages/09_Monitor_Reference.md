@@ -274,8 +274,9 @@ logging:
   iteration), the runtime memory record below, and the final `ProfilingSummary_<Solver|PostProcessor>.csv`.
   Each starts with one header line; `#` lines are comments. `picurv summarize --list-tables`
   names the ones a run has and `--table <name>` prints them as aligned columns.
-- Every one of these runtime files carries its column header only once and, but for a fresh
-  run's solver histories, which start empty, is opened for append. A run continued in place
+- Every one of these runtime files carries its column header only once and is opened for
+  append, except that a fresh run empties the solver histories and the two profiling records
+  (`ProfilingSummary_*.csv` and `Profiling_Timestep_Summary.csv`) at their first write. A run continued in place
   therefore extends the file it already has rather than replacing it, and the seam is marked
   with a `# Continuation from step N` comment on the first row the continuation produces. That
   marker is what lets a reader - and `picurv summarize --plot` - treat the segments either as
