@@ -2330,7 +2330,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
 
             for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
                 if (nvert[k][j][i_nvert] < 0.1) {
-                    PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_nvert].x + csi[k][j][i_nvert].y*csi[k][j][i_nvert].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
+                    PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_face].x + csi[k][j][i_face].y*csi[k][j][i_face].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
                     PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
                     if(data->enforceSeamFlux) ucont[k][j][i_face].x += fluxTrim;
                     uch[k][j][i_face].x = fluxTrim; // Store correction for diagnostics
@@ -2358,7 +2358,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
             
             for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
                 if (nvert[k_nvert][j][i] < 0.1) {
-                    PetscReal faceArea = sqrt(zet[k_nvert][j][i].x*zet[k_nvert][j][i].x + zet[k_nvert][j][i].y*zet[k_nvert][j][i].y + zet[k_nvert][j][i].z*zet[k_nvert][j][i].z);
+                    PetscReal faceArea = sqrt(zet[k_face][j][i].x*zet[k_face][j][i].x + zet[k_face][j][i].y*zet[k_face][j][i].y + zet[k_face][j][i].z*zet[k_face][j][i].z);
                     PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
                     if(data->enforceSeamFlux) ucont[k_face][j][i].z += fluxTrim;
                     uch[k_face][j][i].z = fluxTrim;
