@@ -155,6 +155,18 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
 PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face);
 
 /**
+ * @brief Reports whether a boundary face is a free-slip wall: impenetrable, exerting no shear,
+ *        and a plane across which the flow mirrors.
+ *
+ * @param face Boundary face configuration.
+ * @return PETSC_TRUE for a WALL face whose handler is free-slip.
+ */
+static inline PetscBool BoundaryFaceIsFreeSlipWall(const BoundaryFaceConfig *face)
+{
+    return (PetscBool)(face->mathematical_type == WALL && face->handler_type == BC_HANDLER_WALL_FREE_SLIP);
+}
+
+/**
  * @brief Classification of one staggered momentum row (location + component).
  *
  * @see ClassifyMomentumRow() for the meaning of each member and for the
@@ -398,7 +410,7 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update);
  * mirrors there, so the face value the viscous flux averages must be the interior one,
  * as on the corresponding interior face of the full, unmirrored domain. A wall that
  * exerts shear replaces the face value outright (the wall model's, or zero), and the
- * other faces keep the convention they had before this rule existed.
+ * eddy viscosity's dummy cells on every other face are not written here.
  *
  * Periodic faces are skipped: the periodic synchronizers own them. Only the flat part
  * of each face is written (shrunken loop ranges); edges and corners are filled

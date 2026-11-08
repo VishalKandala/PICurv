@@ -232,8 +232,8 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `BoundaryCondition_Create()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref BoundaryCondition_Create().
+ * @see BoundaryCondition_Create()
  */
 
 PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCondition **new_bc_ptr)
@@ -320,8 +320,8 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 }
 
 /**
- * @brief Internal helper implementation: `BoundarySystem_Validate()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref BoundarySystem_Validate().
+ * @see BoundarySystem_Validate()
  */
 PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 {
@@ -498,8 +498,8 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
 
 
 /**
- * @brief Internal helper implementation: `PropagateBoundaryConfigToCoarserLevels()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PropagateBoundaryConfigToCoarserLevels().
+ * @see PropagateBoundaryConfigToCoarserLevels()
  */
 PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
 {
@@ -988,8 +988,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
 // =============================================================================
 
 /**
- * @brief Internal helper implementation: `BoundarySystem_RefreshUbcs()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref BoundarySystem_RefreshUbcs().
+ * @see BoundarySystem_RefreshUbcs()
  */
 PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
 {
@@ -1284,7 +1284,6 @@ static PetscErrorCode GetPeriodicPlaneScatter(DM dm, char direction, VecScatter 
     DMBoundaryType     boundary[3];
     PetscInt           size[3], dof, gs[3], gm[3], nleaves, maxleaf, nselected = 0, *selected = NULL;
     const PetscInt    *ilocal;
-    const PetscSFNode *iremote;
     VecScatter         gtol, embedded;
     PetscBool          per_point;
 
@@ -1301,7 +1300,7 @@ static PetscErrorCode GetPeriodicPlaneScatter(DM dm, char direction, VecScatter 
 
     PetscCall(DMDAGetGhostCorners(dm, &gs[0], &gs[1], &gs[2], &gm[0], &gm[1], &gm[2]));
     PetscCall(DMDAGetScatter(dm, &gtol, NULL));
-    PetscCall(PetscSFGetGraph(gtol, NULL, &nleaves, &ilocal, &iremote));
+    PetscCall(PetscSFGetGraph(gtol, NULL, &nleaves, &ilocal, NULL));
     PetscCall(PetscSFGetLeafRange(gtol, NULL, &maxleaf));
     /* Leaves index whole points when the scatter moves dof-sized blocks, single entries otherwise. */
     per_point = (PetscBool)(dof == 1 || maxleaf < gm[0] * gm[1] * gm[2]);
@@ -1946,8 +1945,8 @@ PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_f
 }
 
 /**
- * @brief Internal helper implementation: `ApplyMetricsPeriodicBCs()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyMetricsPeriodicBCs().
+ * @see ApplyMetricsPeriodicBCs()
  */
 PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 {
@@ -1973,8 +1972,8 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `ApplyPeriodicBCs()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyPeriodicBCs().
+ * @see ApplyPeriodicBCs()
  */
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update)
 {
@@ -2004,20 +2003,10 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update)
     const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
     ierr = SynchronizePeriodicCellFieldsFrom(user, 3, cell_fields, PETSC_FALSE, final_cell_update); CHKERRQ(ierr);
 
-    /* A future temperature field must be catalogued before requesting its typed ghost update. */
-
     // STEP 2: Synchronize persistent staggered endpoints and repair local
     // component-normal ghosts through UpdateLocalGhosts().
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
-
-    // FUTURE EXTENSION: Add new cell fields through SynchronizePeriodicCellFields().
-    /*
-    if (user->solve_temperature) {
-        const char *temperature_field[] = {"Temperature"};
-        ierr = SynchronizePeriodicCellFields(user, 1, temperature_field); CHKERRQ(ierr);
-    }
-    */
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -2055,8 +2044,8 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
      * boundary value the handlers set, placed so the face average equals it. Pressure
      * and the particle scalar take the adjacent cell's value: zero normal gradient. The
      * eddy viscosity mirrors only across a free-slip wall, where the flow mirrors and the
-     * face average must equal the interior value; every other face either replaces it
-     * on the face (a wall that exerts shear) or keeps its existing convention. */
+     * face average must equal the interior value; a wall that exerts shear replaces it on
+     * the face, and no other face's eddy-viscosity dummy cells are written here. */
     PetscCheck(field_id == FIELD_ID_UCAT || field_id == FIELD_ID_P || field_id == FIELD_ID_PSI ||
                field_id == FIELD_ID_NU_T,
                PETSC_COMM_SELF, PETSC_ERR_SUP,
@@ -2067,7 +2056,7 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
         const BoundaryFaceConfig *config = &user->boundary_faces[face];
 
         fills[face] = (field_id == FIELD_ID_NU_T)
-            ? (PetscBool)(config->mathematical_type == WALL && !BoundaryFaceHasWallShear(config))
+            ? BoundaryFaceIsFreeSlipWall(config)
             : (PetscBool)(config->mathematical_type != PERIODIC);
     }
     dof = view.descriptor->dof;
@@ -2197,7 +2186,7 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
     for (PetscInt face = 0; face < 6; ++face) {
         const BoundaryFaceConfig *config = &user->boundary_faces[face];
 
-        free_slip[face] = (PetscBool)(config->mathematical_type == WALL && !BoundaryFaceHasWallShear(config));
+        free_slip[face] = BoundaryFaceIsFreeSlipWall(config);
         any_free_slip = (PetscBool)(any_free_slip || free_slip[face]);
     }
     PetscCall(DMDAVecGetArrayDOF(view.dm, view.global_vec, &f));
@@ -2365,8 +2354,8 @@ static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
 }
 
 /**
- * @brief Internal helper implementation: `ApplyWallFunction()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyWallFunction().
+ * @see ApplyWallFunction()
  */
 PetscErrorCode ApplyWallFunction(UserCtx *user)
 {
@@ -3200,9 +3189,6 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         if (user->boundary_faces[face].mathematical_type == PERIODIC) any_periodic = PETSC_TRUE;
         if (user->boundary_faces[face].handler && user->boundary_faces[face].handler->needs_repeat_pass) passes = 3;
     }
-    /* A ghost update depends only on its global vector, so the leading updates skipped
-     * in the pass repeat one with no write to that global vector since; results are unchanged. */
-
     // STEP 1: The boundary passes. Three let information propagate between coupled boundaries,
     // like an inlet and a conserving outlet, or a free-slip wall and the interior velocity it
     // copies. Without such a face (needs_repeat_pass) and without a wall function, the first
@@ -3214,8 +3200,10 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         ierr = VerifySinglePassIsFinal(user, any_periodic); CHKERRQ(ierr);
     }
 
-    // STEP 3: Final staggered periodic synchronization. The last pass already left Ucat, P
-    // and Ucont's local vectors current with their global ones, so only the transfers run.
+    // STEP 2: Final staggered periodic synchronization. The last pass already left Ucat, P
+    // and Ucont's local vectors current with their global ones, so only the transfers run: a
+    // ghost update depends only on its global vector, and one that repeats an update with no
+    // write to that vector since changes nothing.
     ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields, PETSC_TRUE); CHKERRQ(ierr);
     ierr = VerifyBoundaryPassFinite(user); CHKERRQ(ierr);
 
