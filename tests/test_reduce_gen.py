@@ -194,7 +194,7 @@ def test_metrics_readers_handle_a_continued_run(tmp_path):
         "1,1.0,2.0\n2,2.0,2.0\n3,3.0,9.0\n"
         "# Continuation from step 2\n"
         "3,3.0,4.0\n4,4.0,4.0\n", encoding="utf-8")
-    accel, rows = tool.mean_driving_acceleration([str(driven)], 1.0, 4.0)
+    accel, rows = tool.window_mean([str(driven)], 1.0, 4.0, "driven_flow")
     assert rows == 4
     assert accel == (2.0 + 2.0 + 4.0 + 4.0) / 4
 
@@ -202,9 +202,9 @@ def test_metrics_readers_handle_a_continued_run(tmp_path):
     wall.write_text(
         "step,time,u_tau_mean,u_tau_rms\n1,1.0,3.0,4.0\n"
         "# Continuation from step 1\n2,2.0,3.0,4.0\n", encoding="utf-8")
-    u_tau, rows = tool.friction_velocity_from_wall_model([str(wall)], 0.0, 5.0)
+    mean_square, rows = tool.window_mean([str(wall)], 0.0, 5.0, "wall_model")
     assert rows == 2
-    assert u_tau == 5.0
+    assert mean_square == 25.0
 
 
 
@@ -245,6 +245,6 @@ def test_metrics_readers_follow_a_branched_lineage(tmp_path):
                       encoding="utf-8")
     child = tmp_path / "child.csv"
     child.write_text("step,time,driving_acceleration\n3,3.0,4.0\n", encoding="utf-8")
-    accel, rows = tool.mean_driving_acceleration([f"{parent}@2", str(child)], 0.0, 10.0)
+    accel, rows = tool.window_mean([f"{parent}@2", str(child)], 0.0, 10.0, "driven_flow")
     assert rows == 3
     assert accel == (2.0 + 2.0 + 4.0) / 3

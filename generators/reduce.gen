@@ -44,12 +44,25 @@ if _SHARED_DIR not in sys.path:
     sys.path.insert(0, _SHARED_DIR)
 from periodic_spectral import require_numpy  # noqa: E402
 
-# Axis token -> index into the (k, j, i) array order the readers produce.
+#: Axis token -> index into the (k, j, i) array order the readers produce.
 AXIS_TO_KJI = {"Xi": 2, "Eta": 1, "Zeta": 0}
-# Axis token -> Cartesian velocity component index.
+#: Axis token -> Cartesian velocity component index.
 AXIS_TO_COMPONENT = {"Xi": 0, "Eta": 1, "Zeta": 2}
-# Component pairs of the symmetric covariance, in the stored (xx, xy, xz, yy, yz, zz) order.
+#: Index in (k, j, i) order -> the Cartesian velocity component along that axis.
+KJI_TO_COMPONENT = {kji: AXIS_TO_COMPONENT[token] for token, kji in AXIS_TO_KJI.items()}
+#: Component pairs of the symmetric covariance, in the stored (xx, xy, xz, yy, yz, zz) order.
 M2_PAIRS = ((0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2))
+
+#: The per-row quantity each metrics file's window average takes. A driven-periodic
+#: controller's `driven_flow.csv` row carries the driving acceleration it applied; in a
+#: statistically stationary flow the mean force balances the mean wall stress, <a> h = u_tau^2
+#: for a channel of half-height h and <a> A = tau_w P for a duct of cross-section area A and
+#: wetted perimeter P. A `wall_model.csv` row carries the wall-face mean and standard
+#: deviation of u_tau, so its mean of u_tau^2 is mean^2 + rms^2.
+WINDOW_AVERAGED_QUANTITIES = {
+    "driven_flow": lambda row: float(row["driving_acceleration"]),
+    "wall_model": lambda row: float(row["u_tau_mean"]) ** 2 + float(row["u_tau_rms"]) ** 2,
+}
 
 #: Scalar functionals `profile-series` derives from each column of a one-direction
 #: profile. `s` is arc length along the profile's cell centres, so they hold on
@@ -167,45 +180,34 @@ def read_metrics_rows(csv_paths):
     return [rows[t] for t in sorted(rows)]
 
 
-def friction_velocity_from_wall_model(csv_paths, start, end):
+def window_mean(csv_paths, start, end, quantity):
     """!
-    @brief Mean wall shear the wall model applied over a time interval, as a velocity.
-    @details Each wall_model.csv row carries the wall-face mean and standard deviation
-             of u_tau, so the row's mean of u_tau^2 is mean^2 + rms^2.
-    @param[in] csv_paths The run's wall_model.csv files, as `read_metrics_rows()` takes them.
+    @brief Time average of one metrics quantity over a window, across the restart lineage.
+    @param[in] csv_paths The run's metrics files, as `read_metrics_rows()` takes them.
     @param[in] start Window effective start, in solver time.
     @param[in] end Window effective end, in solver time.
-    @return Tuple of (sqrt(<u_tau^2>), number of rows used).
+    @param[in] quantity Key of WINDOW_AVERAGED_QUANTITIES.
+    @return Tuple of (mean, number of rows used).
     """
+    value = WINDOW_AVERAGED_QUANTITIES[quantity]
     total, rows = 0.0, 0
     for row in read_metrics_rows(csv_paths):
         if start <= float(row["time"]) <= end:
-            total += float(row["u_tau_mean"]) ** 2 + float(row["u_tau_rms"]) ** 2
-            rows += 1
-    if rows == 0:
-        raise SystemExit(f"{', '.join(csv_paths)} has no rows with time in the window [{start}, {end}].")
-    return math.sqrt(total / rows), rows
-
-
-def mean_driving_acceleration(csv_paths, start, end):
-    """!
-    @brief Time-averaged driving acceleration a driven-periodic controller applied.
-    @details In a statistically stationary driven flow the mean force balances the mean
-             wall stress: <a> h = u_tau^2 for a channel of half-height h, and <a> A = tau_w P
-             for a duct of cross-section area A and wetted perimeter P.
-    @param[in] csv_paths The run's driven_flow.csv files, as `read_metrics_rows()` takes them.
-    @param[in] start Window effective start, in solver time.
-    @param[in] end Window effective end, in solver time.
-    @return Tuple of (mean driving acceleration, number of rows used).
-    """
-    total, rows = 0.0, 0
-    for row in read_metrics_rows(csv_paths):
-        if start <= float(row["time"]) <= end:
-            total += float(row["driving_acceleration"])
+            total += value(row)
             rows += 1
     if rows == 0:
         raise SystemExit(f"{', '.join(csv_paths)} has no rows with time in the window [{start}, {end}].")
     return total / rows, rows
+
+
+def axis_node_line(nodes, kji):
+    """!
+    @brief Node coordinates along one grid axis, through the block's first node.
+    @param[in] nodes Node coordinates, (KM, JM, IM, 3) in (k, j, i) order.
+    @param[in] kji Axis as an index in (k, j, i) order.
+    @return (N, 3) coordinates of that axis's nodes.
+    """
+    return {0: nodes[:, 0, 0, :], 1: nodes[0, :, 0, :], 2: nodes[0, 0, :, :]}[kji]
 
 
 def transform(numpy, mean, covariance, pairs, permutation, sign):
@@ -336,12 +338,17 @@ def wall_profile(args):
     plane_mean = stats["mean"]
 
     def covariance(a, b):
+        """!
+        @brief One covariance component across the wall-normal cells.
+        @param[in] a First velocity component.
+        @param[in] b Second velocity component.
+        @return Its profile.
+        """
         return stats["covariance"][:, M2_PAIRS.index(tuple(sorted((a, b))))]
 
     # Wall-normal cell-centre coordinates, taken from the node coordinates of the
-    # wall-normal axis. nodes is (KM, JM, IM, 3) in the same (k, j, i) order.
-    axis_nodes = {0: nodes[:, 0, 0, :], 1: nodes[0, :, 0, :], 2: nodes[0, 0, :, :]}[wall_kji]
-    axis_coord = axis_nodes[:, wall_c]
+    # wall-normal axis.
+    axis_coord = axis_node_line(nodes, wall_kji)[:, wall_c]
     y_centres = 0.5 * (axis_coord[:-1] + axis_coord[1:])
     if y_centres.size != plane_mean.shape[0]:
         raise SystemExit(f"wall-normal cell count mismatch: grid gives {y_centres.size}, "
@@ -354,6 +361,12 @@ def wall_profile(args):
     half = (y_centres.size + 1) // 2
 
     def fold(values, sign=1.0):
+        """!
+        @brief Average a wall-normal profile with its mirror image about the channel centre.
+        @param[in] values Profile across every wall-normal cell.
+        @param[in] sign Sign the mirror image carries.
+        @return The folded lower half.
+        """
         return 0.5 * (values[:half] + sign * values[::-1][:half])
 
     wall_distance = fold(numpy.minimum(numpy.abs(y_centres - axis_coord[0]),
@@ -372,12 +385,13 @@ def wall_profile(args):
         source_note = f"sqrt(f*h) with f={args.body_force:.8e}"
     elif args.driven_flow_csv is not None:
         start, end = window_bounds(args)
-        accel, rows = mean_driving_acceleration(args.driven_flow_csv, start, end)
+        accel, rows = window_mean(args.driven_flow_csv, start, end, "driven_flow")
         u_tau = math.sqrt(accel * h)
         source_note = f"sqrt(<a>*h) with <a>={accel:.8e} over {rows} driven_flow.csv rows"
     elif args.wall_model_csv is not None:
         start, end = window_bounds(args)
-        u_tau, rows = friction_velocity_from_wall_model(args.wall_model_csv, start, end)
+        mean_square, rows = window_mean(args.wall_model_csv, start, end, "wall_model")
+        u_tau = math.sqrt(mean_square)
         source_note = f"sqrt(<u_tau^2>) over {rows} wall_model.csv rows, t in [{start:g}, {end:g}]"
     elif args.u_tau is not None:
         u_tau = args.u_tau
@@ -418,7 +432,6 @@ def cross_section(args):
     @param[in] args Parsed arguments.
     @return Process exit status.
     """
-    pairs = M2_PAIRS
     stream_kji = AXIS_TO_KJI[args.stream_axis]
     stream_c = AXIS_TO_COMPONENT[args.stream_axis]
     stats = profile_statistics(args.profile, args.window, args.grid, args.block,
@@ -430,15 +443,10 @@ def cross_section(args):
     # The two remaining axes, in (k, j, i) order, and the velocity component normal
     # to each one's walls. The reduced arrays are indexed (first, second).
     cross_kji = [axis for axis in (0, 1, 2) if axis != stream_kji]
-    kji_to_component = {0: 2, 1: 1, 2: 0}
-    comp = [kji_to_component[axis] for axis in cross_kji]
+    comp = [KJI_TO_COMPONENT[axis] for axis in cross_kji]
     names = "xyz"
 
-    def axis_nodes(kji, component):
-        line = {0: nodes[:, 0, 0, :], 1: nodes[0, :, 0, :], 2: nodes[0, 0, :, :]}[kji]
-        return line[:, component]
-
-    edges = [axis_nodes(kji, c) for kji, c in zip(cross_kji, comp)]
+    edges = [axis_node_line(nodes, kji)[:, c] for kji, c in zip(cross_kji, comp)]
     # Bisectors and wall shear need a rectilinear cross-section: each cross-stream
     # coordinate must depend on its own index alone.
     span = [abs(e[-1] - e[0]) for e in edges]
@@ -455,6 +463,13 @@ def cross_section(args):
                          f"do not match the statistics {(n0, n1)}.")
 
     def symmetric(c, e, length):
+        """!
+        @brief Whether cell centres mirror about the middle of their axis.
+        @param[in] c Cell-centre coordinates.
+        @param[in] e Node coordinates of the same axis.
+        @param[in] length Axis span, scaling the tolerance.
+        @return True when every centre has a mirror image.
+        """
         return numpy.max(numpy.abs((c - e[0]) - (e[-1] - c[::-1]))) <= 1.0e-9 * length
 
     folded = "raw (--no-fold)"
@@ -473,14 +488,14 @@ def cross_section(args):
                 if flip1:
                     m, v = m[:, ::-1], v[:, ::-1]
                     sign[comp[1]] = -1.0
-                images.append(transform(numpy, m, v, pairs, identity, sign))
+                images.append(transform(numpy, m, v, M2_PAIRS, identity, sign))
         diagonal = n0 == n1 and numpy.max(
             numpy.abs((edges[0] - edges[0][0]) - (edges[1] - edges[1][0]))) <= 1.0e-9 * span[0]
         if diagonal:
             swap = list(identity)
             swap[comp[0]], swap[comp[1]] = comp[1], comp[0]
             images += [transform(numpy, numpy.swapaxes(m, 0, 1), numpy.swapaxes(v, 0, 1),
-                                 pairs, swap, (1.0, 1.0, 1.0)) for m, v in images]
+                                 M2_PAIRS, swap, (1.0, 1.0, 1.0)) for m, v in images]
         mean = sum(m for m, _ in images) / len(images)
         covariance = sum(v for _, v in images) / len(images)
         folded = f"folded over {len(images)} symmetry images"
@@ -507,7 +522,7 @@ def cross_section(args):
         u_tau = math.sqrt(args.body_force * cross_area / perimeter)
         source_note = f"sqrt(f*A/P) with f={args.body_force:.8e}"
     elif args.driven_flow_csv is not None:
-        accel, rows = mean_driving_acceleration(args.driven_flow_csv, *window_bounds(args))
+        accel, rows = window_mean(args.driven_flow_csv, *window_bounds(args), "driven_flow")
         u_tau = math.sqrt(accel * span[0] * span[1] / perimeter)
         source_note = f"sqrt(<a>*A/P) with <a>={accel:.8e} over {rows} driven_flow.csv rows"
     elif args.u_tau is not None:
@@ -528,7 +543,7 @@ def cross_section(args):
               f"at ({centres[0][peak[0]]:.6e}, {centres[1][peak[1]]:.6e})\n"
               f"# nu = {nu:.10e}, window = {args.window} ({args.window_note}), {folded}\n")
     prefix = args.output_prefix
-    pair_names = [names[a] + names[b] for a, b in pairs]
+    pair_names = [names[a] + names[b] for a, b in M2_PAIRS]
 
     with open(prefix + "_cross_section.csv", "w", encoding="utf-8") as handle:
         handle.write(header)
@@ -541,7 +556,15 @@ def cross_section(args):
                              + "," + ",".join(f"{value:.10e}" for value in covariance[a, b]) + "\n")
 
     def cov(a_index, b_index, c0, c1):
-        return covariance[a_index, b_index, pairs.index(tuple(sorted((c0, c1))))]
+        """!
+        @brief One covariance component in one cross-section cell.
+        @param[in] a_index Cell index along the first cross-stream axis.
+        @param[in] b_index Cell index along the second.
+        @param[in] c0 First velocity component.
+        @param[in] c1 Second velocity component.
+        @return The component.
+        """
+        return covariance[a_index, b_index, M2_PAIRS.index(tuple(sorted((c0, c1))))]
 
     # Wall bisector: from the first axis's lower wall, at the centre of the second.
     middle = [n1 // 2] if n1 % 2 else [n1 // 2 - 1, n1 // 2]
