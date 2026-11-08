@@ -7,6 +7,8 @@
 #define ERROR_MSG_BUFFER_SIZE 256
 #endif
 
+static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec lcount, Vec gradient);
+
 /**
  * @brief Internal helper implementation: `UpdateParticleField()`.
  * @details Local to this translation unit.
@@ -22,7 +24,7 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
     PetscFunctionBeginUser;
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
-        // The IEM model relaxes Psi exponentially toward the cell mean over dt.
+        // The IEM model relaxes Psi exponentially toward its target, mean_val, over dt.
         PetscReal omega = C_model * diffusivity / delta2;
         PetscReal decay = PetscExpReal(-omega * dt);
 
@@ -48,11 +50,14 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
 
     PetscReal       *psi_arr = NULL;
     PetscReal       *diff_arr = NULL;
+    PetscReal       *pos_arr = NULL;
     PetscInt        *cell_arr = NULL;
     PetscInt64      *pid_arr = NULL;
 
     PetscReal       ***grid_mean = NULL;
     PetscReal       ***grid_aj = NULL;
+    Cmpnts          ***grid_slope = NULL, ***grid_centroid = NULL;
+    Vec             lslope = NULL, lcentroid = NULL;
 
     PetscBool       accessed_eulerian = PETSC_FALSE;
     const ParticleFieldDescriptor *descriptor = NULL;
@@ -73,11 +78,35 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     // scatter recounts the particles per cell itself. Collective, so it comes before the early
     // return of ranks with no particles.
     if (field_id == PARTICLE_FIELD_ID_PSI) {
+        Vec slope = NULL, sum = NULL, centroid = NULL;
+
         ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+        // The target is the cell's linear reconstruction m + g . (x - xc), with xc the cell's
+        // particle centroid so each cell mean is kept. Relaxing to the stepped mean m alone
+        // adds transport that does not vanish with refinement. A particle's cell is stored one
+        // index past its origin node, so both fields are read through ghosted copies.
+        ierr = DMGetGlobalVector(user->fda, &slope); CHKERRQ(ierr);
+        ierr = ComputeCellScalarGradient(user, user->lPsi, user->lParticleCount, slope); CHKERRQ(ierr);
+        ierr = DMGetLocalVector(user->fda, &lslope); CHKERRQ(ierr);
+        ierr = DMGlobalToLocal(user->fda, slope, INSERT_VALUES, lslope); CHKERRQ(ierr);
+        ierr = DMGetLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
+        ierr = VecSet(lcentroid, 0.0); CHKERRQ(ierr);
+        ierr = AccumulateParticleField(swarm, PARTICLE_FIELD_ID_POSITION, user->fda, lcentroid); CHKERRQ(ierr);
+        ierr = DMGetGlobalVector(user->fda, &sum); CHKERRQ(ierr);
+        ierr = VecSet(sum, 0.0); CHKERRQ(ierr);
+        ierr = DMLocalToGlobal(user->fda, lcentroid, ADD_VALUES, sum); CHKERRQ(ierr);
+        ierr = DMGetGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
+        ierr = NormalizeGridVectorByCount(da, user->ParticleCount, user->fda, sum, centroid); CHKERRQ(ierr);
+        ierr = DMGlobalToLocal(user->fda, centroid, INSERT_VALUES, lcentroid); CHKERRQ(ierr);
+        ierr = DMRestoreGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
+        ierr = DMRestoreGlobalVector(user->fda, &sum); CHKERRQ(ierr);
+        ierr = DMRestoreGlobalVector(user->fda, &slope); CHKERRQ(ierr);
     }
 
     ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
     if (n_local == 0) {
+        if (lslope) { ierr = DMRestoreLocalVector(user->fda, &lslope); CHKERRQ(ierr); }
+        if (lcentroid) { ierr = DMRestoreLocalVector(user->fda, &lcentroid); CHKERRQ(ierr); }
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -88,6 +117,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
         // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
         if (!user->lPsi || !user->lAj) {
@@ -96,6 +126,8 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
 
         ierr = DMDAVecGetArrayRead(da, user->lPsi, &grid_mean); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, lslope, &grid_slope); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, lcentroid, &grid_centroid); CHKERRQ(ierr);
         accessed_eulerian = PETSC_TRUE;
     }
 
@@ -114,8 +146,10 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
             PetscInt j = cell_arr[3*p + 1] + 1;
             PetscInt k = cell_arr[3*p + 2] + 1;
 
+            const Cmpnts g = grid_slope[k][j][i], c = grid_centroid[k][j][i];
             p_diff = diff_arr[p];
-            p_mean = grid_mean[k][j][i];
+            p_mean = grid_mean[k][j][i] + g.x * (pos_arr[3*p + 0] - c.x) + g.y * (pos_arr[3*p + 1] - c.y)
+                                         + g.z * (pos_arr[3*p + 2] - c.z);
 
             if (i != width_cell[0] || j != width_cell[1] || k != width_cell[2]) {
                 // Aj is the reciprocal cell volume in the curvilinear-grid representation.
@@ -132,7 +166,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = UpdateParticleField(field_id, dt, &psi_arr[p], p_diff, p_mean, p_delta2, C_IEM);
         CHKERRQ(ierr);
         LOG_PARTICLE(user->simCtx, pid_arr[p], "mix",
-                     "%s %.10e -> %.10e | cell mean %.10e | diffusivity %.6e mixing length^2 %.6e C %.4f dt %.6e\n",
+                     "%s %.10e -> %.10e | target %.10e | diffusivity %.6e mixing length^2 %.6e C %.4f dt %.6e\n",
                      fieldName, psi_old, psi_arr[p], p_mean, p_diff, p_delta2, C_IEM, dt);
     }
 
@@ -142,11 +176,16 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
         ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
     }
 
     if (accessed_eulerian) {
         ierr = DMDAVecRestoreArrayRead(da, user->lPsi, &grid_mean); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, lslope, &grid_slope); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, lcentroid, &grid_centroid); CHKERRQ(ierr);
+        ierr = DMRestoreLocalVector(user->fda, &lslope); CHKERRQ(ierr);
+        ierr = DMRestoreLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updated particle physics for field '%s'.\n", fieldName);
@@ -325,150 +364,90 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
 }
 
 /**
+ * @brief Cartesian gradient of a cell-centred scalar at every owned physical cell.
+ * @details Each computational derivative is the central difference, or at a non-periodic
+ *          boundary cell the second-order one-sided difference into the domain, mapped to
+ *          Cartesian components with the cell's metrics. With `lcount`, a derivative whose
+ *          stencil reaches a cell holding no particles is zero, so an empty cell's zero mean
+ *          does not enter. Writes owned entries only; local to this translation unit.
+ * @param[in]  user     Grid context.
+ * @param[in]  lscalar  Ghosted scalar, its ghosts current.
+ * @param[in]  lcount   Ghosted particle count, its ghosts current; or NULL.
+ * @param[out] gradient Global vector on `fda`.
+ */
+static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec lcount, Vec gradient)
+{
+    DMDALocalInfo    info = user->info;
+    const PetscInt   n[3] = {info.mx, info.my, info.mz};
+    const PetscBool  periodic[3] = {(PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC),
+                                    (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC),
+                                    (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC)};
+    // Grid uses indices 1 to M-2 for physical cells; index 0 and M-1 are boundary holders.
+    const PetscInt   lo[3] = {PetscMax(info.xs, 1), PetscMax(info.ys, 1), PetscMax(info.zs, 1)};
+    const PetscInt   hi[3] = {PetscMin(info.xs + info.xm, n[0] - 1), PetscMin(info.ys + info.ym, n[1] - 1),
+                              PetscMin(info.zs + info.zm, n[2] - 1)};
+    const PetscReal  ***f = NULL, ***count = NULL, ***aj = NULL;
+    const Cmpnts     ***csi = NULL, ***eta = NULL, ***zet = NULL;
+    Cmpnts           ***grad = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAVecGetArrayRead(user->da, lscalar, (void *)&f));
+    if (lcount) PetscCall(DMDAVecGetArrayRead(user->da, lcount, (void *)&count));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecGetArray(user->fda, gradient, &grad));
+#define CELL(a, d, o) ((d) == 0 ? (a)[k][j][i + (o)] : (d) == 1 ? (a)[k][j + (o)][i] : (a)[k + (o)][j][i])
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                const PetscInt idx[3] = {i, j, k};
+                PetscReal      dG[3];
+                for (PetscInt d = 0; d < 3; ++d) {
+                    PetscInt  o[3] = {-1, 1, 0};
+                    PetscReal c[3] = {-1.0, 1.0, 0.0};   /* central: [-1, 0, 1] / 2 */
+                    if (!periodic[d] && idx[d] == 1) {
+                        o[0] = 0; o[1] = 1; o[2] = 2; c[0] = -3.0; c[1] = 4.0; c[2] = -1.0;   /* forward: [-3, 4, -1] / 2 */
+                    } else if (!periodic[d] && idx[d] == n[d] - 2) {
+                        o[0] = 0; o[1] = -1; o[2] = -2; c[0] = 3.0; c[1] = -4.0; c[2] = 1.0;  /* backward: [1, -4, 3] / 2 */
+                    }
+                    dG[d] = (c[0] * CELL(f, d, o[0]) + c[1] * CELL(f, d, o[1]) + c[2] * CELL(f, d, o[2])) * 0.5;
+                    if (count) {
+                        for (PetscInt q = 0; q < 3; ++q) if (c[q] != 0.0 && CELL(count, d, o[q]) < 0.5) dG[d] = 0.0;
+                    }
+                }
+                TransformScalarDerivativesToPhysical(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i],
+                                                     dG[0], dG[1], dG[2], &grad[k][j][i]);
+            }
+        }
+    }
+#undef CELL
+    PetscCall(DMDAVecRestoreArray(user->fda, gradient, &grad));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&csi));
+    if (lcount) PetscCall(DMDAVecRestoreArrayRead(user->da, lcount, (void *)&count));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, lscalar, (void *)&f));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Internal helper implementation: `ComputeEulerianDiffusivityGradient()`.
  * @details Local to this translation unit.
  */
 PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    DM             da = user->da, fda = user->fda;
-    DMDALocalInfo  info = user->info;
-
-    // 1. Determine Global Dimensions
-    PetscInt mx = info.mx, my = info.my, mz = info.mz;
-
-    // 2. Determine Local Loop Bounds (Skip Ghosts/Unused Indices)
-    //    Grid uses indices 1 to M-2 for physical cells.
-    //    Index 0 and M-1 are ghost/boundary holders.
-    
-    // Start: If we own the global start (0), skip it and start at 1.
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    // End:   If we own the global end (mx), stop before it (mx-1), so loop covers mx-2.
-    PetscInt lxe = (info.xs + info.xm == mx) ? mx - 1 : info.xs + info.xm;
-
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lye = (info.ys + info.ym == my) ? my - 1 : info.ys + info.ym;
-
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lze = (info.zs + info.zm == mz) ? mz - 1 : info.zs + info.zm;
-
-    PetscInt i, j, k;
-
-    // Pointers
-    PetscReal ***diff;      // Input (Scalar)
-    Cmpnts    ***grad_diff; // Output (Vector)
-    Cmpnts    ***csi, ***eta, ***zet;
-    PetscReal ***aj;
-
-    // Boundary Flags (Check if Periodic)
-    PetscBool p_x = (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
-    PetscBool p_y = (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
-    PetscBool p_z = (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
-
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-
-    // 3. Update Ghosts for Diffusivity 
-    //    Required so that Central Differences at i=2 can read i=1,
-    //    and Central Differences at Periodic Boundaries work correctly.
-    ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
-
-    // 4. Get Arrays (Read Only)
-    ierr = DMDAVecGetArrayRead(da,  user->lDiffusivity, &diff); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
-    
-	LOG_ALLOW(GLOBAL,LOG_DEBUG,"Diffusivity and Metrics arrays accessed successfully! .\n");
-
-    // 5. Get Output Array (Read/Write)
-    ierr = DMDAVecGetArray(fda, user->DiffusivityGradient, &grad_diff); CHKERRQ(ierr);
-
-	LOG_ALLOW(GLOBAL,LOG_DEBUG,"Diffusivity Gradient array accessed successfully! .\n");
-
-    // 6. Loop over Physical Domain
-    for (k = lzs; k < lze; k++) {
-        for (j = lys; j < lye; j++) {
-            for (i = lxs; i < lxe; i++) {
-                
-                PetscReal dGdCsi, dGdEta, dGdZet;
-
-                // ---------------------------------------------------------
-                // I-Direction (Csi)
-                // ---------------------------------------------------------
-                if (!p_x && i == 1) {
-                    // Physical Start: 2nd Order Forward Difference
-                    // Stencil: [-3, 4, -1] / 2
-                    dGdCsi = (-3.0 * diff[k][j][i] + 4.0 * diff[k][j][i+1] - diff[k][j][i+2]) * 0.5;
-                } 
-                else if (!p_x && i == mx - 2) {
-                    // Physical End: 2nd Order Backward Difference
-                    // Stencil: [1, -4, 3] / 2
-                    dGdCsi = (3.0 * diff[k][j][i] - 4.0 * diff[k][j][i-1] + diff[k][j][i-2]) * 0.5;
-                } 
-                else {
-                    // Interior / Periodic: Central Difference
-                    // Stencil: [-1, 0, 1] / 2
-                    dGdCsi = (diff[k][j][i+1] - diff[k][j][i-1]) * 0.5;
-                }
-
-                // ---------------------------------------------------------
-                // J-Direction (Eta)
-                // ---------------------------------------------------------
-                if (!p_y && j == 1) {
-                    // Physical Start: Forward
-                    dGdEta = (-3.0 * diff[k][j][i] + 4.0 * diff[k][j+1][i] - diff[k][j+2][i]) * 0.5;
-                } 
-                else if (!p_y && j == my - 2) {
-                    // Physical End: Backward
-                    dGdEta = (3.0 * diff[k][j][i] - 4.0 * diff[k][j-1][i] + diff[k][j-2][i]) * 0.5;
-                } 
-                else {
-                    // Interior: Central
-                    dGdEta = (diff[k][j+1][i] - diff[k][j-1][i]) * 0.5;
-                }
-
-                // ---------------------------------------------------------
-                // K-Direction (Zet)
-                // ---------------------------------------------------------
-                if (!p_z && k == 1) {
-                    // Physical Start: Forward
-                    dGdZet = (-3.0 * diff[k][j][i] + 4.0 * diff[k+1][j][i] - diff[k+2][j][i]) * 0.5;
-                } 
-                else if (!p_z && k == mz - 2) {
-                    // Physical End: Backward
-                    dGdZet = (3.0 * diff[k][j][i] - 4.0 * diff[k-1][j][i] + diff[k-2][j][i]) * 0.5;
-                } 
-                else {
-                    // Interior: Central
-                    dGdZet = (diff[k+1][j][i] - diff[k-1][j][i]) * 0.5;
-                }
-
-                // ---------------------------------------------------------
-                // Transform to Physical Space (Cartesian Gradient)
-                // ---------------------------------------------------------
-                TransformScalarDerivativesToPhysical(aj[k][j][i],
-                                                     csi[k][j][i], eta[k][j][i], zet[k][j][i],
-                                                     dGdCsi, dGdEta, dGdZet,
-                                                     &grad_diff[k][j][i]);
-            }
-        }
-    }
-
-    // 7. Restore Arrays
-    ierr = DMDAVecRestoreArrayRead(da,  user->lDiffusivity, &diff); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(fda, user->DiffusivityGradient, &grad_diff); CHKERRQ(ierr);
-
-    // 8. Update Ghosts for the Result
-    //    Important: Particles near subdomain boundaries will need to interpolate
-    //    this gradient vector, so the ghosts of the vector field must be filled.
-    ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
-
+    // Central differences read the neighbours across subdomain and periodic seams.
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY));
+    PetscCall(ComputeCellScalarGradient(user, user->lDiffusivity, NULL, user->DiffusivityGradient));
+    // Particles near subdomain boundaries interpolate the gradient, so its ghosts are filled.
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY_GRADIENT));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

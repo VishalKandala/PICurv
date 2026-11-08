@@ -13,7 +13,7 @@ its own configuration and state; see @ref 58_Field_Statistics.
 For `Psi`, @ref UpdateParticleField uses:
 
 \f[
-\frac{d\Psi}{dt} = -\Omega(\Psi-\langle\Psi\rangle),
+\frac{d\Psi}{dt} = -\Omega(\Psi-\tilde\Psi),
 \qquad
 \Omega = C_{IEM}\,\frac{\Gamma_{eff}}{\Delta^2},
 \qquad
@@ -23,8 +23,22 @@ For `Psi`, @ref UpdateParticleField uses:
 Closed-form update implemented in code:
 
 \f[
-\Psi^{n+1}=\langle\Psi\rangle + (\Psi^n-\langle\Psi\rangle)e^{-\Omega\Delta t}.
+\Psi^{n+1}=\tilde\Psi + (\Psi^n-\tilde\Psi)e^{-\Omega\Delta t},
+\qquad
+\tilde\Psi = \langle\Psi\rangle_c + \nabla\langle\Psi\rangle\cdot(\mathbf{x}-\bar{\mathbf{x}}_c).
 \f]
+
+The target \f$\tilde\Psi\f$ is the host cell's linear reconstruction: its scattered mean
+\f$\langle\Psi\rangle_c\f$, plus the gradient of the cell means at the cell times the
+particle's offset from \f$\bar{\mathbf{x}}_c\f$, the centroid of the cell's particles. The
+gradient is the central difference of neighbouring cell means, one-sided into the domain at a
+non-periodic boundary, mapped with the cell's metrics; along an axis whose stencil reaches a
+cell with no particles it is zero. The offsets average to zero over the cell, so each cell's
+mean, and its total, are unchanged. Relaxing toward the stepped mean alone would pull every
+particle toward its own cell's value, which transports the resolved mean as extra diffusion:
+by a factor \f$x\coth x\f$, \f$x = \tfrac{1}{2}\sqrt{C_{IEM}}\,h/\Delta\f$ for cell width
+\f$h\f$ across the gradient (+16% at the default constant on cubic cells), which refinement does
+not remove.
 
 `C_IEM` is `case.yml -> models.physics.particles.iem_constant` (`-iem_constant`), default 2.0,
 the conventional value; it is exposed for sensitivity studies, not because another value
@@ -45,7 +59,7 @@ Code touchpoints:
 The scalar to mix comes from `models.physics.particles.fields` (@ref p45_particle_values_sec),
 which sets each particle's `Psi` before the first scatter; without it, every particle
 starts at the catalog default 0.0 and the update has nothing to relax. IEM relaxes each
-particle toward its own cell's mean, so it only mixes values that share a cell: a
+particle toward its own cell's reconstruction, so it only mixes values that share a cell: a
 double-delta start inside every cell is `"where(uniform() < 0.5, 0, 1)"`, whereas a sharp
 `half_space` region mixes only in the cells its boundary cuts, and spreads beyond them only
 as fast as particles move.
@@ -58,7 +72,10 @@ cells, the within-cell variance of `Psi` follows \f$e^{-2\Omega t}\f$ to 0.71% o
 e-fold for `C_IEM` = 2, 20 and 200. The solver's whole decay curve, over up to 2.9 decades,
 matches an independent NumPy emulation of the same step order to within 2.1 seed standard
 deviations, and a run continued from a checkpoint with `restart_mode: load` stays within
-0.52% of the uninterrupted run.
+0.52% of the uninterrupted run. The record's runs relaxed toward the stepped cell mean. On its
+configuration, with `C_IEM` = 2, the reconstruction's variance ratio stays within 0.1% of the
+stepped mean's through the first e-fold (local runs, not a registered measurement): with no
+mean gradient, the reconstruction's slope is the gradient of sampling noise.
 
 Below the first e-fold, the solver decays more slowly than \f$e^{-2\Omega t}\f$ (+4% at a
 tenth of the initial variance with `C_IEM` = 20), and the emulation does the same. This is
@@ -76,7 +93,9 @@ causes it.
 The unit tests in `tests/c/test_setup_lifecycle.c` pin the kernel: `TestConfiguredIEMUpdatesSwarm`
 checks relaxation toward a prescribed mean for the default and an overridden constant;
 `TestIEMRelaxesTowardOwnCellMean` checks that each particle relaxes toward its own cell's
-scattered mean, conserving the scalar total; and `TestConfiguredParticleInitialValue`
+scattered mean, conserving the scalar total; `TestIEMRelaxesTowardCellReconstruction` checks
+that a linear field stays far closer to its line than relaxing to the stepped mean leaves it,
+with each cell's sum kept; and `TestConfiguredParticleInitialValue`
 checks that a configured value reaches every particle and the t=0 cell mean.
 
 **Not validated:** the model. No turbulent flow has been run against a measured
@@ -96,7 +115,7 @@ models:
       count: 32768
       init_mode: Volume
       fields:
-        Psi: "where(uniform() < 0.5, 0, 1)"   # double delta inside every cell
+        Psi: {expression: "where(uniform() < 0.5, 0, 1)"}   # double delta inside every cell
       iem_constant: 2.0                       # the default; 0 makes Psi a passive label
 ```
 

@@ -747,6 +747,84 @@ static PetscErrorCode TestIEMRelaxesTowardOwnCellMean(void)
 }
 
 /**
+ * @brief Checks that IEM relaxes toward the cell's linear reconstruction, not its stepped mean.
+ * @details Particles fill the box and carry Psi = 2x, so each cell mean is 2x at the cell's
+ *          particle centroid and the field's gradient is (2, 0, 0). Relaxing toward the stepped
+ *          mean would pull every particle toward its cell's value; relaxing toward the
+ *          reconstruction about the centroid leaves the line nearly unchanged, up to the error
+ *          of the gradient taken from noisy cell means, and keeps each cell's sum.
+ */
+static PetscErrorCode TestIEMRelaxesTowardCellReconstruction(void)
+{
+    const char *options = "-numParticles 5000\n-pinit 1\n"
+                          "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"2*x\"\n";
+    SimCtx     *simCtx = NULL;
+    UserCtx    *user = NULL;
+    char        tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt    nlocal = 0, *cell = NULL, ncells;
+    PetscReal  *psi = NULL, *diffusivity = NULL, *pos = NULL, *cx = NULL, *cn = NULL;
+    PetscReal   sums[4] = {0.0, 0.0, 0.0, 0.0}; /* sum before, sum after, squared departure from 2x, the same for the stepped mean */
+    PetscReal   decay;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user,
+                                                       tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+    simCtx->dt = 0.5;
+    ncells = (user->info.mx - 2) * (user->info.my - 2) * (user->info.mz - 2);
+    /* The gradient reads the metrics, so the Jacobian stays the grid's: the unit box's uniform
+     * cells set the mixing length, with the update's own exponent. */
+    decay = PetscExpReal(-simCtx->iem_constant * 0.2 * 0.5 / PetscPowReal(1.0 / (PetscReal)ncells, 0.6666667));
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(PetscCalloc2(ncells, &cx, ncells, &cn));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        const PetscInt c = cell[3*p] + (user->info.mx - 2) * (cell[3*p+1] + (user->info.my - 2) * cell[3*p+2]);
+        diffusivity[p] = 0.2;
+        sums[0] += psi[p];
+        cx[c] += pos[3*p];
+        cn[c] += 1.0;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    PetscCall(UpdateAllParticleFields(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        const PetscInt  c = cell[3*p] + (user->info.mx - 2) * (cell[3*p+1] + (user->info.my - 2) * cell[3*p+2]);
+        const PetscReal stepped = 2.0 * cx[c] / cn[c] + (2.0 * pos[3*p] - 2.0 * cx[c] / cn[c]) * decay;
+        sums[1] += psi[p];
+        sums[2] += (psi[p] - 2.0 * pos[3*p]) * (psi[p] - 2.0 * pos[3*p]);
+        sums[3] += (stepped - 2.0 * pos[3*p]) * (stepped - 2.0 * pos[3*p]);
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(PetscFree2(cx, cn));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, sums, 4, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    PetscCall(PicurvAssertRealNear(sums[0], sums[1], 1.0e-9, "the reconstruction keeps every cell's scalar sum"));
+    PetscCall(PicurvAssertBool((PetscBool)(sums[3] > 0.0 && sums[2] < 0.05 * sums[3]),
+                               "relaxing toward the reconstruction must keep a linear field far closer than the stepped mean"));
+
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks that post-processing loads the particle averages a checkpoint holds.
  * @details A case with `restart_mode: init` reseeds particles on a solver restart, so the
  *          solver must not restore the averages of the particles it discards; the
@@ -1235,6 +1313,7 @@ int main(int argc, char **argv)
         {"source-initial-condition-pressure", TestSourceInitialConditionPressure},
         {"source-initial-condition-contravariant-fluxes", TestSourceInitialConditionContravariantFluxes},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
+        {"iem-relaxes-toward-cell-reconstruction", TestIEMRelaxesTowardCellReconstruction},
         {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},
