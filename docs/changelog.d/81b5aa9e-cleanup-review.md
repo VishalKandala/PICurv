@@ -1,0 +1,6 @@
+- Cleanup from a review of the last three weeks' changes: dead code removed, duplicated operations folded into their owners (periodic-axis detection, owned-interior bounds, the run's CSV records, the particle cell mean, named-source resolution), and stale comments corrected. Results are bit-identical on every case compared, by checkpoint and by particle ID, at several rank layouts and both index widths. Defects fixed along the way:
+  - an analytical-field restart reports errors from the field evaluation instead of dropping them, and a non-finite contravariant or curvilinear cell source value stops the run;
+  - an inlet's synthetic-fluctuation stresses are refused unless Cartesian and unconstrained, as the CLI already ensured;
+  - with `enforce_seam_flux`, the driven periodic trim on the -Xi and -Zeta faces uses the boundary face's own area;
+  - `Profiling_Timestep_Summary.csv` keeps its header when its first row comes after step 1, and the particle snapshot table prints 64-bit particle IDs correctly;
+  - the CLI checks named sources and multi-block inlets as it does inline and single-block ones, refuses an infinite `scale`, validates the reducer's `half_height`, reads `fold: "false"` as false, refuses source constants named like expression variables, and `summarize --table` no longer parses a text log as CSV.
