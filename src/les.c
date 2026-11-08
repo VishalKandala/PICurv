@@ -124,24 +124,6 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
 }
 
 /**
- * @brief Reports the block's per-axis periodicity in `(xi, eta, zeta)` order.
- *
- * Reads the resolved global flags rather than the boundary face configuration. The two
- * cannot disagree: the flags are derived from the boundary files, and the loader
- * rejects a case whose opposite faces or whose blocks do not agree on periodicity. The
- * flags are also what the DMDA itself was built from, and what the shared spatial
- * target consults, so taking them here keeps one source of truth.
- */
-static void LESPeriodicAxes(const SimCtx *simCtx, PetscBool periodic[3])
-{
-    PROFILE_FUNCTION_BEGIN;
-    periodic[0] = (PetscBool)(simCtx->i_periodic != 0);
-    periodic[1] = (PetscBool)(simCtx->j_periodic != 0);
-    periodic[2] = (PetscBool)(simCtx->k_periodic != 0);
-    PROFILE_FUNCTION_END;
-}
-
-/**
  * @brief Implementation of \ref SymTensorSelfOuter().
  * @details Full API contract is documented with the header declaration in
  *          `include/les.h`.
@@ -385,7 +367,7 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
     PROFILE_FUNCTION_BEGIN;
     PetscCheck(direction != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Averaging direction destination cannot be NULL.");
-    LESPeriodicAxes(user->simCtx, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
 
     for (PetscInt axis = 0; axis < 3; axis++) direction[axis] = PETSC_FALSE;
 
@@ -614,7 +596,7 @@ static PetscErrorCode ComputeStrainRateField(UserCtx *user, Cmpnts ***ucat,
 
     info = user->info;
     PetscCall(LESResolveDomain(user, &plan));
-    LESPeriodicAxes(user->simCtx, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
 
     PetscCall(DMDAVecGetArray(fda, strain_diagonal, &diagonal));
     PetscCall(DMDAVecGetArray(fda, strain_offdiagonal, &offdiagonal));

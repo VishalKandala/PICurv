@@ -114,14 +114,12 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
     const PetscInt mx = user->info.mx, my = user->info.my, mz = user->info.mz;
     const PetscInt coord[3] = {i, j, k};
     const PetscInt size[3] = {mx, my, mz};
-    const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
     PetscBool periodic[3], periodic_duplicate = PETSC_FALSE;
     PetscBool residual_zeroed = PETSC_FALSE, conditioned = PETSC_FALSE;
 
     *ri = i; *rj = j; *rk = k;
+    GetPeriodicAxes(user->simCtx, periodic);
     for (PetscInt axis = 0; axis < 3; ++axis) {
-        periodic[axis] = (PetscBool)(
-            user->boundary_faces[neg_face[axis]].mathematical_type == PERIODIC);
         if (periodic[axis] && coord[axis] == 0) {
             periodic_duplicate = PETSC_TRUE;
             if (axis == 0) *ri = -2;

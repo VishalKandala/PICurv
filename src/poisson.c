@@ -135,20 +135,6 @@ static PetscInt PoissonOperator_StencilSlot(const PetscInt d[3])
 }
 
 
-/**
- * @brief Implementation of \ref PoissonOperator_PeriodicAxes().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see PoissonOperator_PeriodicAxes()
- */
-void PoissonOperator_PeriodicAxes(const UserCtx *user, PetscBool periodic[3])
-{
-    PROFILE_FUNCTION_BEGIN;
-    periodic[0] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
-    periodic[1] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
-    periodic[2] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
-    PROFILE_FUNCTION_END;
-}
 
 
 
@@ -275,7 +261,7 @@ PetscErrorCode AssemblePoissonOperator(UserCtx *user)
     }
     PetscCall(MatZeroEntries(user->A));
 
-    PoissonOperator_PeriodicAxes(user, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
     PetscCall(DMDAGetAO(user->da, &ao));
     PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
@@ -452,7 +438,7 @@ PetscErrorCode ProjectVelocity(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PoissonOperator_PeriodicAxes(user, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
     GetOwnedInteriorCellBounds(&info, interior_start, interior_end);
 
     PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));

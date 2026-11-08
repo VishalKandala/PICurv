@@ -109,7 +109,7 @@ PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     GetOwnedInteriorCellBounds(info, lo, hi);
-    PoissonOperator_PeriodicAxes(user, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
     PetscCall(PreparePeriodicQuickStencilFields(user, Ucat, user->lNvert));
     PetscCall(VecSet(Conv, 0.0));
     /* Face fluxes per axis, from fda's pool and zeroed as fresh vectors would be: faces that
@@ -509,7 +509,7 @@ static PetscErrorCode RHSFaceTermsWithPressureGradient(UserCtx *user, Vec Rct, V
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     GetOwnedInteriorCellBounds(info, interior_lo, interior_hi);
-    PoissonOperator_PeriodicAxes(user, periodic);
+    GetPeriodicAxes(user->simCtx, periodic);
     PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lP, (void *)&p));

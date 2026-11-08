@@ -911,10 +911,8 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
     FacePlaneArrays dual_arrays;
     ierr = MetricGetFacePlaneArrays(user, PETSC_TRUE, &dual_arrays); CHKERRQ(ierr);
 
-    /* Periodic flags per direction */
-    const PetscBool periodic[3] = {(PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC),
-                                   (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC),
-                                   (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC)};
+    PetscBool periodic[3];
+    GetPeriodicAxes(user->simCtx, periodic);
 
     /* Get read-only arrays for each cell-centered field and its swarm destination */
     for (PetscInt t = 0; t < ntargets; ++t) {
@@ -1282,7 +1280,7 @@ PetscErrorCode InterpolateVelocityAtPointBegin(UserCtx *user, VelocityPointInter
     PetscCall(PetscNew(&v));
     v->user = user;
     v->method = user->simCtx->interpolationMethod;
-    for (PetscInt d = 0; d < 3; ++d) v->periodic[d] = (PetscBool)(user->boundary_faces[2 * d].mathematical_type == PERIODIC);
+    GetPeriodicAxes(user->simCtx, v->periodic);
     if (v->method == INTERP_FACE_FLUX) {
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&v->field));
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&v->csi));

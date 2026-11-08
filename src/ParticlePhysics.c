@@ -302,9 +302,8 @@ static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec 
 {
     DMDALocalInfo    info = user->info;
     const PetscInt   n[3] = {info.mx, info.my, info.mz};
-    const PetscBool  periodic[3] = {(PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC),
-                                    (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC),
-                                    (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC)};
+    PetscBool        periodic[3];
+    GetPeriodicAxes(user->simCtx, periodic);
     // Grid uses indices 1 to M-2 for physical cells; index 0 and M-1 are boundary holders.
     const PetscInt   lo[3] = {PetscMax(info.xs, 1), PetscMax(info.ys, 1), PetscMax(info.zs, 1)};
     const PetscInt   hi[3] = {PetscMin(info.xs + info.xm, n[0] - 1), PetscMin(info.ys + info.ym, n[1] - 1),

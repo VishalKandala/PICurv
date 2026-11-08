@@ -179,13 +179,6 @@ static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_FaceGradientFlux(
            difference[2] * dot[2] * aj;
 }
 
-/**
- * @brief Records which axes are periodic, from the negative face of each axis.
- *
- * @param[in]  user     Block context.
- * @param[out] periodic Whether each axis is periodic.
- */
-void PoissonOperator_PeriodicAxes(const UserCtx *user, PetscBool periodic[3]);
 
 /**
  * @brief Borrows read access to the face metric arrays of @p user.

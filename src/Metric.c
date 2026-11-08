@@ -238,8 +238,8 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     Coor = user->lCoor;
     PetscCall(VecGetArrayRead(Coor, &src_flat[0]));
     PetscCall(VecGetArrayRead(user->lCent, &src_flat[1]));
-    const PetscBool periodic[3] = {(PetscBool)(user->simCtx->i_periodic != 0), (PetscBool)(user->simCtx->j_periodic != 0),
-                                   (PetscBool)(user->simCtx->k_periodic != 0)};
+    PetscBool       periodic[3];
+    GetPeriodicAxes(user->simCtx, periodic);
     const PetscInt  mx[3] = {info->mx, info->my, info->mz};
     PetscInt        n_ambiguous = 0, first_ambiguous[4] = {-1, -1, -1, -1}; // Faces oriented by fallback
     for (int which = 0; which < 2; ++which) {

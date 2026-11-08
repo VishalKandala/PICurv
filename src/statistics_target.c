@@ -110,12 +110,7 @@ PetscErrorCode SpatialTargetPlanCreate(UserCtx *user, FieldId field_id,
     owned_start[0] = info->xs; owned_end[0] = info->xs + info->xm; global_size[0] = info->mx;
     owned_start[1] = info->ys; owned_end[1] = info->ys + info->ym; global_size[1] = info->my;
     owned_start[2] = info->zs; owned_end[2] = info->zs + info->zm; global_size[2] = info->mz;
-    /* The simCtx flags are authoritative here because they are what selects
-     * DM_BOUNDARY_PERIODIC when the DMDA is built, and therefore what decides
-     * whether the end planes are wrapped duplicates. */
-    periodic[0] = (PetscBool)(simCtx->i_periodic != 0);
-    periodic[1] = (PetscBool)(simCtx->j_periodic != 0);
-    periodic[2] = (PetscBool)(simCtx->k_periodic != 0);
+    GetPeriodicAxes(simCtx, periodic);
 
     plan->kind = PICURV_TARGET_POINTWISE;
     plan->mask = mask;

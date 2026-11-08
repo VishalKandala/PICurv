@@ -1192,8 +1192,9 @@ static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, Us
     const PetscInt               w0 = n0 + 2 * h0, w1 = n1 + 2 * h1;
     const PetscInt               nodes[3] = {user->info.mx, user->info.my, user->info.mz};
     const PetscInt               cells[2] = {nodes[slots->a] - 2, nodes[slots->b] - 2};
-    const PetscBool              periodic[2] = {(PetscBool)(user->boundary_faces[2 * slots->a].mathematical_type == PERIODIC),
-                                                (PetscBool)(user->boundary_faces[2 * slots->b].mathematical_type == PERIODIC)};
+    PetscBool                    axes_periodic[3];
+    GetPeriodicAxes(simCtx, axes_periodic);
+    const PetscBool              periodic[2] = {axes_periodic[slots->a], axes_periodic[slots->b]};
     const PetscBool              negative = (PetscBool)((PetscInt)face_id % 2 == 0);
     const PetscReal              decay = PetscExpReal(-PETSC_PI * simCtx->dt / (2.0 * data->fluct_time));
     const PetscReal              gain = PetscSqrtReal(1.0 - decay * decay);

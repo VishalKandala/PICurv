@@ -350,6 +350,22 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt *xm_cell_local_out);
 
 /**
+ * @brief Which grid axes are periodic.
+ * @details From the run's flags, which the loader derives from the boundary files and which
+ *          selected DM_BOUNDARY_PERIODIC when the DMDAs were built. The loader refuses a case
+ *          whose opposite faces or whose blocks disagree on periodicity, so the flags hold for
+ *          every face, block and multigrid level.
+ * @param[in]  simCtx   Simulation context.
+ * @param[out] periodic Whether the i, j and k axes are periodic.
+ */
+static inline void GetPeriodicAxes(const SimCtx *simCtx, PetscBool periodic[3])
+{
+    periodic[0] = (PetscBool)(simCtx->i_periodic != 0);
+    periodic[1] = (PetscBool)(simCtx->j_periodic != 0);
+    periodic[2] = (PetscBool)(simCtx->k_periodic != 0);
+}
+
+/**
  * @brief Index bounds of the interior cells this rank owns in the solver's cell-centred
  *        layout: the owned range with the dummy layer at index 0 and at index m-1 removed.
  * @details `lo[a] <= c < hi[a]` along each axis. A periodic axis is treated like a walled
