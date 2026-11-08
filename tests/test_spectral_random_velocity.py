@@ -25,6 +25,7 @@ def load(path, name):
 IC = load(ROOT / "generators" / "ic.gen", "picurv_spectral_random_velocity_tests")
 SPECTRA = load(ROOT / "generators" / "spectra.gen", "picurv_spectra_for_ic_tests")
 PS = load(ROOT / "picurv_cli" / "periodic_spectral.py", "picurv_periodic_spectral_for_ic_tests")
+PB = load(ROOT / "picurv_cli" / "petsc_binary.py", "picurv_petsc_binary_for_ic_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_core_spectral_random_velocity_tests")
 
 
@@ -260,7 +261,7 @@ def test_axis_mapping_nyquist_reality_and_petsc_layout(tmp_path):
     path = tmp_path/"field.dat"
     IC.write_petsc_vec_binary(str(path), full)
     raw = path.read_bytes()
-    assert struct.unpack(">ii", raw[:8]) == (IC.PETSC_VEC_CLASS_ID, full.size)
+    assert struct.unpack(">ii", raw[:8]) == (PB.PETSC_VEC_CLASS_ID, full.size)
     assert np.array_equal(np.frombuffer(raw[8:], dtype=">f8").reshape(full.shape), full)
 
 
@@ -492,7 +493,7 @@ def test_writer_uses_the_requested_petsc_index_width(tmp_path, monkeypatch):
     monkeypatch.setattr(IC, "PETSC_INDEX_BYTES", 8)
     IC.write_petsc_vec_binary(str(tmp_path / "wide.dat"), field)
     raw = (tmp_path / "wide.dat").read_bytes()
-    assert struct.unpack(">qq", raw[:16]) == (IC.PETSC_VEC_CLASS_ID, 6)
+    assert struct.unpack(">qq", raw[:16]) == (PB.PETSC_VEC_CLASS_ID, 6)
     assert len(raw) == 16 + 6 * 8
 
 

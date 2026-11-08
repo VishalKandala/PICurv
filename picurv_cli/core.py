@@ -15492,24 +15492,13 @@ def petsc_index_arguments(index_bytes: int) -> list:
 def validate_petsc_vec_binary(path: str, index_bytes: "int | None" = None) -> dict:
     """!
     @brief Validate the basic PETSc binary VecView envelope used by ReadFieldData.
+    @details `petsc_binary.validate_petsc_vec_binary()` owns the check; this supplies the width.
     @param[in] path PETSc binary vector path.
     @param[in] index_bytes PetscInt width of the reading build; the driven solver's when None.
     @return Summary containing the absolute path, scalar count and index width.
     """
-    import struct
-    index_bytes = index_bytes or runtime_petsc_index_bytes()
-    header_bytes = 2 * index_bytes
-    with open(path, "rb") as fin:
-        header = fin.read(header_bytes)
-        if len(header) != header_bytes:
-            raise ValueError(f"PETSc Vec file is too short: {path}")
-        class_id, scalar_count = struct.unpack(">ii" if index_bytes == 4 else ">qq", header)
-        payload = fin.read()
-    if class_id != 1211214 or scalar_count < 0 or len(payload) != scalar_count * 8:
-        raise ValueError(
-            f"Invalid PETSc Vec file {path} for a PETSc with {index_bytes}-byte indices; a file "
-            f"written for the other index width (or truncated) does not fit its header.")
-    return {"path": os.path.abspath(path), "scalar_count": scalar_count, "index_bytes": index_bytes}
+    return load_shared_module("petsc_binary").validate_petsc_vec_binary(
+        path, index_bytes or runtime_petsc_index_bytes())
 
 
 def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float) -> dict:
@@ -15526,7 +15515,7 @@ def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float)
     from array import array
     index_bytes = validate_petsc_vec_binary(source)["index_bytes"]
     with open(source, "rb") as fin:
-        header = fin.read(2 * index_bytes)
+        fin.seek(2 * index_bytes)
         values = array("d")
         values.frombytes(fin.read())
     if sys.byteorder == "little":
@@ -15535,9 +15524,7 @@ def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float)
         values[index] = value / divisor
     if sys.byteorder == "little":
         values.byteswap()
-    with open(destination, "wb") as fout:
-        fout.write(header)
-        fout.write(values.tobytes())
+    load_shared_module("petsc_binary").write_petsc_vec_binary(destination, values.tobytes(), index_bytes)
     return validate_petsc_vec_binary(destination, index_bytes)
 
 def initial_condition_diagnostic_paths(run_dir, resolved_ic):

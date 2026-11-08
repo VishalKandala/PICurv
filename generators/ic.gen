@@ -10,13 +10,11 @@ import argparse
 import json
 import math
 import os
-import struct
 import sys
 
 import numpy as np
 
 
-PETSC_VEC_CLASS_ID = 1211214
 def read_picgrid(path: str):
     """!
     @brief Read one canonical PICGRID block.
@@ -42,25 +40,19 @@ def read_picgrid(path: str):
     return dims, coords.reshape((km, jm, im, 3))
 
 
-
-
 #: Bytes of a PetscInt in the PETSc that will read the output; set from `--petsc-index-bytes`.
 PETSC_INDEX_BYTES = 4
 
 
 def write_petsc_vec_binary(path: str, field) -> None:
     """!
-    @brief Write a big-endian real64 PETSc Vec binary.
-    @details The class id and count are PetscInt of PETSC_INDEX_BYTES, so the reading solver's
-             PETSc, which does not detect the width, reads them as it wrote its own.
-    @param[in] path Output path.
+    @brief Write a field as a PETSc Vec binary whose sizes are PetscInt of PETSC_INDEX_BYTES.
+    @param[in] path Output path; its directory is created.
     @param[in] field Full field array.
     """
-    values = np.asarray(field, dtype=">f8").reshape(-1)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "wb") as fout:
-        fout.write(struct.pack(">ii" if PETSC_INDEX_BYTES == 4 else ">qq", PETSC_VEC_CLASS_ID, values.size))
-        fout.write(values.tobytes())
+    _shared("petsc_binary").write_petsc_vec_binary(
+        path, np.asarray(field, dtype=">f8").reshape(-1).tobytes(), PETSC_INDEX_BYTES)
 
 
 def _finite_number(value, path, *, positive=False, nonnegative=False):
@@ -175,9 +167,8 @@ def validate_spectral_random_velocity_params(raw):
 
 def _shared(name: str):
     """!
-    @brief Load one of the CLI's shared modules, `periodic_spectral` or `source_expressions`.
-    @details Imported when a provider needs it rather than when this file loads, so a copy of this
-             script used as a custom `ic_gen` generator elsewhere still writes its vector.
+    @brief Load one of the CLI's shared modules: `periodic_spectral`, `source_expressions` or `petsc_binary`.
+    @details Imported when a provider or the writer needs it rather than when this file loads.
     @param[in] name Module name under `picurv_cli/`.
     @return The module.
     """
