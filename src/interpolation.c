@@ -1876,88 +1876,40 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 //-----------------------------------------------------------------------------
 
 /**
- * @brief Accumulate one particle field onto the Eulerian grid using the selected scatter stencil.
+ * @brief Implementation of \ref ScatterParticleFieldCellMean().
+ * @see ScatterParticleFieldCellMean()
  */
-static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
-                                                         ParticleFieldId particle_field_id,
-                                                         DM targetDM,
-                                                         PetscInt expected_dof,
-                                                         Vec eulerFieldAverageVec)
+PetscErrorCode ScatterParticleFieldCellMean(UserCtx *user, ParticleFieldId particle_field_id, DM dataDM,
+                                            Vec countVec, PetscBool recount, Vec meanVec)
 {
-    PetscErrorCode ierr;
-    PetscInt       target_dof = 0;
-    Vec            globalsumVec = NULL;
-    Vec            localsumVec = NULL;
-    char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
-    const char    *particleFieldName = ParticleFieldName(particle_field_id);
+    PetscInt                       data_dof = 0;
+    Vec                            local_sum = NULL, sum = NULL;
+    const ParticleFieldDescriptor *descriptor = NULL;
 
     PetscFunctionBeginUser;
-
     PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user && user->swarm && dataDM && countVec && meanVec, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context, swarm, data DM, count and mean vectors are required.");
+    PetscCall(ParticleFieldGetDescriptor(particle_field_id, &descriptor));
+    PetscCall(DMDAGetInfo(dataDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &data_dof, NULL, NULL, NULL, NULL, NULL));
+    PetscCheck(data_dof == descriptor->components, PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Field '%s' has %" PetscInt_FMT " components but the data DM has DOF %" PetscInt_FMT ".",
+               descriptor->canonical_name, descriptor->components, data_dof);
 
-    if (!user || !user->swarm || !user->ParticleCount || !targetDM || !eulerFieldAverageVec)
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "NULL input provided to ScatterParticleFieldToEulerField_Internal.");
+    // Each rank's particles add into its ghosted copy; the owners sum the copies.
+    PetscCall(DMGetLocalVector(dataDM, &local_sum));
+    PetscCall(VecSet(local_sum, 0.0));
+    PetscCall(AccumulateParticleField(user->swarm, particle_field_id, dataDM, local_sum));
+    PetscCall(DMGetGlobalVector(dataDM, &sum));
+    PetscCall(VecSet(sum, 0.0));
+    PetscCall(DMLocalToGlobalBegin(dataDM, local_sum, ADD_VALUES, sum));
+    PetscCall(DMLocalToGlobalEnd(dataDM, local_sum, ADD_VALUES, sum));
+    PetscCall(DMRestoreLocalVector(dataDM, &local_sum));
 
-    ierr = DMDAGetInfo(targetDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &target_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-    if (target_dof != expected_dof) {
-        PetscSNPrintf(msg, sizeof(msg),
-                      "Field '%s' expects DOF %" PetscInt_FMT " but targetDM reports DOF %" PetscInt_FMT ".",
-                      particleFieldName, expected_dof, target_dof);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
-    }
-    
-    // --- Check if Particle Field Exists ---
-    // Attempt a GetField call; if it fails, the field doesn't exist.
-    // We let CHKERRQ handle the error directly if the field doesn't exist OR
-    // we catch it specifically to provide a more tailored message.
-
-    /*
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Field %s being accessed to check existence \n",particleFieldName);
-    ierr = DMSwarmGetField(user->swarm, particleFieldName, NULL, NULL, NULL);
-    if (ierr) { // If GetField returns an error
-        PetscSNPrintf(msg, sizeof(msg), "Particle field '%s' not found in DMSwarm for scattering.", particleFieldName);
-        // Directly set the error, overwriting the one from GetField
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, msg);
-    }
-    ierr = DMSwarmRestoreField(user->swarm, particleFieldName, NULL, NULL, NULL);
-    */
-    
-    // --- Setup Temporary Sum Vector ---
-    ierr = VecDuplicate(eulerFieldAverageVec, &globalsumVec); CHKERRQ(ierr);
-    ierr = VecSet(globalsumVec, 0.0); CHKERRQ(ierr);
-    ierr = PetscSNPrintf(msg, sizeof(msg), "TempSum_%s", particleFieldName); CHKERRQ(ierr);
-    ierr = PetscObjectSetName((PetscObject)globalsumVec, msg); CHKERRQ(ierr);
-
-    // create local vector for accumulation
-    ierr = DMGetLocalVector(targetDM, &localsumVec); CHKERRQ(ierr);
-    ierr = VecSet(localsumVec, 0.0); CHKERRQ(ierr);  // Must be zeroed before accumulation
-    ierr = PetscSNPrintf(msg, sizeof(msg), "LocalTempSum_%s", particleFieldName); CHKERRQ(ierr);
-    ierr = PetscObjectSetName((PetscObject)localsumVec, msg); CHKERRQ(ierr);
-
-    // --- Accumulate ---
-    // This will call DMSwarmGetField again. If it failed above, it will likely fail here too,
-    // unless the error was cleared somehow between the check and here (unlikely).
-    // If the check above was skipped (Option 1), this is where the error for non-existent
-    // field will be caught by CHKERRQ.
-    ierr = AccumulateParticleField(user->swarm, particle_field_id, targetDM, localsumVec); CHKERRQ(ierr);
-
-    // --- Local to Global Sum ---
-    ierr = DMLocalToGlobalBegin(targetDM, localsumVec, ADD_VALUES, globalsumVec); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(targetDM, localsumVec, ADD_VALUES, globalsumVec); CHKERRQ(ierr);
-    // Return local vector to DM
-    ierr = DMRestoreLocalVector(targetDM, &localsumVec); CHKERRQ(ierr);
-
-    // Calculate the number of particles per cell.
-    ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
-    // --- Normalize ---
-    ierr = NormalizeGridVectorByCount(user->da, user->ParticleCount, targetDM, globalsumVec, eulerFieldAverageVec); CHKERRQ(ierr);
-
-    // --- Cleanup ---
-    ierr = VecDestroy(&globalsumVec); CHKERRQ(ierr);
-
-
+    if (recount) PetscCall(CalculateParticleCountPerCell(user));
+    PetscCall(NormalizeGridVectorByCount(user->da, countVec, dataDM, sum, meanVec));
+    PetscCall(DMRestoreGlobalVector(dataDM, &sum));
     PROFILE_FUNCTION_END;
-
     PetscFunctionReturn(0);
 }
 
@@ -2032,12 +1984,8 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     // --- Perform Scatter using Internal Helper ---
     // Log intent before calling the core logic
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering field '%s' (DOF=%" PetscInt_FMT ").\n", particleFieldName, expected_dof);
-    ierr = ScatterParticleFieldToEulerField_Internal(user, // Pass user context
-                                                     particle_field_id,
-                                                     targetDM, // Determined target DM (da or fda)
-                                                     expected_dof, // Determined DOF (1 or 3)
-                                                     eulerFieldAverageVec); // The output vector
-    CHKERRQ(ierr); // Handle potential errors from the internal function
+    ierr = ScatterParticleFieldCellMean(user, particle_field_id, targetDM, user->ParticleCount, PETSC_TRUE,
+                                        eulerFieldAverageVec); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully scattered field '%s'.\n", particleFieldName);
    

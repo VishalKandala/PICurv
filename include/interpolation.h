@@ -365,13 +365,38 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
                                           DM dataDM, Vec sumVec, Vec avgVec);
 
 /**
+ * @brief Cell mean of a particle field: the field summed over each cell's particles, divided by
+ *        the cell's count.
+ * @ingroup scatter_module
+ *
+ * Zeroes a ghosted accumulator, adds every local particle into its cell with
+ * AccumulateParticleField(), sums the ranks' copies into the owners (local-to-global ADD), and
+ * divides by `countVec` with NormalizeGridVectorByCount(); an empty cell's mean is zero.
+ * Collective.
+ *
+ * @param[in]     user              Context holding the swarm and the cell DM `da`.
+ * @param[in]     particle_field_id PETSC_REAL particle field to average.
+ * @param[in]     dataDM            DMDA of the mean, with as many DOF as the field has components.
+ * @param[in]     countVec          Global particles-per-cell vector on `user->da`; only its owned
+ *                                  entries are read.
+ * @param[in]     recount           PETSC_TRUE to recount `user->ParticleCount` (and reset
+ *                                  `user->lParticleCount`) with CalculateParticleCountPerCell()
+ *                                  before dividing; `countVec` is then normally `user->ParticleCount`.
+ * @param[in,out] meanVec           Global vector on `dataDM` receiving the owned means.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ScatterParticleFieldCellMean(UserCtx *user, ParticleFieldId particle_field_id, DM dataDM,
+                                            Vec countVec, PetscBool recount, Vec meanVec);
+
+/**
  * @brief Scatters a particle field (scalar or vector) to the corresponding Eulerian field average.
  * @ingroup scatter_module
  *
  * This is the main user-facing function. It determines the target Eulerian DM
  * from the particle catalog, validates the provided `eulerFieldAverageVec`
  * against the target DM, and then orchestrates the scatter operation by calling
- * the internal helper function `ScatterParticleFieldToEulerField_Internal`.
+ * ScatterParticleFieldCellMean(), recounting the particles per cell first.
  * The final averaged result is stored IN-PLACE in `eulerFieldAverageVec`.
  *
  * @param[in] user                 Pointer to UserCtx containing da, fda, swarm, ParticleCount.

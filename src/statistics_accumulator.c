@@ -1384,20 +1384,9 @@ PetscErrorCode PicurvWindowStorageFromParticles(UserCtx *user, const PicurvWindo
 
     /* Pass one: each field's cell mean, the particle sum divided by the count. */
     for (PetscInt f = 0; f < definition->field_count; ++f) {
-        Vec local_sum = NULL, sum = NULL;
-
         PetscCall(ParticleFieldIdFromScatterTarget((FieldId)definition->fields[f].field_id, &particle[f]));
         PetscCall(FieldGetView(user, (FieldId)definition->fields[f].field_id, &view[f]));
-        PetscCall(DMGetLocalVector(view[f].dm, &local_sum));
-        PetscCall(VecZeroEntries(local_sum));
-        PetscCall(AccumulateParticleField(user->swarm, particle[f], view[f].dm, local_sum));
-        PetscCall(VecDuplicate(storage->mean[f], &sum));
-        PetscCall(VecZeroEntries(sum));
-        PetscCall(DMLocalToGlobalBegin(view[f].dm, local_sum, ADD_VALUES, sum));
-        PetscCall(DMLocalToGlobalEnd(view[f].dm, local_sum, ADD_VALUES, sum));
-        PetscCall(DMRestoreLocalVector(view[f].dm, &local_sum));
-        PetscCall(NormalizeGridVectorByCount(user->da, storage->count, view[f].dm, sum, storage->mean[f]));
-        PetscCall(VecDestroy(&sum));
+        PetscCall(ScatterParticleFieldCellMean(user, particle[f], view[f].dm, storage->count, PETSC_FALSE, storage->mean[f]));
         if (storage->occupied_mean && storage->occupied_mean[f]) {
             PetscCall(VecCopy(storage->mean[f], storage->occupied_mean[f]));
         }

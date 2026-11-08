@@ -78,8 +78,10 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     // scatter recounts the particles per cell itself. Collective, so it comes before the early
     // return of ranks with no particles.
     if (field_id == PARTICLE_FIELD_ID_PSI) {
-        Vec slope = NULL, sum = NULL, centroid = NULL;
+        Vec slope = NULL, centroid = NULL;
 
+        // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
+        PetscCheck(user->lPsi && user->lAj, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx lPsi or lAj not initialized.");
         ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
         // The target is the cell's linear reconstruction m + g . (x - xc), with xc the cell's
         // particle centroid so each cell mean is kept. Relaxing to the stepped mean m alone
@@ -92,17 +94,13 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = ComputeCellScalarGradient(user, user->lPsi, user->lParticleCount, slope); CHKERRQ(ierr);
         ierr = DMGetLocalVector(user->fda, &lslope); CHKERRQ(ierr);
         ierr = DMGlobalToLocal(user->fda, slope, INSERT_VALUES, lslope); CHKERRQ(ierr);
-        ierr = DMGetLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
-        ierr = VecSet(lcentroid, 0.0); CHKERRQ(ierr);
-        ierr = AccumulateParticleField(swarm, PARTICLE_FIELD_ID_POSITION, user->fda, lcentroid); CHKERRQ(ierr);
-        ierr = DMGetGlobalVector(user->fda, &sum); CHKERRQ(ierr);
-        ierr = VecSet(sum, 0.0); CHKERRQ(ierr);
-        ierr = DMLocalToGlobal(user->fda, lcentroid, ADD_VALUES, sum); CHKERRQ(ierr);
+        // The scatter above has just counted the particles, so the centroid is not recounted.
         ierr = DMGetGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
-        ierr = NormalizeGridVectorByCount(da, user->ParticleCount, user->fda, sum, centroid); CHKERRQ(ierr);
+        ierr = ScatterParticleFieldCellMean(user, PARTICLE_FIELD_ID_POSITION, user->fda, user->ParticleCount, PETSC_FALSE,
+                                            centroid); CHKERRQ(ierr);
+        ierr = DMGetLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
         ierr = DMGlobalToLocal(user->fda, centroid, INSERT_VALUES, lcentroid); CHKERRQ(ierr);
         ierr = DMRestoreGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
-        ierr = DMRestoreGlobalVector(user->fda, &sum); CHKERRQ(ierr);
         ierr = DMRestoreGlobalVector(user->fda, &slope); CHKERRQ(ierr);
     }
 
@@ -121,11 +119,6 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
-
-        // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
-        if (!user->lPsi || !user->lAj) {
-             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx lPsi or lAj not initialized.");
-        }
 
         ierr = DMDAVecGetArrayRead(da, user->lPsi, &grid_mean); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
