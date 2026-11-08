@@ -90,12 +90,21 @@ Freezing the particles removes it exactly, and scattering the mean after the mov
 of using the previous step's leaves it unchanged, so neither the kernel nor the step order
 causes it.
 
+**Verified** (measurement `iem-cell-reconstruction-2026-11-08`): in a two-stream plug flow at 64
+ranks, relaxing toward the stepped mean added transport of the resolved mean, D_eff/D 1.044, 1.089 and
+1.171 at `C_IEM` = 1, 2 and 4 against a `C_IEM` = 0 reference, the x coth x factor within 0.9 of its
+excess. With the reconstruction the excess over the reference is +0.0011 +- 0.0016 (`C_IEM` = 2) and
++0.0025 +- 0.0016 (`C_IEM` = 4), and the variance per squared mean gradient stays within 1.5% of the
+stepped mean's. The reference's uncertainty equals the residual a 1D model predicts for this layer
+(+0.005 to +0.012), so that residual is not resolved.
+
 The unit tests in `tests/c/test_setup_lifecycle.c` pin the kernel: `TestConfiguredIEMUpdatesSwarm`
 checks relaxation toward a prescribed mean for the default and an overridden constant;
 `TestIEMRelaxesTowardOwnCellMean` checks that each particle relaxes toward its own cell's
 scattered mean, conserving the scalar total; `TestIEMRelaxesTowardCellReconstruction` checks
 that a linear field stays far closer to its line than relaxing to the stepped mean leaves it,
-with each cell's sum kept; and `TestConfiguredParticleInitialValue`
+with each cell's sum kept, and `iem-reconstruction-across-seams` in `make unit-mpi` checks the same
+at 2 and 4 ranks; and `TestConfiguredParticleInitialValue`
 checks that a configured value reaches every particle and the t=0 cell mean.
 
 **Not validated:** the model. No turbulent flow has been run against a measured

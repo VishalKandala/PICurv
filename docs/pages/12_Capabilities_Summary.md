@@ -118,7 +118,7 @@ See method details in **@subpage 21_Methods_Overview**.
 @section p12_bc_sec 4. Boundary and Runtime Controls
 
 Boundary capabilities include validated type-handler pairings across inlet/outlet/wall/periodic classes. Walls take
-`noslip`, `moving` along themselves (experimental), or `free_slip`, which is also how a plane of symmetry is modelled:
+`noslip`, `moving` along themselves, or `free_slip`, which is also how a plane of symmetry is modelled:
 a channel half bounded by a free-slip wall reproduces the full channel's half to round-off,
 laminar, LES and Newton Krylov alike.
 Runtime controls include:

@@ -101,7 +101,7 @@
       "moving": {
         "optional_params": [],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "WALL"
         ]

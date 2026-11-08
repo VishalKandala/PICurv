@@ -133,12 +133,17 @@ solver logs each field's particle count, mean, variance, minimum, and maximum (i
 level), and `particle_initial_fields.csv` in the run's analysis directory records the same
 per field and component, with a ten-bin histogram between the minimum and maximum.
 
+**Evidence.** Analytically verified - `particle-field-sources-2026-11-06`: on a grid stretched with
+ratio 2 on every axis, values set to the arc-length fractions `xi`, `eta`, `zeta` are exact to
+2.2e-16 at 64 ranks.
+
 Mapping to control flags: `-particle_fields_count`, then per field `-particle_fields_<i>_name`
 and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expression.
 
 @section p45_inject_sec 1.2 Injection at an Inlet
 
-**Status: experimental.** See the evidence below; nothing has been measured at scale.
+**Status: experimental.** See the evidence below; cost at large populations and rank counts is not
+measured yet.
 
 An INLET face adds particles every step when its entry carries `particles`. Nothing needs
 to be seeded, so a case without `particles_per_cell` starts flow-through from an empty domain, and two inlets
@@ -206,7 +211,11 @@ flow rate, expected and injected particles and `Psi` added, every step. With `ex
 **Evidence.** Unit verified: `make unit-mpi` (`injection-follows-flux-and-is-keyed-on-the-grid`)
 checks counts and identities against the formula at 2 and 4 ranks. Integration verified:
 `make smoke` (`S4c`) fills an empty domain in an analytical uniform stream and closes the
-particle and `Psi` budgets every step.
+particle and `Psi` budgets every step. Analytically verified - `particle-injection-2026-11-08`: in a
+solved laminar channel with 1e7 particles at 64 ranks, the budget closes on every step of 1200, the
+density is uniform from the inlet on within counting noise (near-inlet wall cells 0.999-1.014 against
+noise 0.008), particle IDs are identical across two rank layouts and a restart, and a two-stream scalar
+matches the erf reference (D_eff/D 1.0055 +- 0.0015 against about 1.004).
 
 Mapping to control flags: `-particle_inlet_count`, then per inlet `-particle_inlet_<n>_face`,
 `-particle_inlet_<n>_particles_per_cell` and the field options under `-particle_inlet_<n>_fields_*`.
@@ -259,7 +268,8 @@ bitwise equal by particle ID at 1, 1 x 1 x 2, 2 x 2 x 1, 4 x 1 x 1 and 2 x 2 x 2
 uniform and a graded inlet; every inlet cell held 25 or 26 of 16,000 particles against 25.6
 expected, and the Kolmogorov-Smirnov statistic per axis was at most 0.35.
 `surface-seeding-area-2026-10-29` established the uniform-by-area placement across rank
-layouts and on a graded inlet.
+layouts and on a graded inlet. `stratified-seeding-layout-64rank-2026-10-29`: 1e6 Surface particles
+bitwise equal by ID at 64 ranks in two layouts and on 1 rank.
 
 **Limitations.** Concentrates particles at one boundary, so interior statistics take time
 to become meaningful. The area of a curved face cell uses a 2x2 Gauss rule, exact only for
@@ -293,6 +303,8 @@ bitwise equal by particle ID at five rank layouts on a uniform and a graded grid
 cell held 3 or 4 against 3.30 expected, and on the graded grid the density per tenth of x
 stayed within 0.6% of uniform with Kolmogorov-Smirnov statistics at most 0.29.
 `particle-seeding-restart-2026-09-21` first measured the uniformity and unique IDs.
+`stratified-seeding-layout-64rank-2026-10-29`: 4e6 particles on a uniform and a graded grid bitwise
+equal by ID at 64 ranks in two layouts and on 1 rank, no cell outside its share by more than one.
 
 **Limitations.** No control over the spatial distribution beyond the grid itself. Counts
 per cell are stratified, not Poisson-distributed.

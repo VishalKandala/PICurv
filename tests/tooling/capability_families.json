@@ -42,7 +42,7 @@
           }
         },
         "moving": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -58,7 +58,8 @@
             ],
             "analytical": [
               "measurement:lid-driven-cavity-re100-2026-11-06",
-              "measurement:stokes-second-problem-order-2026-11-07"
+              "measurement:stokes-second-problem-order-2026-11-07",
+              "measurement:couette-moving-wall-2026-11-06"
             ]
           }
         },
@@ -93,6 +94,11 @@
             ],
             "production": [
               "example:examples/flat_channel"
+            ],
+            "analytical": [
+              "measurement:womersley-order-2026-11-06",
+              "measurement:prescribed-recording-2026-11-06",
+              "measurement:keyed-source-draws-2026-11-06"
             ]
           }
         },
@@ -568,7 +574,8 @@
           "evidence": {
             "analytical": [
               "measurement:surface-seeding-area-2026-10-29",
-              "measurement:stratified-seeding-layout-2026-10-29"
+              "measurement:stratified-seeding-layout-2026-10-29",
+              "measurement:stratified-seeding-layout-64rank-2026-10-29"
             ]
           }
         },
@@ -581,7 +588,8 @@
             ],
             "analytical": [
               "measurement:particle-seeding-restart-2026-09-21",
-              "measurement:stratified-seeding-layout-2026-10-29"
+              "measurement:stratified-seeding-layout-2026-10-29",
+              "measurement:stratified-seeding-layout-64rank-2026-10-29"
             ]
           }
         },

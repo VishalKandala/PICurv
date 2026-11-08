@@ -240,9 +240,10 @@ a face, the closed flux, the tilt removed and the refusal. Integration verified 
 Analytically verified - `lid-driven-cavity-re100-2026-11-06`: the cavity at Re 100 converges to the
 Botella and Peyret (1998) centreline extrema at second order, within 3.2e-4 on 128 x 128 cells;
 `stokes-second-problem-order-2026-11-07`: a wall oscillating along itself reproduces the Stokes second
-problem at second order in space and time, the largest error in the cell next to the wall. Run once, not
-registered as a measurement: Couette flow between walls moving at +1 and -1 reached `u = 2y - 1` to 1.7e-10
-(Newton-Krylov) and 5e-13 (Picard) on 32 wall-normal cells, with no flux through the walls.
+problem at second order in space and time, the largest error in the cell next to the wall;
+`couette-moving-wall-2026-11-06`: Couette flow between walls moving at +1 and -1 reaches the exact
+linear profile to 1.6e-10 (Newton-Krylov) and 5.2e-10 (Picard) at 64 ranks, with no flux through the
+walls.
 
 **Limitations.** No transpiration: the wall stays closed, so blowing or suction is out of reach. The
 grid does not move, so the wall's motion is along its own surface.
@@ -426,16 +427,16 @@ checks the fractions and lengths against arc length on a stretched grid across r
 Integration verified - `tests/test_velocity_sources.py` covers resolution, the emitted
 options, data-source staging and scaling, and the refusals; `tests/test_config_regressions.py`
 and `tests/test_cli_smoke.py` exercise the data-source types and the face-dimension validation.
-Production exercised in `examples/flat_channel`. Run once, not registered as measurements: `r` with
-`flow_rate` on a circular pipe, a swirling Cartesian inlet whose face velocities match the source to
-4e-12, a curvilinear inlet, and a recording whose mean speed matched the interpolated analytic value to
-1.2e-9 and whose fields agreed across 1 and 3 ranks to 2.8e-13. `make unit-mpi`
-(`source-draws-are-keyed-on-the-grid`) compares each drawn inlet flux with the draw its global
-index keys, including a later step and a revisited one. Run once on a 13x13x25 channel with a
-drawn inlet and initial field, not registered as a measurement: the inlet's flux agreed to
-7e-18 across 1 and 4 ranks and exactly across a restart at step 10; the interior `Ucont` after
-20 steps agreed to 1.3e-11 across ranks and to 2.5e-7 across the restart, the same as a draw-free
-case of similar roughness (2.5e-7), which is the restart's existing difference.
+Production exercised in `examples/flat_channel`. Analytically verified -
+`womersley-order-2026-11-06`: a Womersley inlet on a circular pipe, written with `r`, converges at
+order 2.13 in space and 2.0 in time, its face mean within 4.9e-11 of the exact one;
+`prescribed-recording-2026-11-06`: a 50-frame recording with `repeat` delivers the recorded mean to
+1.8e-10 every step, loops exactly, is identical at 64 and 32 ranks, and costs about 0.5% of a step;
+`keyed-source-draws-2026-11-06`: drawn noise is bit-identical across rank layouts and a restart,
+with the requested rms. `make unit-mpi` (`source-draws-are-keyed-on-the-grid`) compares each drawn
+inlet flux with the draw its global index keys, including a later step and a revisited one. Run once,
+not registered as measurements: a swirling Cartesian inlet whose face velocities match the source to
+4e-12, and a curvilinear inlet.
 
 **Limitations.** Drawn noise is white: uncorrelated between face cells and between steps, so it
 is not a model of an inflow's turbulence. Its effect depends on `dt` and the grid, since a smaller

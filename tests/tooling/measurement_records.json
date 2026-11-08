@@ -1391,6 +1391,126 @@
       },
       "limitations": "Planar wall moving tangentially on a uniform Cartesian grid; no wall-normal motion (transpiration is not supported), no curvature or stretching. Three grids up to 129 cells; the 257-cell run was stopped to stay within the local time budget. One momentum solver configuration and one rank layout; temporal order from self-differences, not against the exact solution, where spatial error dominates.",
       "artifacts": []
+    },
+    {
+      "id": "womersley-order-2026-11-06",
+      "question": "Does a prescribed_velocity inlet driving a pulsatile Womersley flow in a circular pipe converge at second order in space and time, and does the delivered face mean match the exact one?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; this study at 8 ranks",
+      "configuration": "grid_gen sweep: a circle of R = 0.5 carried 10 along +x, centre checked to 12 digits; the inlet source is the exact Womersley profile in r with top-level constants; nu = omega R^2/alpha^2; two periods; Newton-Krylov. Errors at the mid-plane over the last period. Spatial: two cross-section resolutions at dt 0.005. Temporal: dt 0.01, 0.005, 0.0025 and 0.00125 at N16, differences against dt 0.00125, repeated at N32. Saturation check: N16 with Poisson absolute tolerance 1e-5 and 1e-10. Grace records 2026-11-06_face-sources (wom/studies/wom_dt_20261106-214840, derived/wom_out.txt, wom_errors.csv).",
+      "result": {
+        "measured": "Spatial at dt 0.005: L2 error 4.449e-3 to 1.014e-3, order 2.13; Linf order 1.86. Temporal, last-period max L2 differences against dt 0.00125: 7.22e-4, 1.79e-4, 4.27e-5, 8.54e-6, orders 2.01, 2.07 and 2.32; an exactly second-order scheme gives 2.02, 2.07 and 2.32 against this reference, which subtracts its own error. N32 agrees within 3%. The two Poisson tolerances agree to 3e-11 to 1.5e-10, against the smallest temporal difference 8.5e-6, so the solve does not saturate. Inlet face mean against the exact area mean at the face centres: 4.9e-11.",
+        "threshold": "Observed orders near 2 in space and time; the delivered face mean equal to the exact mean to solver tolerance.",
+        "verdict": "met"
+      },
+      "limitations": "One pipe and one Womersley number; two spatial resolutions only, so the spatial order is a two-point estimate. Spatial error dominates the exact error at every dt, so the temporal order comes from self-differences. The tight-tolerance check was run at N16 only.",
+      "artifacts": []
+    },
+    {
+      "id": "prescribed-recording-2026-11-06",
+      "question": "Does a prescribed_velocity inlet fed by a recorded precursor plane (a PICSLICE recording, with repeat) deliver the recorded flux each step, loop exactly, stay independent of the rank layout, and cost little per step?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; 64 and 32 ranks",
+      "configuration": "Precursor: an analytical run on a registered 129 x 129 x 5 PICGRID, 50 frames at dt 0.05 with mean w = 1 + 0.2 sin(2 pi t / 2.5), imported as reference fields. Target: a grid_gen box 128 x 128 x 64, dt 0.01, repeat: true; 300 steps at 64 ranks and 100 at 32. Grace records 2026-11-06_face-sources (p3/runs recording_*214658, 214729).",
+      "result": {
+        "measured": "Inlet mean against the linear-in-frame expected mean, max 1.8e-10 over 300 steps. Loop: the mean at step n + 250 equals step n exactly for n = 1-50. 64 against 32 ranks: inlet_flow.csv identical, Ucat within 6.2e-12, Ucont within 3.8e-16. Cost: PreStep 0.011 s on the 59 frame-crossing steps of 300 and 8e-5 s otherwise, against a 2.03 s step (about 0.5%); FlowSolver on crossing and quiet steps 2.037 and 2.016 s.",
+        "threshold": "Flux to solver tolerance, an exact loop, layout independence to round-off, and a per-step cost that is a small fraction of the step.",
+        "verdict": "met"
+      },
+      "limitations": "One plane size and one filesystem load; only rank 0's frame parse was timed. The importing and staging route took 27-80 s and 28-64 s for 50 frames on a login node. The run ending past the last frame without repeat was refused at runtime only, a gap since closed at staging (fee23741).",
+      "artifacts": []
+    },
+    {
+      "id": "couette-moving-wall-2026-11-06",
+      "question": "Does the moving wall handler drive plane Couette flow to the exact linear profile, with both momentum solvers?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated",
+      "configuration": "Channel 64 x 32 x 64, walls moving at +1 and -1, nu = 0.1, dt = 0.05, from rest to t = 14; Newton-Krylov and dual-time Picard. Grace records 2026-11-06_face-sources (p3/runs couette_*214637, 214640, derived/wall_*.csv).",
+      "result": {
+        "measured": "Max error against the exact linear profile 1.59e-10 (Newton-Krylov) and 5.21e-10 (Picard); wall-normal flux through the moving walls exactly 0; Newton-Krylov against Picard max |dU| 3.6e-10. Picard reached its 50 pseudo-iteration cap on 36 of 280 steps, all in steps 1-40, with median final relative residual 4.4e-5.",
+        "threshold": "The exact linear profile to solver tolerance, zero flux through the wall.",
+        "verdict": "met"
+      },
+      "limitations": "A linear profile is reproduced exactly by second-order differences, so this checks the wall's velocity and its coupling to both solvers, not the order of accuracy (see lid-driven-cavity-re100-2026-11-06 and stokes-second-problem-order-2026-11-07). Tangential motion only.",
+      "artifacts": []
+    },
+    {
+      "id": "particle-injection-2026-11-08",
+      "question": "Do inlet-injected particles keep the particle budget exactly, keep the number density uniform from the inlet on, follow the rank layout and a restart exactly, and carry a scalar the two-stream reference predicts?",
+      "date": "2026-11-08",
+      "commit": "18da824f (placement); bb065b0d and 2cf2dec2 for the earlier rows",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated",
+      "configuration": "Solved laminar channel 32 x 32 x 128 cells, domain 1 x 1 x 4, x periodic, y walls, inlet 6y(1-y), nu = D = 0.01, dt 0.02, peak CFL 0.96, n V = 1e7 (about 76 particles per cell), C_IEM 0. Two-stream: analytical plug w = 1, 64 x 64 x 128, D = 1e-3, about 15 particles per cell, 21 snapshots after one residence time. Grace records 2026-11-06_particle-batch, 2026-11-07_inlet-brownian, 2026-11-08_placement-mixing.",
+      "result": {
+        "measured": "Budget: injected minus exited minus lost equals the live count every step, 0 mismatches over 1200 steps, lost 0; injected against expected z = 0.01-0.08. Population N/(nV) 1.0009-1.0011 at t = 22-24. At 18da824f, t = 4-6: near-inlet wall cells 0-3 1.0007, 1.0135, 0.9991, 1.0019 (noise 0.0083), wall cells 4-15 1.0008, bulk cells 0-3 0.9989-1.0042 (noise 0.0029); before the placement change the first wall cells read 1.035 and 1.037. PID sets identical at 4 x 4 x 4 and 2 x 4 x 8 (N = 2,501,221), positions within 8.6e-13; restart at step 100: PIDs identical at step 150, positions within 1.2e-12. Two-stream, C_IEM 0: plateau D_eff/D 1.0055 +- 0.0015 against about 1.004 predicted (injected particles start half a step ahead); 1.0057 +- 0.0015 at 18da824f.",
+        "threshold": "Exact budget; densities within counting noise of 1; PID identity across layouts and restart; the two-stream fit within its uncertainty of the prediction.",
+        "verdict": "met"
+      },
+      "limitations": "One grid of 131k cells and 1e7 particles at 64 ranks; cost and swarm resizing at large populations and rank counts are not measured (InjectParticlesAtInlets 0.002-0.004 s/step steady against a 0.24 s particle phase here). An absorbing outlet leaves a thinner layer near it (wall cells 0.92-0.94 in the last axial cells), which a 2D steady solve reproduces. Two-stream references are plug flow only.",
+      "artifacts": []
+    },
+    {
+      "id": "keyed-source-draws-2026-11-06",
+      "question": "Do uniform() and normal() draws in velocity sources give the same field at any rank layout and across a restart, with the requested statistics?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2 (draws from 156cb6ad)",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated",
+      "configuration": "Box 128^3, seed 7, an initial condition of drawn noise, raw and projected, at 4 x 4 x 4 and 2 x 4 x 8. Channel 64 x 64 x 128 with a drawn inlet and flow_rate 1, 20 steps, restart at step 10. Grace records 2026-11-06_particle-batch (derived/drawn_restart.txt).",
+      "result": {
+        "measured": "Raw initial condition: Ucat and Ucont bit-identical across layouts. Projected: Ucat within 2.2e-12, Ucont 1.2e-14. Face rms 0.1000 and centre rms 0.0707 as requested; the projection keeps 0.6669 of the energy on faces. Drawn inlet flux bit-identical across layouts at step 10, within 5.4e-20 at step 20 on a flux of about 2.4e-4; after a restart at step 10 the inlet at step 20 is bit-identical; interior Ucat differs by 1.95e-13, against 4.68e-13 for a draw-free comparison.",
+        "threshold": "Bit-identical draws across layouts and restart; differences elsewhere at solver round-off; requested rms.",
+        "verdict": "met"
+      },
+      "limitations": "White noise only: each face cell and step draws independently, with no spatial or temporal correlation. One seed and two layouts.",
+      "artifacts": []
+    },
+    {
+      "id": "particle-field-sources-2026-11-06",
+      "question": "Do particle field values written as sources in the grid's arc-length coordinates take their exact values on a stretched grid?",
+      "date": "2026-11-06",
+      "commit": "2cf2dec2 (sources from 701b6330)",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated",
+      "configuration": "64 x 64 x 128 cells stretched with ratio 2 on all axes, 1e6 seeded particles, Psi set to each arc-length fraction xi, eta, zeta in turn, step 0. Grace records 2026-11-06_particle-batch.",
+      "result": {
+        "measured": "max |Psi - x/L| 2.2e-16 (xi), 5.6e-17 (eta), 2.8e-17 (zeta).",
+        "threshold": "Round-off.",
+        "verdict": "met"
+      },
+      "limitations": "Step 0 only, one stretched Cartesian grid; curved grids not tested.",
+      "artifacts": []
+    },
+    {
+      "id": "iem-cell-reconstruction-2026-11-08",
+      "question": "Does relaxing toward each cell's linear reconstruction, instead of its stepped mean, remove the excess diffusion IEM added to a resolved scalar layer, without changing the variance per squared mean gradient?",
+      "date": "2026-11-08",
+      "commit": "5cdede88 (reconstruction b6a5fd9d, seam fix 7d174e32); the stepped-mean baseline at 2cf2dec2",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; 4 x 4 x 4",
+      "configuration": "Two streams (Psi 1 and 0) in an analytical plug w = 1, 64 x 64 x 128, y walls, x periodic, D = 1e-3, about 15 particles per cell, dt 0.02; erf fits of the y-bin means per snapshot at z = 0.5-3.5, plateau z = 1.5-3.5; the C_IEM 0 run is the reference. Grace records 2026-11-06_particle-batch (stepped mean), 2026-11-08_iem-seam (reconstruction).",
+      "result": {
+        "measured": "Plateau excess over C_IEM 0: stepped mean +0.092 (C_IEM 2) and +0.174 (C_IEM 4), with D_eff/D 1.0437, 1.0885, 1.1708 at C_IEM 1, 2, 4, matching x coth x within 0.9 of its excess; reconstruction +0.0011 +- 0.0016 and +0.0025 +- 0.0016, every station within about 1.2 SE of zero. Variance per squared mean gradient in the layer |y - 0.5| < 0.1 within 1.5% of the stepped mean's at every station. Mean Psi conserved (0.50005), lost 0. Psi after an IEM step identical by particle at 1, 2 and 4 ranks (1e-16, local).",
+        "threshold": "Excess over the C_IEM 0 reference consistent with zero; variance per squared gradient unchanged within a few percent.",
+        "verdict": "met"
+      },
+      "limitations": "The reference's SE (0.003-0.004 per station) equals the residual a 1D model predicts (+0.012 at z = 0.5, +0.005 at 3.5), so that residual is not resolved; C_IEM 4 minus C_IEM 2 hints at +0.004 at z = 0.5, not verified. Plug flow, one grid and particle density, 64 ranks; an 18da824f run without the seam fix halved the excess only, because the empty-cell test read rank-local counts.",
+      "artifacts": []
+    },
+    {
+      "id": "stratified-seeding-layout-64rank-2026-10-29",
+      "question": "Is stratified keyed seeding identical by particle ID at 64 ranks across rank layouts, with every cell within one particle of its share?",
+      "date": "2026-10-29",
+      "commit": "08df3642",
+      "environment": "Grace (TAMU HPRC), SYSTEM=cluster build at both PetscInt widths, identity coherent; Slurm, 2 exclusive nodes x 32 ranks unless stated; 64 ranks at 4 x 4 x 4 and 2 x 4 x 8, and 1 rank",
+      "configuration": "Volume seeding of 4e6 particles on a uniform and a graded grid, and Surface seeding of 1e6 on an inlet; step-0 checkpoints compared by PID, step-1 search metrics compared. Grace records 2026-10-29_stratified-seeding-layout-64rank (Drive PICurv-cluster-test-records).",
+      "result": {
+        "measured": "Positions, cell IDs and PIDs bitwise identical by PID at 4 x 4 x 4, 2 x 4 x 8 and 1 rank for every case; no cell outside its share by more than one; Kolmogorov-Smirnov statistic at most 0.342; step-1 search metrics identical across layouts.",
+        "threshold": "Bitwise identity by PID; every cell within one particle of its share.",
+        "verdict": "met"
+      },
+      "limitations": "Seeding only: later steps of a coupled run are not bitwise layout-independent, since the flow solve's reductions differ at round-off. 2.3% of Surface particles, seeded 1.6e-8 inside the face, left back through the inlet in step 1.",
+      "artifacts": []
     }
   ]
 }
