@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:92f649eabe6bf26eb867d70324899b5bd5e530a57defe0e93c7980c654784831"
+      "attested_digest": "sha256:6bb8fa4c83c9383a056b40615438b0148172be9f2d9e26189813698b7eb5db5d"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:6d00f5d53f7a71a3869ab386154c4c1a047a612c088afdd16682ee6a2d59b9d3"
+      "attested_digest": "sha256:9bc84a3b023ffdf44d40ad31664a78b57c4d830f945079584ac3407372498f4f"
     },
     {
       "id": "artifact.topology",
