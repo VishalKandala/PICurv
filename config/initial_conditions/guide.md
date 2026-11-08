@@ -25,7 +25,7 @@ The same `ic.gen` entry point provides a composable spectral generator:
 properties:
   initial_conditions:
     source:
-      generator: spectral_random_velocity
+      generator: spectral_velocity
       params:
         field: Ucat
         seed: 12345
@@ -86,9 +86,9 @@ Preparation writes `diagnostics/initial_condition_summary.json` and
 
 ## Channel and duct seeds
 
-`channel_spectral_velocity` and `duct_spectral_velocity` extend the spectral route
-with one or two no-slip wall axes. Their periodic axes must be uniform; wall axes
-may stretch. Both generate Ucat through the existing writer and stage through the
+`spectral_velocity` with `wall_axes` extends the spectral route to one (a channel)
+or two (a duct) no-slip wall axes. The periodic axes must be uniform; wall axes
+may stretch. It generates Ucat through the existing writer and stage through the
 existing file IC route. See `docs/pages/33_Initial_Conditions.md` for units, the
 discrete-curl construction, and the required `initial_spectra` selections.
 The channel configuration is `examples/turbulent_channel/case.yml`; a four-wall

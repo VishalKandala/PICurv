@@ -331,9 +331,8 @@ hand.
 
 @subsection p54_driven_limits_sub 5.7 Known limitations
 
-**Initial-condition seeding.** The `channel_spectral_velocity` and
-`duct_spectral_velocity` providers generate wall-bounded discrete-curl perturbations;
-see @ref p33_cap_gen_channel_spectral_velocity and @ref p33_cap_gen_duct_spectral_velocity.
+**Initial-condition seeding.** `spectral_velocity` with `wall_axes` generates wall-bounded
+discrete-curl perturbations; see @ref p33_cap_gen_spectral_velocity.
 The `turbulent_channel` example and every turbulent and LES case under
 `periodic_test/driven_channel/` and `periodic_test/driven_duct/` add one to a parabolic
 mean source (@ref p33_source); only the laminar channel starts from a uniform source. The perturbation grows linearly
@@ -342,7 +341,7 @@ wall-parallel RMS is about `0.013 U_b` at `y+ ~ 5` and `0.031 U_b` at `y+ ~ 13`,
 `0.13 U_b` at the centreline (developed turbulence peaks near `0.17 U_b` at `y+ ~ 13`).
 Transition from it is still not guaranteed. Neither a
 seeded perturbation nor a short successful solve establishes developed turbulence.
-The triply periodic `spectral_random_velocity` provider remains unsuitable for
+Without `wall_axes`, `spectral_velocity` writes a triply periodic field, unsuitable for
 no-slip walls.
 
 **Wall-normal profiles from statistics.** `field_statistics` is BC-agnostic - it

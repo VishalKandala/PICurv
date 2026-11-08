@@ -2364,7 +2364,7 @@
             ]
           }
         },
-        "spectral_random_velocity": {
+        "spectral_velocity": {
           "status": "supported",
           "canonical": true,
           "evidence": {
@@ -2372,39 +2372,12 @@
               "make:test-python"
             ],
             "production": [
-              "example:examples/decaying_isotropic_turbulence"
-            ],
-            "analytical": [
-              "measurement:initial-conditions-2026-09-21"
-            ]
-          }
-        },
-        "channel_spectral_velocity": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "unit": [
-              "make:test-python"
-            ],
-            "production": [
-              "example:examples/turbulent_channel"
-            ],
-            "analytical": [
-              "measurement:wall-spectral-ic-2026-09-24"
-            ]
-          }
-        },
-        "duct_spectral_velocity": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "unit": [
-              "make:test-python"
-            ],
-            "production": [
+              "example:examples/decaying_isotropic_turbulence",
+              "example:examples/turbulent_channel",
               "example:examples/periodic_test/driven_duct"
             ],
             "analytical": [
+              "measurement:initial-conditions-2026-09-21",
               "measurement:wall-spectral-ic-2026-09-24"
             ]
           }

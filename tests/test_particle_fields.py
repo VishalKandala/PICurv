@@ -2,7 +2,7 @@
 @file test_particle_fields.py
 @brief Pytest coverage for configured particle initial values (`models.physics.particles.fields`).
 
-The CLI lowers each value to one expression per component with `generators/ic.gen` and
+The CLI lowers each value to one expression per component with `picurv_cli/source_expressions.py` and
 passes it to the runtime as `-particle_fields_*` options; `src/ParticleInitialConditions.c`
 compiles and applies it. The language itself is covered by `test_expression_language.py`.
 """

@@ -1740,7 +1740,7 @@ def test_generator_destination_keys_are_refused_rather_than_ignored():
         ic = {"source": {"generator": "ic_gen", "params": params}}
         with pytest.raises(ValueError, match="is no longer accepted"):
             picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
-    ic = {"source": {"generator": "spectral_random_velocity", "params": {"spectrum_csv": "spectrum.csv"}}}
+    ic = {"source": {"generator": "spectral_velocity", "params": {"spectrum_csv": "spectrum.csv"}}}
     with pytest.raises(ValueError, match="is no longer accepted"):
         picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
@@ -1777,7 +1777,7 @@ def test_wall_spectral_seed_names_its_required_initial_spectra():
     faces = [{"face": f, "type": "PERIODIC", "handler": "geometric"} for f in ("-Xi", "+Xi")]
     faces += [{"face": f, "type": "WALL", "handler": "noslip"} for f in ("-Eta", "+Eta")]
     faces += [{"face": f, "type": "PERIODIC", "handler": "initial_flux"} for f in ("-Zeta", "+Zeta")]
-    ic = {"source": {"generator": "channel_spectral_velocity", "params": {"seed": 1, "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}}
+    ic = {"source": {"generator": "spectral_velocity", "params": {"seed": 1, "wall_axes": ["j"], "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}}
     with pytest.raises(ValueError, match="requires params.initial_spectra"):
         picurv.resolve_initial_condition_config(ic, [faces], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     ic["source"]["params"]["initial_spectra"] = [{"task": "plane_spectrum", "axes": ["i", "k"],

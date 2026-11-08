@@ -30,7 +30,7 @@ picurv precompute --case config/case.yml
 picurv run --solve -n 8 --case config/case.yml --solver config/solver.yml --monitor config/monitor.yml
 ```
 
-This example configures the reusable `spectral_random_velocity` provider in
+This example configures the reusable `spectral_velocity` provider, without walls, in
 `generators/ic.gen`; the production implementation contains no case-specific
 DIT generator. Its `k4_exponential` envelope gives
 `E(k) proportional to k^4 exp[-2(k/k0)^2]`, and `component_rms: 1` means

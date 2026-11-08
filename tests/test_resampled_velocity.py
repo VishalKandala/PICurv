@@ -24,7 +24,7 @@ def load(path, name):
 
 
 IC = load(ROOT / "generators" / "ic.gen", "picurv_resampled_velocity_ic_tests")
-PS = load(ROOT / "generators" / "periodic_spectral.py", "picurv_resampled_velocity_spectral_tests")
+PS = load(ROOT / "picurv_cli" / "periodic_spectral.py", "picurv_resampled_velocity_spectral_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_resampled_velocity_core_tests")
 PERIODIC = [{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]
 

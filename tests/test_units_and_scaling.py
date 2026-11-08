@@ -168,7 +168,7 @@ def test_spectral_provider_parameters_are_converted_before_the_provider_runs(cor
     periodic = [{"face": face, "type": "PERIODIC", "handler": "geometric"}
                 for face in ("-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta")]
     resolved = core.resolve_initial_condition_config(
-        {"source": {"generator": "spectral_random_velocity", "params": {
+        {"source": {"generator": "spectral_velocity", "params": {
             "random": {"distribution": "gaussian", "mean": [1.0, 0.0, -2.0]},
             "spectrum": {"type": "k4_exponential", "k0": 4.0, "k_cut": 10.0},
             "normalization": {"type": "component_rms", "target": 2.0},

@@ -8,7 +8,7 @@ properties:
   fluid: {density: 1.0, viscosity: 0.005}
   initial_conditions:
     source:
-      generator: spectral_random_velocity
+      generator: spectral_velocity
       params:
         field: Ucat
         seed: 12345

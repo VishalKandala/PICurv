@@ -2,7 +2,7 @@
 @file test_expression_language.py
 @brief Pytest coverage for the expression language shared by Eulerian and particle initial values.
 
-`generators/ic.gen` validates and evaluates the language in Python; the runtime evaluates
+`picurv_cli/source_expressions.py` validates and evaluates the language in Python; the runtime evaluates
 it in C (`src/expression.c`). Both read
 `tests/fixtures/expression_conformance.txt` and must reproduce every case.
 """
@@ -16,16 +16,16 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-IC_GENERATOR = REPO_ROOT / "generators" / "ic.gen"
+LANGUAGE = REPO_ROOT / "picurv_cli" / "source_expressions.py"
 CONFORMANCE = REPO_ROOT / "tests" / "fixtures" / "expression_conformance.txt"
 
 
 def load_ic_gen():
     """!
-    @brief Load `generators/ic.gen` as a module.
+    @brief Load `picurv_cli/source_expressions.py` as a module.
     @return Loaded module.
     """
-    loader = importlib.machinery.SourceFileLoader("expression_language_ic_gen", str(IC_GENERATOR))
+    loader = importlib.machinery.SourceFileLoader("expression_language_source_expressions", str(LANGUAGE))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)

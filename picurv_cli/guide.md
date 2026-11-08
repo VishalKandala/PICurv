@@ -6,6 +6,16 @@ This directory contains the importable implementation of the PICurv conductor.
 - `cli.py`: argument parser construction and command dispatch.
 - `core.py`: current workflow implementation and compatibility surface.
 - `storage/`: the run, study, and workspace storage lifecycle (see its own guide).
+- `source_expressions.py`: the source expression language's Python side - functions and
+  variables, validation, constant substitution, region lowering, NumPy evaluation. `core.py`
+  checks every source with it; `generators/ic.gen` evaluates one.
+- `periodic_spectral.py`: Fourier machinery for uniform periodic axes, shared by `ic.gen`,
+  `spectra.gen` and `reduce.gen`.
+- `petsc_binary.py`: the PETSc binary Vec reader `profile.gen` and `spectra.gen` share.
+
+The last three are plain modules, not package imports: `core.py` and the `generators/*.gen`
+scripts put this directory on `sys.path` and import them by name, which also works when
+`core.py` is loaded as a lone file, as the tests do.
 
 `picurv_cli/picurv` is the stable source-tree executable and `bin/picurv` selects
 the configured Python runtime before invoking it. Further internal extraction

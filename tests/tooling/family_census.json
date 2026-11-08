@@ -169,7 +169,7 @@
     "picurv_cli.core::normalize_particle_fields": {
       "classification": "parameter_of_entry",
       "owner": "45_Particle_Initialization_and_Restart::p45_particle_values_sec",
-      "reason": "Lowers models.physics.particles.fields values to runtime expressions. The field set, PARTICLE_SETTABLE_FIELDS, has one value (Psi) and follows the catalog's USER_INITIALIZE capability, so there is no choice to guide yet. The region shapes and edge profiles are vocabulary of the value language, defined in generators/ic.gen like the spectral providers' parameters, and each is documented with its keys in page 45 section 1.1. A second settable field, or a shape or profile with a real trade-off to explain, is the point at which this becomes a registered family."
+      "reason": "Lowers models.physics.particles.fields values to runtime expressions. The field set, PARTICLE_SETTABLE_FIELDS, has one value (Psi) and follows the catalog's USER_INITIALIZE capability, so there is no choice to guide yet. The region shapes and edge profiles are vocabulary of the value language, defined in picurv_cli/source_expressions.py, and each is documented with its keys in page 45 section 1.1. A second settable field, or a shape or profile with a real trade-off to explain, is the point at which this becomes a registered family."
     },
     "picurv_cli.core::normalize_inlet_particles": {
       "classification": "parameter_of_entry",

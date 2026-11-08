@@ -209,8 +209,8 @@ def test_a_data_source_is_staged_and_scaled(tmp_path):
     assert values == pytest.approx([2.0 * speed / velocity_ref for speed in speeds])
 
 
-DUCT_SEED = {"generator": "duct_spectral_velocity",
-             "params": {"seed": 7, "perturbation_rms": 0.05,
+DUCT_SEED = {"generator": "spectral_velocity",
+             "params": {"seed": 7, "wall_axes": ["i", "j"], "normalization": {"type": "component_rms", "target": 0.05},
                         "initial_spectra": [{"task": "line_spectrum", "axes": ["k"],
                                              "fixed_indices": {"i": 3, "j": 3}}]}}
 
@@ -235,7 +235,7 @@ def test_a_sum_adds_a_generator_to_a_source_and_projects():
         sources={"duct": DUCT},
         initial_conditions={"source": {"sum": ["duct", DUCT_SEED]}, "constraints": {"scale": 2.0}})
     ic = resolve_initial(case)
-    assert ic["kind"] == "duct_spectral_velocity"
+    assert ic["kind"] == "spectral_velocity"
     assert CORE.is_generated_ic_provider(ic) and "bulk_velocity" not in ic["params"]
     assert ic["source"]["expressions"][2] == "((36*(1.5)*xi*(1-xi)*eta*(1-eta)))*(2.0)"
     lines = CORE.velocity_source_control_lines("-ic_source", ic["source"], "src")
@@ -265,7 +265,7 @@ def test_source_terms_add_and_project_is_optional():
 @pytest.mark.parametrize("terms, message", [
     ([DUCT_SEED, DUCT_SEED], "at most one generator"),
     ([DUCT, {"components": "cartesian", "expression": {"w": "1"}}], "mix the"),
-    ([{"generator": "duct_spectral_velocity", "seed": 1}], "unknown keys"),
+    ([{"generator": "spectral_velocity", "seed": 1}], "unknown keys"),
     ([], "non-empty list"),
 ])
 def test_invalid_sums_are_refused(terms, message):
@@ -286,7 +286,7 @@ def test_a_lone_generator_is_a_source_and_is_not_projected():
     """
     case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED})
     ic = resolve_initial(case)
-    assert ic["kind"] == "duct_spectral_velocity"
+    assert ic["kind"] == "spectral_velocity"
     assert ic["source"]["expressions"] == [] and ic["source"]["project"] is False
     case, _, _ = load_configs(initial_conditions={"source": DUCT_SEED, "constraints": {"project": True}})
     assert resolve_initial(case)["source"]["project"] is True
@@ -307,8 +307,8 @@ def test_a_generator_inside_a_source_resolves_its_paths(wrap):
 
 
 @pytest.mark.parametrize("source, name", [
-    (DUCT_SEED, "duct_spectral_velocity"),
-    ({"sum": [DUCT, DUCT_SEED]}, "duct_spectral_velocity"),
+    (DUCT_SEED, "spectral_velocity"),
+    ({"sum": [DUCT, DUCT_SEED]}, "spectral_velocity"),
     (DUCT, None),
     ("duct", None),
 ])
@@ -322,8 +322,8 @@ def test_initial_field_term_finds_the_generator(source, name):
 
 
 @pytest.mark.parametrize("source, provider, execution", [
-    (DUCT_SEED, "duct_spectral_velocity", "precomputable"),
-    ({"sum": [DUCT, DUCT_SEED]}, "duct_spectral_velocity", "precomputable"),
+    (DUCT_SEED, "spectral_velocity", "precomputable"),
+    ({"sum": [DUCT, DUCT_SEED]}, "spectral_velocity", "precomputable"),
     (DUCT, "source", "runtime-c"),
 ])
 def test_the_asset_graph_plans_a_generator_inside_a_source(source, provider, execution):
@@ -397,7 +397,7 @@ def test_a_wall_generator_has_no_mean_of_its_own():
     """!
     @brief The retired `bulk_velocity` parameter names its replacement.
     """
-    seed = {"generator": "duct_spectral_velocity",
+    seed = {"generator": "spectral_velocity",
             "params": dict(DUCT_SEED["params"], bulk_velocity=1.0)}
     case, _, _ = load_configs(initial_conditions={"source": {"sum": [DUCT, seed]}})
     with pytest.raises(ValueError, match="fluctuations only"):

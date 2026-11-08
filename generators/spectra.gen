@@ -24,9 +24,10 @@ import json
 import os
 import sys
 
-_GENERATORS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _GENERATORS_DIR not in sys.path:
-    sys.path.insert(0, _GENERATORS_DIR)
+# Shared modules live with the CLI, beside this directory.
+_SHARED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "picurv_cli")
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
 from periodic_spectral import require_numpy, spectral_symbols, validate_spectral_grid  # noqa: E402
 
 
@@ -99,7 +100,7 @@ def read_petsc_vec_binary(path: str):
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
-    from petsc_binary import read_petsc_vec_binary as read  # beside this script, on sys.path above
+    from petsc_binary import read_petsc_vec_binary as read  # in picurv_cli/, on sys.path above
     return read(path, require_numpy(), PETSC_INDEX_BYTES, "field file")
 
 

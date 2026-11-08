@@ -330,12 +330,12 @@ def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypa
     grid = tmp_path / 'inputs/grid/grid.run'
     grid.parent.mkdir(parents=True)
     write_picgrid(grid, nodes)
-    params_wall = {'seed':14,'wall_axes':['j'],'perturbation_rms':0.12,
+    params_wall = {'seed':14,'wall_axes':['j'],'normalization':{'type':'component_rms','target':0.12},
                   'initial_spectra':[{'task':task,'axes':axes,'fixed_indices':fixed,'subtract_mean':'sample'}]}
     faces = [{'face':sign+face,'type':'WALL' if face=='Eta' else 'PERIODIC',
               'handler':'noslip' if face=='Eta' else 'geometric'}
              for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
-    resolved = core.resolve_initial_condition_config({'source': {'generator': 'channel_spectral_velocity', 'params': params_wall}},[faces],scales={"length_ref": 1.0, "velocity_ref": 1.0})
+    resolved = core.resolve_initial_condition_config({'source': {'generator': 'spectral_velocity', 'params': params_wall}},[faces],scales={"length_ref": 1.0, "velocity_ref": 1.0})
     case_path = tmp_path/'case.yml'
     case_path.write_text('{}')
     staged = core.stage_initial_condition_file(str(tmp_path), str(case_path), resolved)

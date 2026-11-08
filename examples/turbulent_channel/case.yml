@@ -14,14 +14,14 @@ properties:
     source:
       sum:
         - {components: cartesian, expression: {w: "6*eta*(1-eta)"}}
-        - generator: channel_spectral_velocity
+        - generator: spectral_velocity
           params:
             field: Ucat
             seed: 12345
             wall_axes:
             - j
             streamwise_axis: k
-            perturbation_rms: 0.1
+            normalization: {type: component_rms, target: 0.1}
             wall_modes: 3
             spectrum:
               type: k4_exponential

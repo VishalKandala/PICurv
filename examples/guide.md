@@ -39,7 +39,7 @@ python3 tests/tooling/audit_starter_content.py
 - `turbulent_channel/`: wall-resolved driven periodic plane channel at nominal
   `Re_tau ~ 180` (128 x 128 x 256 cells), with no subgrid model and no wall function:
   a candidate DNS configuration, not a validated benchmark. It is seeded with
-  `channel_spectral_velocity` and records initial plane spectra at three wall-normal
+  `spectral_velocity` (one wall axis) and records initial plane spectra at three wall-normal
   stations; transition from that seed is not guaranteed - see its README.
 - `periodic_test/`: reference collection of periodic-boundary configurations. Alongside the
   plain geometric smoke cases it holds the driven-periodic validation families

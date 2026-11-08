@@ -3,6 +3,7 @@
 import importlib.machinery
 import importlib.util
 import struct
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def load(path, name):
 
 IC = load(ROOT / "generators" / "ic.gen", "picurv_spectral_random_velocity_tests")
 SPECTRA = load(ROOT / "generators" / "spectra.gen", "picurv_spectra_for_ic_tests")
-PS = load(ROOT / "generators" / "periodic_spectral.py", "picurv_periodic_spectral_for_ic_tests")
+PS = load(ROOT / "picurv_cli" / "periodic_spectral.py", "picurv_periodic_spectral_for_ic_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_core_spectral_random_velocity_tests")
 
 
@@ -307,16 +308,16 @@ def test_provider_registry_periodicity_and_shared_fluid_scaling_contract():
                                      "fluid": {"density": 5.0, "viscosity": 0.2}}}
     with pytest.raises(ValueError, match="finite"):
         CORE.resolve_fluid_scaling(nonfinite_case)
-    assert "spectral_random_velocity" in CORE.GENERATED_IC_PROVIDERS
+    assert "spectral_velocity" in CORE.GENERATED_IC_PROVIDERS
     periodic = [{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]
     resolved = CORE.resolve_initial_condition_config(
-        {"source": {"generator": "spectral_random_velocity", "params": params()}},
+        {"source": {"generator": "spectral_velocity", "params": params()}},
         [periodic], scales={"length_ref": 2.0, "velocity_ref": 4.0}, provider_context={"kinematic_viscosity": 0.005})
     assert CORE.is_generated_ic_provider(resolved)
     nonperiodic = [dict(face) for face in periodic]; nonperiodic[0] = {"type": "WALL", "handler": "noslip"}
     with pytest.raises(ValueError, match="PERIODIC"):
         CORE.resolve_initial_condition_config(
-            {"source": {"generator": "spectral_random_velocity", "params": params()}},
+            {"source": {"generator": "spectral_velocity", "params": params()}},
             [nonperiodic], scales={"length_ref": 2.0, "velocity_ref": 4.0})
 
 
@@ -382,14 +383,14 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
     """! @brief Keep public defaults and finite-number rejection consistent across both dispatch layers. """
     periodic = [[{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]]
     resolved = CORE.resolve_initial_condition_config(
-        {"source": {"generator": "spectral_random_velocity", "params": {}}},
+        {"source": {"generator": "spectral_velocity", "params": {}}},
         periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
-    normalized = IC.validate_spectral_random_velocity_params({})
+    normalized = IC.validate_spectral_velocity_params({})
     assert resolved["params"] == normalized == {
         "field": "Ucat", "seed": 12345,
         "random": {"distribution": "gaussian", "mean": [0.0, 0.0, 0.0]},
         "spectrum": {"type": "white"}, "projection": {"type": "none"},
-        "normalization": {"type": "none"}, "remove_mean": True,
+        "normalization": {"type": "none"}, "remove_mean": True, "wall_axes": [],
     }
     for bad in (
         {"random": {"distribution": "gaussian", "mean": [0.0, np.nan, 0.0]}},
@@ -399,16 +400,15 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
     ):
         with pytest.raises(ValueError):
             CORE.resolve_initial_condition_config(
-                {"source": {"generator": "spectral_random_velocity", "params": bad}},
+                {"source": {"generator": "spectral_velocity", "params": bad}},
                 periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
 
-@pytest.mark.parametrize('generator,walls', [('channel_spectral_velocity', [a]) for a in 'ijk'] + [('duct_spectral_velocity', list(a)) for a in ('ij','jk','ik')])
-def test_wall_seed_discrete_flux_and_stretched_grid(generator, walls):
+@pytest.mark.parametrize('walls', [[a] for a in 'ijk'] + [list(a) for a in ('ij','jk','ik')])
+def test_wall_seed_discrete_flux_and_stretched_grid(walls):
     """!
     @brief Wall seed discrete flux and stretched grid.
-    @param[in] generator Test fixture or parametrized selection.
-    @param[in] walls Test fixture or parametrized selection.
+    @param[in] walls One wall axis (a channel) or two (a duct).
     """
     nodes = cartesian_nodes((16, 18, 20), (2., 2., 6.))
     for axis in walls:
@@ -418,9 +418,9 @@ def test_wall_seed_discrete_flux_and_stretched_grid(generator, walls):
         shape = [1,1,1]; shape[2-a] = n
         nodes[..., a] = coordinates.reshape(shape)
     options = {'wall_axes': walls, 'streamwise_axis': next(a for a in 'kij' if a not in walls),
-               'perturbation_rms': 0.15, 'seed': 17}
-    full, summary = IC.generate_wall_spectral_velocity(nodes, options, generator)
-    again, _ = IC.generate_wall_spectral_velocity(nodes, options, generator)
+               'normalization': {'type': 'component_rms', 'target': 0.15}, 'seed': 17}
+    full, summary = IC.generate_wall_spectral_velocity(nodes, options)
+    again, _ = IC.generate_wall_spectral_velocity(nodes, options)
     assert np.array_equal(full, again)
     assert summary['perturbation_rms'] == pytest.approx(0.15)
     assert summary['picurv_discrete_divergence_max'] < 1e-12
@@ -456,7 +456,7 @@ def test_wall_seed_is_linear_in_wall_distance():
     nodes = cartesian_nodes((32, 64, 32), (2., 2., 2.))
     options = {'wall_axes': ['j'], 'streamwise_axis': 'k', 'seed': 5,
                'spectrum': {'type': 'k4_exponential', 'k0': 4.0, 'k_cut': 8.0}}
-    full, _ = IC.generate_wall_spectral_velocity(nodes, options, 'channel_spectral_velocity')
+    full, _ = IC.generate_wall_spectral_velocity(nodes, options)
     u = full[1:-1, 1:-1, 1:-1]
     fluctuation = u - u.mean(axis=(0, 2), keepdims=True)
     rms = np.sqrt((fluctuation[..., 0]**2 + fluctuation[..., 2]**2).mean(axis=(0, 2)))
@@ -471,7 +471,7 @@ def test_wall_provider_routes_and_rejects_incompatible_boundaries():
     bcs = [{'face': sign+face, 'type': 'WALL' if face=='Eta' else 'PERIODIC',
             'handler': 'noslip' if face=='Eta' else ('constant_flux' if face=='Zeta' else 'geometric')}
            for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
-    cfg = {'source': {'generator': 'channel_spectral_velocity', 'params': {
+    cfg = {'source': {'generator': 'spectral_velocity', 'params': {'wall_axes': ['j'],
         'initial_spectra':[{'task':'plane_spectrum','axes':['i','k'],'fixed_indices':{'j':3},'subtract_mean':'sample'}]}}}
     resolved = CORE.resolve_initial_condition_config(cfg, [bcs], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     assert resolved['field_code'] == 0
@@ -494,3 +494,32 @@ def test_writer_uses_the_requested_petsc_index_width(tmp_path, monkeypatch):
     raw = (tmp_path / "wide.dat").read_bytes()
     assert struct.unpack(">qq", raw[:16]) == (IC.PETSC_VEC_CLASS_ID, 6)
     assert len(raw) == 16 + 6 * 8
+
+
+@pytest.mark.parametrize("name, walls", [("spectral_random_velocity", "[]"), ("channel_spectral_velocity", "[j]"),
+                                         ("duct_spectral_velocity", "[i, j]")])
+def test_retired_spectral_generators_name_their_replacement(name, walls):
+    """!
+    @brief The three generators `spectral_velocity` replaced are refused with the wall_axes each meant.
+    @param[in] name Retired generator name.
+    @param[in] walls The `wall_axes` the message must name.
+    """
+    with pytest.raises(ValueError, match=re.escape(f"use generator: spectral_velocity with params.wall_axes: {walls}")):
+        CORE.resolve_initial_condition_config({"source": {"generator": name, "params": {}}}, [[]],
+                                              scales={"length_ref": 1.0, "velocity_ref": 1.0})
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"wall_axes": ["j"], "projection": {"type": "none"}}, "apply only to a periodic box"),
+    ({"streamwise_axis": "k"}, "need wall_axes"),
+    ({"wall_axes": ["j"], "perturbation_rms": 0.1}, "perturbation_rms is retired"),
+    ({"wall_axes": ["j"], "normalization": {"type": "none"}}, "needs normalization"),
+])
+def test_spectral_velocity_refuses_parameters_of_the_other_geometry(params, message):
+    """!
+    @brief A periodic box and a wall-bounded seed each refuse the other's parameters.
+    @param[in] params Raw parameters.
+    @param[in] message Pattern the refusal must match.
+    """
+    with pytest.raises(ValueError, match=message):
+        IC.validate_spectral_velocity_params(params)

@@ -386,6 +386,7 @@
         "include/initialcondition.h",
         "include/AnalyticalSolutions.h",
         "generators/ic.gen",
+        "picurv_cli/source_expressions.py",
         "src/expression.c",
         "include/expression.h"
       ],

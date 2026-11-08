@@ -23,7 +23,7 @@
 # NOTE ON Re: the case Reynolds number below is U_b * a / nu = 2205. The
 # literature value Re_b = U_b * D / nu is twice that, 4410.
 #
-# SEEDING: duct_spectral_velocity. Transition from it is not guaranteed; see
+# SEEDING: spectral_velocity. Transition from it is not guaranteed; see
 # driven_duct.md section 6.
 # ==============================================================================
 
@@ -46,13 +46,13 @@ properties:
     source:
       sum:
         - {components: cartesian, expression: {w: "36*xi*(1-xi)*eta*(1-eta)"}}
-        - generator: duct_spectral_velocity
+        - generator: spectral_velocity
           params:
             field: Ucat
             seed: 12345
             wall_axes: [i, j]
             streamwise_axis: k
-            perturbation_rms: 0.1
+            normalization: {type: component_rms, target: 0.1}
             wall_modes: 3
             spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
             initial_spectra:

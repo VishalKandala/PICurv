@@ -171,7 +171,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
 @section p50_field_init_sec 6. Initial-Condition Field Generators
 
 - Schema home: `case.yml -> properties.initial_conditions.source`, a `{generator, params}` term
-- Canonical values: `ic_gen|spectral_random_velocity|resampled_velocity|channel_spectral_velocity|duct_spectral_velocity|stability_mode_velocity`
+- Canonical values: `ic_gen|spectral_velocity|resampled_velocity|stability_mode_velocity`
 - Python hooks:
   - `resolve_initial_condition_config()`
   - `_resolve_initial_generator()`

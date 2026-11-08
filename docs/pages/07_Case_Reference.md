@@ -36,7 +36,7 @@ initial_conditions:
 # A generated field, staged as it is written
 initial_conditions:
   source:
-    generator: spectral_random_velocity
+    generator: spectral_velocity
     params: {seed: 12345, spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}}
 
 # File-backed Cartesian velocity
@@ -49,8 +49,8 @@ Key mappings:
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
 - `source` -> quoted `-ic_source_*` options
-- a file or generator term (`ic_gen`, `spectral_random_velocity`, `resampled_velocity`,
-  `channel_spectral_velocity`, `duct_spectral_velocity`, `stability_mode_velocity`) -> `-ic_field` and staged `-ic_dir`
+- a file or generator term (`ic_gen`, `spectral_velocity`, `resampled_velocity`,
+  `stability_mode_velocity`) -> `-ic_field` and staged `-ic_dir`
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
 For detailed startup behavior of initial conditions, see **@subpage 33_Initial_Conditions**.
@@ -301,7 +301,7 @@ emitted, so the runtime value stays 0.
 **Parameters it owns.** None.
 
 **Interactions.** Required by generated initial conditions that build a fresh
-three-dimensional field, such as `spectral_random_velocity`.
+three-dimensional field, such as `spectral_velocity`.
 
 **Diagnostics.** None of its own: the generated control file carries no `-TwoD` line.
 

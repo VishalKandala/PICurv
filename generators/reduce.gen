@@ -38,8 +38,10 @@ import re
 import sys
 
 _GENERATORS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _GENERATORS_DIR not in sys.path:
-    sys.path.insert(0, _GENERATORS_DIR)
+# Shared modules live with the CLI, beside this directory.
+_SHARED_DIR = os.path.join(os.path.dirname(_GENERATORS_DIR), "picurv_cli")
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
 from periodic_spectral import require_numpy  # noqa: E402
 
 # Axis token -> index into the (k, j, i) array order the readers produce.

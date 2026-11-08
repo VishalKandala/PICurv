@@ -116,9 +116,7 @@ def uncovered_inputs(core) -> list:
                     for name in sorted(generators ^ set(core.IC_PARAM_QUANTITIES)))
     ic_gen = load_module("audit_units_ic_gen", IC_GENERATOR)
     provider_params = {
-        "spectral_random_velocity": core.SPECTRAL_RANDOM_VELOCITY_PARAMS,
-        "channel_spectral_velocity": ic_gen.WALL_SPECTRAL_PARAMS,
-        "duct_spectral_velocity": ic_gen.WALL_SPECTRAL_PARAMS,
+        "spectral_velocity": ic_gen.WALL_SPECTRAL_PARAMS | ic_gen.PERIODIC_SPECTRAL_ONLY_PARAMS,
         "stability_mode_velocity": ic_gen.STABILITY_MODE_PARAMS,
     }
     for generator, keys in provider_params.items():

@@ -177,7 +177,7 @@ converges every step, and at `Re = 10` reproduces the exact parabola at second o
 under both driven handlers.
 
 **Initial-condition seeding.** The turbulent and LES cases seed with
-`channel_spectral_velocity`: a discretely divergence-free perturbation, zero on
+`spectral_velocity` with `wall_axes: [j]`: a discretely divergence-free perturbation, zero on
 the walls, of RMS `0.1 U_b` on a parabolic mean normalized to `U_b`. Precompute
 (`picurv precompute --case ...`) reports the realized bulk velocity, RMS, and
 divergence, and records plane spectra at three wall-normal stations. The DNS cases

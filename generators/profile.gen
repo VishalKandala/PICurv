@@ -173,9 +173,9 @@ def read_petsc_vec_binary(path: str):
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
-    here = os.path.dirname(os.path.abspath(__file__))
-    if here not in sys.path:
-        sys.path.insert(0, here)
+    shared = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "picurv_cli")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
     from petsc_binary import read_petsc_vec_binary as read
     return read(path, require_numpy(), PETSC_INDEX_BYTES, "field_file")
 

@@ -99,17 +99,11 @@ particle `fields`.
 | `case.yml: initial_conditions.params.filter.width (resampled_velocity)` | LENGTH | cli | L |
 | `case.yml: initial_conditions.params.noise.spectrum.k0 (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.noise.spectrum.k_cut (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.normalization.target (spectral_random_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.perturbation_rms (channel_spectral_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.perturbation_rms (duct_spectral_velocity)` | VELOCITY | cli | U |
-| `case.yml: initial_conditions.params.random.mean (spectral_random_velocity)` | VELOCITY | cli | U |
+| `case.yml: initial_conditions.params.normalization.target (spectral_velocity)` | VELOCITY | cli | U |
+| `case.yml: initial_conditions.params.random.mean (spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.source_file (resampled_velocity)` | VELOCITY | provider | U |
-| `case.yml: initial_conditions.params.spectrum.k0 (channel_spectral_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.spectrum.k0 (duct_spectral_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.spectrum.k0 (spectral_random_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.spectrum.k_cut (channel_spectral_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.spectrum.k_cut (duct_spectral_velocity)` | WAVENUMBER | cli | 1/L |
-| `case.yml: initial_conditions.params.spectrum.k_cut (spectral_random_velocity)` | WAVENUMBER | cli | 1/L |
+| `case.yml: initial_conditions.params.spectrum.k0 (spectral_velocity)` | WAVENUMBER | cli | 1/L |
+| `case.yml: initial_conditions.params.spectrum.k_cut (spectral_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.velocity_difference (stability_mode_velocity)` | VELOCITY | cli | U |
 | `case.yml: properties.initial_conditions.constraints` | VELOCITY | evaluator | U |
 | `case.yml: properties.initial_conditions.source` | VELOCITY | evaluator | U |

@@ -100,9 +100,9 @@ properties:
     source:
       sum:
         - inflow                                  # a named source: the mean
-        - generator: channel_spectral_velocity    # fluctuations only
+        - generator: spectral_velocity            # fluctuations only; wall_axes [j] is a channel
           params: {seed: 12345, wall_axes: [j], streamwise_axis: k,
-                   perturbation_rms: 0.1, initial_spectra: [...]}
+                   normalization: {type: component_rms, target: 0.1}, initial_spectra: [...]}
     constraints: {bulk_velocity: 1.0, project: true}
 ```
 
@@ -147,7 +147,7 @@ is `1/sqrt(2)` as much, on a 24^3 periodic box. Noise is not divergence-free, so
 about a third of its energy: `project: true` kept 0.664 of the face energy there, against 2/3 for
 isotropic white noise. Without `project`, the first step's projection removes that third instead.
 The field has no spatial correlation, and a different grid draws a different field, so it seeds
-instability; for a prescribed spectrum use a generator (@ref p33_cap_gen_spectral_random_velocity_sub).
+instability; for a prescribed spectrum use a generator (@ref p33_cap_gen_spectral_velocity_sub).
 `bulk_velocity` reads the same draws, as the mean along each cell's own direction, so noise across
 the mean adds to the speed it scales; an analytical field refuses draws, since it is an exact answer.
 
@@ -266,7 +266,7 @@ Repository spectral provider, for a triply periodic box:
 properties:
   initial_conditions:
     source:
-      generator: spectral_random_velocity
+      generator: spectral_velocity
       params:
         field: Ucat
         seed: 12345
@@ -414,12 +414,13 @@ Common pitfalls:
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
 
-@section p33_wall_spectral_sec Wall-bounded spectral seeds
+@section p33_wall_spectral_sec Spectral velocity: periodic boxes, channels and ducts
 
 @htmlinclude generated/capability_inventory_initial_file_generator.html
 
-`channel_spectral_velocity` uses one wall axis; `duct_spectral_velocity` uses two.
-The remaining axes are periodic, with driving allowed only on `streamwise_axis`, or the
+`spectral_velocity` takes `wall_axes`: none for a triply periodic box, one for a channel, two
+for a duct. In a box it writes a seeded random field shaped by a spectrum (the parameters in
+@ref p33_cap_gen_spectral_velocity). With walls, the remaining axes are periodic, with driving allowed only on `streamwise_axis`, or the
 streamwise axis runs from an inlet on its negative face to an outlet on its positive face. The
 seed's modes are periodic along that axis either way; between an inlet and an outlet, project
 the sum (@ref p33_source).
@@ -430,13 +431,13 @@ axes; wall-normal axes may stretch. `grid_gen` provides an inspectable staged gr
 source:
   sum:
     - {components: cartesian, expression: {w: "6*eta*(1-eta)"}}
-    - generator: channel_spectral_velocity
+    - generator: spectral_velocity
       params:
         field: Ucat
         seed: 12345
         wall_axes: [j]
         streamwise_axis: k
-        perturbation_rms: 0.1
+        normalization: {type: component_rms, target: 0.1}
         wall_modes: 3
         spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
         initial_spectra:
@@ -444,9 +445,11 @@ source:
 constraints: {bulk_velocity: 1.0, project: false}
 ```
 
-These generators write the fluctuation alone; the mean is a source, normalized by `bulk_velocity`.
-Parameters are physical: `perturbation_rms` is a velocity and the spectrum wavenumbers are per length, converted before the provider runs. `perturbation_rms` is
-`sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently.
+With walls the generator writes the fluctuation alone; the mean is a source, normalized by `bulk_velocity`.
+Parameters are physical: `normalization.target` is a velocity and the spectrum wavenumbers are per length, converted before the provider runs. The target is
+`sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently, the same
+measure a periodic box's `component_rms` uses; with walls it is required, defaulting to 0.1,
+because the curl of the vector potential has no amplitude of its own.
 The spectral envelope shapes a seeded vector potential along periodic directions;
 wall basis functions are `sin(n*pi*t)*sin(pi*t)`, evaluated at physical cell
 centers: the least envelope that keeps the potential and its wall-normal derivative
@@ -497,34 +500,49 @@ at the face.
 
 **Limitations.** Nothing is implied about a field a script writes.
 
-@subsection p33_cap_gen_spectral_random_velocity_sub spectral_random_velocity
+@subsection p33_cap_gen_spectral_velocity_sub spectral_velocity
 
-@anchor p33_cap_gen_spectral_random_velocity
+@anchor p33_cap_gen_spectral_velocity
 
-**Identity.** `source: {generator: spectral_random_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
+**Identity.** `source: {generator: spectral_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path. `params.wall_axes` chooses the geometry: omitted or `[]` a triply periodic box, one axis a channel, two a duct.
 
-**What it does.** The existing seeded triply periodic random spectral velocity.
+**What it does.** In a box, a seeded random field shaped by a spectrum, optionally projected solenoidal and rescaled. With walls, a discrete-curl spectral perturbation vanishing at each wall pair, with no mean (@ref p33_wall_spectral_sec).
 
-**When to choose it.** Choose this for DIT; channel and duct providers supply wall-compatible seeds.
+**When to choose it.** Decaying isotropic turbulence in a box; a channel or duct start, as the fluctuation term of a `sum` whose mean is a source.
 
-**Parameters it owns.** seed, random, spectrum, projection, normalization and remove_mean retain their existing contracts.
+**Parameters it owns.** Every geometry: `field`, `seed`, `spectrum`, `normalization`, `wall_axes`. A box adds `random`, `projection` and `remove_mean`, and `normalization` may be `{type: none}`. With walls: `streamwise_axis`, `wall_modes` and a required nonempty `initial_spectra`, and `normalization` must be `component_rms`. Parameters that belong to the other geometry are refused.
 
-**Interactions.** Requires six geometric-periodic faces and a uniform Cartesian grid; restart remains authoritative.
+**Interactions.** One 3D Cartesian block and `Ucat` staging. A box needs six geometric-periodic faces and uniform spacing; with walls the faces follow @ref p33_wall_spectral_sec, the wall-normal axes may stretch, and immersed geometry is refused. Restart remains authoritative.
 
-**Diagnostics.** The IC summary reports selected-operator divergence and realized energy; shell spectra measure the generated field.
+**Diagnostics.** A box's summary reports the selected operator's divergence and realized energy, and shell spectra measure the generated field. With walls the summary reports perturbation RMS, component means and discrete divergence, and the selected plane or line spectra measure the seed.
 
 **Evidence.** Unit verified - `make test-python`. Production exercised in
-`examples/decaying_isotropic_turbulence`. Analytically verified -
-`initial-conditions-2026-09-21`: fluctuation RMS 1.000000 and kinetic energy 1.500000 as
-requested, the solver's own step-0 divergence 3.1e-14 against a flux scale of 4.3 under
-`operator: picurv_discrete`, the shell spectrum within 4.7% (energy-weighted) of the
-`k4_exponential` envelope with nothing above `k_cut`, and identical seeds reproducing
-identical fields.
+`examples/decaying_isotropic_turbulence` (box), `examples/turbulent_channel` (channel) and
+`examples/periodic_test/driven_duct` (duct). Analytically verified:
+- `initial-conditions-2026-09-21` (box): fluctuation RMS 1.000000 and kinetic energy 1.500000 as
+  requested, the solver's own step-0 divergence 3.1e-14 against a flux scale of 4.3 under
+  `operator: picurv_discrete`, the shell spectrum within 4.7% (energy-weighted) of the
+  `k4_exponential` envelope with nothing above `k_cut`, and identical seeds reproducing
+  identical fields.
+- `wall-spectral-ic-2026-09-24` (channel and duct): on stretched 32 x 32 x 64 grids, when the
+  generator owned a flux-normalized mean that the source sum now reproduces to 4e-13, the
+  perturbation RMS is exactly the requested 0.1 with zero component means, the dummy layers are
+  exact odd reflections so the wall faces carry zero velocity, the runtime's step-0 flux field
+  has a cell divergence of at most 1.4e-17 against flux scales of 2.7e-2 to 4.1e-2, and the
+  wall-parallel perturbation grows linearly from each wall (first-to-second cell RMS ratios
+  2.42 to 2.44, the discrete curl's value for a potential ~ y^2).
 
-**Limitations.** A continuum solenoidal field need not be discretely solenoidal - choose
-`operator: picurv_discrete` when the solver's own divergence must vanish - and runtime
-reconstruction changes the energy from the staged value, which the summary predicts
-separately. A startup field, not developed turbulence.
+These measurements were made under the generator's earlier names, before the three were one
+selector; the generated fields are byte-identical to theirs.
+
+**Limitations.** A startup field, not developed turbulence. In a box, a continuum solenoidal
+field need not be discretely solenoidal - choose `operator: picurv_discrete` when the solver's
+own divergence must vanish - and runtime reconstruction changes the energy from the staged
+value, which the summary predicts separately. With walls the spectrum shapes the vector
+potential rather than the velocity; circular pipes and immersed boundaries are outside it; the
+measurements were on reduced grids on one rank, and cover a periodic streamwise axis only - the
+inlet-outlet axis is exercised by `tests/test_velocity_sources.py` and a one-period
+demonstration run.
 
 @subsection p33_cap_gen_resampled_velocity_sub resampled_velocity
 
@@ -533,7 +551,7 @@ separately. A startup field, not developed turbulence.
 **Identity.** `source: {generator: resampled_velocity}` dispatches through
 `GENERATED_IC_PROVIDERS` into `generate_resampled_velocity()` in `generators/ic.gen`, then the
 file IC runtime path; the Fourier resampling is `fourier_resample` in
-`generators/periodic_spectral.py`.
+`picurv_cli/periodic_spectral.py`.
 
 **What it does.** Brings an external triply periodic velocity field onto this case's grid. It
 reads the source, re-evaluates it at the target points from its Fourier series - truncating
@@ -543,7 +561,7 @@ be divergence-free under PICurv's discrete operator, and writes solver units. Wi
 with `field: Ucat` it stages cell-centre velocities like the synthetic providers.
 
 **When to choose it.** When the starting field exists already: a published DNS or experiment
-field, a snapshot from another code, or a field at another resolution. `spectral_random_velocity`
+field, a snapshot from another code, or a field at another resolution. `spectral_velocity`
 synthesizes a field from a spectrum instead, and suits decay-law and parametric studies where the
 initial spectrum is the variable. `mode: file` reads a vector already laid out for this grid,
 verbatim; see @ref p33_file_or_import_ssec.
@@ -584,65 +602,6 @@ matched the provider's prediction within one step's decay, at divergence 3.5e-12
 The runtime then holds a second-order reconstruction of what was staged - 87% of the band's energy
 for `Ucont` and 78% for `Ucat` on that field - so compare spectra only well below the cutoff.
 `projection: continuum` keeps the source's modes but leaves the staged field discretely divergent.
-
-@subsection p33_cap_gen_channel_spectral_velocity_sub channel_spectral_velocity
-
-@anchor p33_cap_gen_channel_spectral_velocity
-
-**Identity.** `source: {generator: channel_spectral_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
-
-**What it does.** A discrete-curl spectral perturbation vanishing at one wall pair, with no mean.
-
-**When to choose it.** Choose for two no-slip walls; use duct_spectral_velocity for four walls.
-
-**Parameters it owns.** The wall-bounded parameter block above applies with one wall_axes entry; initial_spectra is required.
-
-**Interactions.** Single-block 3D Cartesian grid, one no-slip pair, Ucat file staging; the spanwise axis is periodic, and the streamwise axis is periodic or runs from an inlet to an outlet. As a `sum` term it supplies the fluctuations about a source's mean (@ref p33_source).
-
-**Diagnostics.** Summary reports perturbation RMS, component means and discrete divergence; selected plane/line spectra measure the seed.
-
-**Evidence.** Unit verified - `make test-python`. Production exercised in
-`examples/turbulent_channel`. Analytically verified - `wall-spectral-ic-2026-09-24`, on a
-stretched 32 x 32 x 64 channel when the generator owned a flux-normalized `4t(1-t)` mean, which
-the source sum reproduces to 2e-13 at 32 cells: the perturbation RMS is exactly the requested 0.1 with zero component means, the
-dummy layers are exact odd reflections so the wall faces carry zero velocity, the
-runtime's step-0 flux field has a cell divergence of 1.4e-17 against a flux scale of
-4.1e-2, and the wall-parallel perturbation grows linearly from the wall (first-to-second
-cell RMS ratio 2.42, the discrete curl's value for a potential ~ y^2).
-
-**Limitations.** A startup construction: amplitude and resolution do not establish
-sustained turbulence, and the spectrum shapes the vector potential rather than the
-velocity. Measured on a reduced grid on one rank, not at the shipped production size. The
-measurement covers a periodic streamwise axis; the inlet-outlet axis is exercised only by
-`tests/test_velocity_sources.py` and a one-period demonstration run.
-
-@subsection p33_cap_gen_duct_spectral_velocity_sub duct_spectral_velocity
-
-@anchor p33_cap_gen_duct_spectral_velocity
-
-**Identity.** `source: {generator: duct_spectral_velocity}` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the staged-field runtime path.
-
-**What it does.** A discrete-curl spectral perturbation vanishing at two wall pairs, with no mean.
-
-**When to choose it.** Choose for rectangular/square ducts with four walls; channel_spectral_velocity has only one wall axis.
-
-**Parameters it owns.** The wall-bounded parameter block above applies with two wall_axes entries; initial_spectra selects streamwise lines.
-
-**Interactions.** Single-block 3D Cartesian grid, two no-slip pairs, Ucat file staging; the streamwise axis is periodic or runs from an inlet to an outlet. As a `sum` term it supplies the fluctuations about a source's mean (@ref p33_source).
-
-**Diagnostics.** Summary reports perturbation RMS and discrete divergence; actual selected line spectra report sample energy and Parseval residual.
-
-**Evidence.** Unit verified - `make test-python`. Production exercised in
-`examples/periodic_test/driven_duct`. Analytically verified - `wall-spectral-ic-2026-09-24`,
-on a doubly stretched 32 x 32 x 64 duct when the generator owned a flux-normalized product of
-`4t(1-t)` parabolas, which the source sum reproduces to 4e-13 at 32 cells: the perturbation RMS is exactly the requested 0.1, all four walls carry zero
-velocity through exact odd reflection, the runtime's step-0 flux field has a cell
-divergence of 1.0e-17 against a flux scale of 2.7e-2, and near-wall growth is linear on
-both wall axes (ratios 2.42 and 2.44).
-
-**Limitations.** A startup construction establishes no sustained turbulence. Circular pipes and
-immersed boundaries are outside this provider. Measured on a reduced grid on one rank. The
-inlet-outlet streamwise axis is not covered by that measurement.
 
 @section p33_stability_mode_sec Linear-stability mode seeds
 

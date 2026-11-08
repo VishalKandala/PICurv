@@ -169,7 +169,7 @@ is a test-local routine.
     a file initial condition staged from physical units or from another run's scales
   - the validate notice names inputs whose reading changed, only at non-unit scales
 - `test_expression_language.py`
-  - `generators/ic.gen` reproduces every case of `tests/fixtures/expression_conformance.txt`,
+  - `picurv_cli/source_expressions.py` reproduces every case of `tests/fixtures/expression_conformance.txt`,
     which `make unit-particles` also evaluates through the C runtime evaluator
   - constructs outside the language are refused; draws are particle-only
   - region and edge lowering: paint order, half-way edge value, inlined `params`

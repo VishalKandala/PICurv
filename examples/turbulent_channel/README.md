@@ -15,7 +15,7 @@ constant-flux driving, not an input imposed by the Reynolds-number setting.
 
 The initial condition is a `source` sum of a mean and a fluctuation. The mean is the
 expression `6*eta*(1-eta)`, normalized to bulk velocity 1 by `constraints`; the driven
-target flux is 4*pi. `channel_spectral_velocity` generates the fluctuation: a discrete-curl perturbation using
+target flux is 4*pi. `spectral_velocity` with `wall_axes: [j]` generates the fluctuation: a discrete-curl perturbation using
 seeded random Fourier content in the periodic directions and smooth basis functions in
 the wall-normal direction. Its volume-weighted component-equivalent RMS is 0.1 U_b. There is no recurring perturbation injection. Transition is not
 guaranteed by this amplitude; monitor fluctuation energy and Reynolds shear stress.

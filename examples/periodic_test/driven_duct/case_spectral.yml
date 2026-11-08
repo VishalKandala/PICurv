@@ -14,14 +14,14 @@ properties:
     source:
       sum:
         - {components: cartesian, expression: {w: "36*xi*(1-xi)*eta*(1-eta)"}}
-        - generator: duct_spectral_velocity
+        - generator: spectral_velocity
           params:
             seed: 12345
             wall_axes:
             - i
             - j
             streamwise_axis: k
-            perturbation_rms: 0.1
+            normalization: {type: component_rms, target: 0.1}
             wall_modes: 3
             spectrum:
               type: k4_exponential

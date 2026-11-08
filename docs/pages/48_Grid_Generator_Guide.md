@@ -625,7 +625,7 @@ Transforms apply after the geometry map, in the order given, and compose on top 
 
 **Evidence.** Unit verified - `make test-python` accepts it on a periodic grid, and `make unit-periodic` validates the rotated translation of a grid turned 30 degrees and wraps a particle by it. Analytically verified - `grid-generator-closure-2026-09-21`: a rotated hill box closes a uniform flow to round-off.
 
-**Limitations.** A rotation keeps translational periodicity; it does not create rotational periodicity, which the runtime does not support. Tools that Fourier-transform along the grid axes - spectra and the `spectral_random_velocity`, `resampled_velocity` and wall-spectral initial conditions - need an axis-aligned Cartesian grid and refuse a rotated one.
+**Limitations.** A rotation keeps translational periodicity; it does not create rotational periodicity, which the runtime does not support. Tools that Fourier-transform along the grid axes - spectra and the `spectral_velocity` and `resampled_velocity` initial conditions - need an axis-aligned Cartesian grid and refuse a rotated one.
 
 @subsection p48_cap_xform_mirror_sub mirror
 

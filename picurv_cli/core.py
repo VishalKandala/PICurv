@@ -197,6 +197,8 @@ SCRIPT_PATH = os.environ.get(
 )
 PROJECT_ROOT = os.path.dirname(SCRIPT_PATH)
 GENERATORS_PATH = os.path.join(PACKAGE_PROJECT_ROOT, "generators")
+#: Modules in `picurv_cli/` that the generators import.
+GENERATOR_SHARED_MODULES = ("source_expressions.py", "periodic_spectral.py", "petsc_binary.py")
 if os.path.basename(SCRIPT_PATH) == "bin":
     DEFAULT_BIN_DIR = SCRIPT_PATH
 else:
@@ -427,18 +429,13 @@ _WORKSPACE_ARTIFACT_ROOT_VALUES = {"runs", "studies"}
 _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
 }
-_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "resampled_velocity",
-                                       "channel_spectral_velocity", "duct_spectral_velocity",
+_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_velocity", "resampled_velocity",
                                        "stability_mode_velocity"}
+#: Spectral generators folded into `spectral_velocity`, and the `wall_axes` each one meant.
+RETIRED_SPECTRAL_IC_PROVIDERS = {"spectral_random_velocity": "[] (the default)",
+                                 "channel_spectral_velocity": "[j]", "duct_spectral_velocity": "[i, j]"}
 #: Providers `ic.gen` runs from structured parameters, each with a measured initial spectrum.
-SPECTRAL_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity",
-                         "channel_spectral_velocity", "duct_spectral_velocity", "stability_mode_velocity")
-#: Of those, the triply periodic ones, whose initial spectrum is shell-averaged.
-SHELL_SPECTRUM_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity")
-#: Parameters `spectral_random_velocity` accepts.
-SPECTRAL_RANDOM_VELOCITY_PARAMS = frozenset(
-    {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
-)
+SPECTRAL_IC_PROVIDERS = ("spectral_velocity", "resampled_velocity", "stability_mode_velocity")
 #: Parameters `resampled_velocity` accepts.
 RESAMPLED_VELOCITY_PARAMS = frozenset(
     {"field", "source_file", "format", "cells", "box_length", "sample_offset", "layout", "filter",
@@ -897,6 +894,11 @@ def build_software_lock(run_dir: "str | None" = None) -> dict:
             candidate = os.path.join(GENERATORS_PATH, entry)
             if os.path.isfile(candidate):
                 lock["generators"][entry] = _file_sha256(candidate)
+    # The generators import these from beside this file, so their bytes decide what ran too.
+    for name in GENERATOR_SHARED_MODULES:
+        candidate = os.path.join(PACKAGE_PROJECT_ROOT, "picurv_cli", name)
+        if os.path.isfile(candidate):
+            lock["generators"][f"picurv_cli/{name}"] = _file_sha256(candidate)
     return lock
 
 
@@ -9521,8 +9523,10 @@ IC_PARAM_QUANTITIES = {
         # The script's own input, which it reads as it documents.
         "config_file": (None, "provider"),
     },
-    "spectral_random_velocity": {
+    "spectral_velocity": {
         "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "remove_mean": NOT_A_QUANTITY,
+        "wall_axes": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY, "wall_modes": NOT_A_QUANTITY,
+        "initial_spectra": NOT_A_QUANTITY,
         "random.distribution": NOT_A_QUANTITY, "random.mean": (VELOCITY, "cli"),
         "spectrum.type": NOT_A_QUANTITY,
         "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
@@ -9540,13 +9544,6 @@ IC_PARAM_QUANTITIES["resampled_velocity"] = {
     "layout.dtype": NOT_A_QUANTITY, "layout.byte_order": NOT_A_QUANTITY,
     "layout.header_bytes": NOT_A_QUANTITY, "layout.datasets": NOT_A_QUANTITY,
     "filter.type": NOT_A_QUANTITY, "filter.cutoff": (WAVENUMBER, "cli"), "filter.width": (LENGTH, "cli"),
-}
-IC_PARAM_QUANTITIES["channel_spectral_velocity"] = IC_PARAM_QUANTITIES["duct_spectral_velocity"] = {
-    "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY,
-    "wall_axes": NOT_A_QUANTITY, "wall_modes": NOT_A_QUANTITY, "initial_spectra": NOT_A_QUANTITY,
-    "perturbation_rms": (VELOCITY, "cli"),
-    "spectrum.type": NOT_A_QUANTITY,
-    "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
 }
 IC_PARAM_QUANTITIES["stability_mode_velocity"] = {
     "field": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY, "cross_axis": NOT_A_QUANTITY,
@@ -10398,7 +10395,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                           "(streamwise and cross axes j and k) and noise.planar: true.")
     if (ic_is_authoritative and resolved_ic and
             GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d")):
-        if resolved_ic["kind"] in ("channel_spectral_velocity", "duct_spectral_velocity"):
+        if resolved_ic["kind"] == "spectral_velocity" and resolved_ic["params"]["wall_axes"]:
             if (case_cfg.get("models", {}).get("physics", {}).get("fsi", {}) or {}).get("immersed", False):
                 errors.append(f"  {case_path}: wall spectral ICs do not support immersed geometry.")
         dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
@@ -14334,16 +14331,13 @@ def ic_payload_divisor(resolved_ic: dict, case_dir: str) -> float:
     return reference_scale(dimension, resolved_ic["scales"]) / reference_scale(dimension, source_scales)
 
 GENERATED_IC_PROVIDERS = {
-    "channel_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
-    "duct_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
     "stability_mode_velocity": {"requires_grid": True},
     "ic_gen": {
         "requires_grid": True,
         "diagnostic_artifacts": (),
     },
-    "spectral_random_velocity": {
+    "spectral_velocity": {
         "requires_grid": True,
-        "requires_periodic_geometric": True,
         "requires_fresh_3d": True,
         "diagnostic_artifacts": (
             ("summary_json", os.path.join(CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")),
@@ -14351,7 +14345,17 @@ GENERATED_IC_PROVIDERS = {
         ),
     },
 }
-GENERATED_IC_PROVIDERS["resampled_velocity"] = GENERATED_IC_PROVIDERS["spectral_random_velocity"]
+GENERATED_IC_PROVIDERS["resampled_velocity"] = GENERATED_IC_PROVIDERS["spectral_velocity"]
+
+
+def ic_has_shell_spectrum(resolved_ic: dict) -> bool:
+    """!
+    @brief Whether a provider's field is triply periodic, so its initial spectrum is shell-averaged.
+    @param[in] resolved_ic Normalized file-backed IC provider.
+    @return True for `resampled_velocity` and a `spectral_velocity` with no walls.
+    """
+    kind = resolved_ic.get("kind")
+    return kind == "resampled_velocity" or (kind == "spectral_velocity" and not resolved_ic["params"]["wall_axes"])
 
 
 def is_generated_ic_provider(resolved_ic: dict) -> bool:
@@ -14404,10 +14408,23 @@ def load_generator_module(script_name: str, module_name: str):
 
 def load_ic_generator_module():
     """!
-    @brief Load `generators/ic.gen`, which owns the expression language and the IC providers.
+    @brief Load `generators/ic.gen`, which owns the IC providers.
     @return Loaded module.
     """
     return load_generator_module("ic.gen", "picurv_ic_generator")
+
+
+def load_source_expressions():
+    """!
+    @brief Load `source_expressions`, the expression language's Python side, from beside this file.
+    @details A plain module rather than a package import, so this file works when it is loaded on
+             its own, as the tests do, and the generators load it the same way.
+    @return The module.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    return importlib.import_module("source_expressions")
 
 
 #: Variables a prescribed velocity source may use, in physical units; the runtime's list is
@@ -14427,14 +14444,14 @@ _SOURCE_CONSTRAINTS = ("scale", "bulk_velocity", "flow_rate")
 EXPRESSION_DRAW = re.compile(r"\b(uniform|normal)\s*\(")
 
 
-def _source_text(value, constants: dict, names, where: str, ic_gen, random: bool = False) -> str:
+def _source_text(value, constants: dict, names, where: str, language, random: bool = False) -> str:
     """!
     @brief One configured value as validated expression text, with constants inlined.
     @param[in] value Number, expression string, or a mapping of `background` and `regions`.
     @param[in] constants Named numbers of the source.
     @param[in] names Variables the expression may use.
     @param[in] where Configuration path of the value.
-    @param[in] ic_gen Loaded `generators/ic.gen`, which owns the expression language.
+    @param[in] language The loaded `source_expressions` module.
     @param[in] random Whether the target can draw random numbers.
     @return Expression text.
     """
@@ -14442,25 +14459,25 @@ def _source_text(value, constants: dict, names, where: str, ic_gen, random: bool
         unknown = sorted(set(value) - {"background", "regions"})
         if unknown or "regions" not in value:
             raise ValueError(f"{where} as a mapping takes regions and optionally background; got {sorted(value)}.")
-        return ic_gen.lower_value(dict(value, params=constants), names, random=random, where=where)
+        return language.lower_value(dict(value, params=constants), names, random=random, where=where)
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError(f"{where} must be a number, an expression string, or regions over a background.")
-    text = repr(float(value)) if not isinstance(value, str) else ic_gen._substitute_params(value, constants)
-    ic_gen._validate_at(text, names, random, where)
+    text = repr(float(value)) if not isinstance(value, str) else language._substitute_params(value, constants)
+    language._validate_at(text, names, random, where)
     return text
 
 
-def _source_constants(spec: dict, case_cfg: dict, where: str, ic_gen) -> dict:
+def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     """!
     @brief The named numbers a source may use: `rho` and `nu` from the case's fluid, then the
            case's `constants`, then the source's own, each overriding the one before.
     @param[in] spec Source mapping.
     @param[in] case_cfg Case configuration.
     @param[in] where Configuration path of the source.
-    @param[in] ic_gen Loaded `generators/ic.gen`, which owns the expression language.
+    @param[in] language The loaded `source_expressions` module.
     @return Mapping of names to numbers.
     """
-    reserved = set(FACE_SOURCE_EXPRESSION_NAMES) | set(ic_gen.FUNCTION_ARITY) | {"pi"}
+    reserved = set(FACE_SOURCE_EXPRESSION_NAMES) | set(language.FUNCTION_ARITY) | {"pi"}
     merged = {}
     fluid = ((case_cfg.get("properties") or {}).get("fluid")) or {}
     density, viscosity = fluid.get("density"), fluid.get("viscosity")
@@ -14498,7 +14515,7 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
     @return `{"frame", "expressions", "constants", "data"}`; `data` is the normalized profile
             source, or None for expressions.
     """
-    ic_gen = load_ic_generator_module()
+    language = load_source_expressions()
     named = case_cfg.get("sources") or {}
     if not isinstance(named, dict):
         raise ValueError("sources must map names to source definitions.")
@@ -14527,12 +14544,12 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         allowed = [name for name in SOURCE_FRAMES if name != (cells_only if allow_normal else face_only)]
         raise ValueError(f"{where}.components is '{spec.get('components')}'; expected one of {allowed}.")
     names = FACE_SOURCE_EXPRESSION_NAMES if allow_normal else SOURCE_EXPRESSION_NAMES
-    constants = _source_constants(spec, case_cfg, where, ic_gen)
+    constants = _source_constants(spec, case_cfg, where, language)
     expression = spec["expression"]
     if frame == "normal":
         if isinstance(expression, dict) and "regions" not in expression:
             raise ValueError(f"{where}.expression takes one value in the normal frame.")
-        texts = [_source_text(expression, constants, names, f"{where}.expression", ic_gen, random=True)]
+        texts = [_source_text(expression, constants, names, f"{where}.expression", language, random=True)]
     else:
         components = SOURCE_FRAMES[frame]
         if not isinstance(expression, dict):
@@ -14541,10 +14558,10 @@ def resolve_velocity_source(spec, case_cfg: dict, where: str, allow_normal: bool
         if extra:
             raise ValueError(f"{where}.expression: {extra} are not {frame} components {list(components)}.")
         texts = [_source_text(expression.get(name, 0), constants, names,
-                              f"{where}.expression.{name}", ic_gen, random=True) for name in components]
+                              f"{where}.expression.{name}", language, random=True) for name in components]
     pressure = None
     if "pressure" in spec:
-        pressure = _source_text(spec["pressure"], constants, names, f"{where}.pressure", ic_gen, random=True)
+        pressure = _source_text(spec["pressure"], constants, names, f"{where}.pressure", language, random=True)
     return {"frame": frame, "expressions": texts, "constants": dict(constants), "data": None, "pressure": pressure}
 
 
@@ -14617,7 +14634,7 @@ def apply_source_constraints(source: dict, constraints, where: str, allowed: set
     for target in ("bulk_velocity", "flow_rate"):
         if target in constraints:
             resolved[target] = _source_text(constraints[target], source["constants"], {"t"},
-                                            f"{where}.{target}", load_ic_generator_module())
+                                            f"{where}.{target}", load_source_expressions())
     return resolved
 
 
@@ -14643,7 +14660,7 @@ def verification_field_text(field, name: str) -> str:
     if not isinstance(constants, dict):
         raise ValueError(f"{where}.constants must map names to numbers.")
     return _source_text(field["expression"], constants, ("x", "y", "z", "t"), f"{where}.expression",
-                        load_ic_generator_module())
+                        load_source_expressions())
 
 
 def expression_control_value(text: str, where: str) -> str:
@@ -14703,7 +14720,7 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     @return Expression text.
     @throws ValueError on an invalid or retired form.
     """
-    ic_gen = load_ic_generator_module()
+    language = load_source_expressions()
     named = case_cfg.get("sources") or {}
     if isinstance(spec, str):
         if spec not in (named if isinstance(named, dict) else {}):
@@ -14725,9 +14742,9 @@ def resolve_particle_source(spec, case_cfg: dict, where: str) -> str:
     unknown = sorted(set(spec) - {"expression", "constants"})
     if unknown or "expression" not in spec:
         raise ValueError(f"{where}: a particle source takes expression and optionally constants; got {sorted(spec)}.")
-    constants = _source_constants(spec, case_cfg, where, ic_gen)
-    return _source_text(spec["expression"], constants, ic_gen.PARTICLE_EXPRESSION_NAMES,
-                        f"{where}.expression", ic_gen, random=True)
+    constants = _source_constants(spec, case_cfg, where, language)
+    return _source_text(spec["expression"], constants, language.PARTICLE_EXPRESSION_NAMES,
+                        f"{where}.expression", language, random=True)
 
 
 def normalize_particle_fields(fields_cfg, case_cfg: dict, where: str = "models.physics.particles.fields") -> list:
@@ -14787,12 +14804,12 @@ def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
                          "the entering fluid carries; the solver converts it with the grid's cells and volume.")
     if not isinstance(spec, dict) or "particles_per_cell" not in spec or set(spec) - {"particles_per_cell", "fields"}:
         raise ValueError(f"{where} takes particles_per_cell and optionally fields.")
-    ic_gen = load_ic_generator_module()
+    language = load_source_expressions()
     per_cell = spec["particles_per_cell"]
     if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool) and per_cell <= 0:
         raise ValueError(f"{where}.particles_per_cell must be positive (got {per_cell}).")
-    text = _source_text(per_cell, _source_constants({}, case_cfg, where, ic_gen), ("t",),
-                        f"{where}.particles_per_cell", ic_gen)
+    text = _source_text(per_cell, _source_constants({}, case_cfg, where, language), ("t",),
+                        f"{where}.particles_per_cell", language)
     fields = normalize_particle_fields(spec["fields"], case_cfg, f"{where}.fields") if spec.get("fields") else []
     return {"particles_per_cell": text, "fields": fields}
 
@@ -15240,32 +15257,39 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
             "scales": dict(scales),
         }
 
-    if generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
-        normalized = load_ic_generator_module().validate_wall_spectral_params(params, generator)
+    if generator in RETIRED_SPECTRAL_IC_PROVIDERS:
+        raise ValueError(f"initial_conditions generator '{generator}' is retired: use generator: spectral_velocity "
+                         f"with params.wall_axes: {RETIRED_SPECTRAL_IC_PROVIDERS[generator]}.")
+    if generator == "spectral_velocity":
+        normalized = load_ic_generator_module().validate_spectral_velocity_params(params)
         if not prepared_blocks or len(prepared_blocks) != 1:
-            raise ValueError("wall spectral IC requires exactly one block with resolved boundaries.")
-        face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
+            raise ValueError("spectral_velocity requires exactly one block with resolved boundaries.")
         faces = prepared_blocks[0]
         if len(faces) != 6:
-            raise ValueError("wall spectral IC requires all six boundary faces.")
-        for bc in faces:
-            axis = face_axes[bc["face"][1:]]
-            if axis in normalized["wall_axes"]:
-                # The perturbation vanishes at the wall, which every wall handler admits.
-                valid = bc["type"] == "WALL" and "WALL" in BC_HANDLER_SPECS.get(bc["handler"], {}).get("types", ())
-            elif axis == normalized["streamwise_axis"] and bc["type"] != "PERIODIC":
-                # Modes periodic along the flow; the boundary pass and a projection repair the ends.
-                valid = bc["type"] == ("INLET" if bc["face"][0] == "-" else "OUTLET")
-            else:
-                valid = bc["type"] == "PERIODIC" and bc["handler"] in ("geometric", "constant_flux", "initial_flux")
-                if axis != normalized["streamwise_axis"]:
-                    valid = valid and bc["handler"] == "geometric"
-            if not valid:
-                raise ValueError("wall spectral IC requires wall pairs (no-slip or free-slip), periodic remaining "
-                                 "axes driven only streamwise, or an inlet on the streamwise axis's negative face "
-                                 "and an outlet on its positive face.")
-        normalized["initial_spectra"] = normalize_ic_initial_spectra(
-            normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
+            raise ValueError("spectral_velocity requires all six boundary faces.")
+        if normalized["wall_axes"]:
+            face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
+            for bc in faces:
+                axis = face_axes[bc["face"][1:]]
+                if axis in normalized["wall_axes"]:
+                    # The perturbation vanishes at the wall, which every wall handler admits.
+                    valid = bc["type"] == "WALL" and "WALL" in BC_HANDLER_SPECS.get(bc["handler"], {}).get("types", ())
+                elif axis == normalized["streamwise_axis"] and bc["type"] != "PERIODIC":
+                    # Modes periodic along the flow; the boundary pass and a projection repair the ends.
+                    valid = bc["type"] == ("INLET" if bc["face"][0] == "-" else "OUTLET")
+                else:
+                    valid = bc["type"] == "PERIODIC" and bc["handler"] in ("geometric", "constant_flux", "initial_flux")
+                    if axis != normalized["streamwise_axis"]:
+                        valid = valid and bc["handler"] == "geometric"
+                if not valid:
+                    raise ValueError("spectral_velocity with wall_axes requires wall pairs (no-slip or free-slip), "
+                                     "periodic remaining axes driven only streamwise, or an inlet on the streamwise "
+                                     "axis's negative face and an outlet on its positive face.")
+            normalized["initial_spectra"] = normalize_ic_initial_spectra(
+                normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
+        elif any(bc.get("type") != "PERIODIC" or bc.get("handler") != "geometric" for bc in faces):
+            raise ValueError("spectral_velocity without wall_axes requires PERIODIC/geometric boundaries on all "
+                             "six faces; give wall_axes for a channel or duct.")
         return {"kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
                 "params": ic_provider_params_to_solver_units(generator, normalized, scales),
@@ -15297,91 +15321,6 @@ def _resolve_initial_generator(generator, params, prepared_blocks, scales: dict,
 
     if generator == "resampled_velocity":
         return resolve_resampled_velocity_params(params, prepared_blocks, scales, provider_context)
-
-    if generator == "spectral_random_velocity":
-        if prepared_blocks and len(prepared_blocks) != 1:
-            raise ValueError("spectral_random_velocity requires exactly one grid block.")
-        if not prepared_blocks or len(prepared_blocks[0]) != 6 or any(
-            bc.get("type") != "PERIODIC" or bc.get("handler") != "geometric"
-            for bc in prepared_blocks[0]
-        ):
-            raise ValueError("spectral_random_velocity requires PERIODIC/geometric boundaries on all six faces.")
-        unknown = sorted(set(params) - SPECTRAL_RANDOM_VELOCITY_PARAMS)
-        if unknown:
-            raise ValueError(f"spectral_random_velocity has unsupported params: {unknown}.")
-        field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucat"))
-        if field_code != 0:
-            raise ValueError("spectral_random_velocity supports only params.field: Ucat.")
-        seed = params.get("seed", 12345)
-        if isinstance(seed, bool) or not isinstance(seed, int):
-            raise ValueError("spectral_random_velocity params.seed must be an integer.")
-        random_cfg = params.get("random", {})
-        if not isinstance(random_cfg, dict) or set(random_cfg) - {"distribution", "mean"}:
-            raise ValueError("spectral_random_velocity params.random supports only distribution and mean.")
-        distribution = str(random_cfg.get("distribution", "gaussian")).lower()
-        if distribution != "gaussian":
-            raise ValueError("spectral_random_velocity supports only random.distribution: gaussian.")
-        mean = random_cfg.get("mean", [0.0, 0.0, 0.0])
-        if not isinstance(mean, list) or len(mean) != 3:
-            raise ValueError("spectral_random_velocity random.mean must be a three-component list.")
-        mean = [_to_finite_float(value, f"initial_conditions.params.random.mean[{index}]")
-                for index, value in enumerate(mean)]
-        spectrum = params.get("spectrum", {})
-        if not isinstance(spectrum, dict):
-            raise ValueError("spectral_random_velocity params.spectrum must be a mapping.")
-        spectrum_type = str(spectrum.get("type", "white")).lower()
-        if spectrum_type == "white":
-            if set(spectrum) - {"type"}:
-                raise ValueError("white spectrum supports only type.")
-            normalized_spectrum = {"type": "white"}
-        elif spectrum_type == "k4_exponential":
-            if set(spectrum) - {"type", "k0", "k_cut"} or "k0" not in spectrum or "k_cut" not in spectrum:
-                raise ValueError("k4_exponential spectrum requires only type, k0, and k_cut.")
-            normalized_spectrum = {"type": "k4_exponential",
-                                   "k0": _to_finite_float(spectrum["k0"], "initial_conditions.params.spectrum.k0"),
-                                   "k_cut": _to_finite_float(spectrum["k_cut"], "initial_conditions.params.spectrum.k_cut")}
-        else:
-            raise ValueError("spectrum.type must be 'white' or 'k4_exponential'.")
-        if any(value <= 0 for key, value in normalized_spectrum.items() if key != "type"):
-            raise ValueError("spectrum k0 and k_cut values must be positive.")
-        projection = params.get("projection", {"type": "none"})
-        if not isinstance(projection, dict) or set(projection) - {"type", "operator"}:
-            raise ValueError("projection supports only type and operator.")
-        projection_type = str(projection.get("type", "none")).lower()
-        if projection_type == "none" and "operator" not in projection:
-            normalized_projection = {"type": "none"}
-        elif projection_type == "solenoidal" and str(projection.get("operator", "")).lower() in PROJECTION_OPERATORS:
-            normalized_projection = {"type": "solenoidal", "operator": str(projection["operator"]).lower()}
-        else:
-            raise ValueError("projection must be none, or solenoidal with continuum/picurv_discrete operator.")
-        normalization = params.get("normalization", {"type": "none"})
-        if not isinstance(normalization, dict) or set(normalization) - {"type", "target"}:
-            raise ValueError("normalization supports only type and target.")
-        normalization_type = str(normalization.get("type", "none")).lower()
-        if normalization_type == "none" and "target" not in normalization:
-            normalized_normalization = {"type": "none"}
-        elif normalization_type == "component_rms" and "target" in normalization:
-            target = _to_finite_float(normalization["target"], "initial_conditions.params.normalization.target")
-            if target <= 0:
-                raise ValueError("component_rms normalization.target must be positive.")
-            normalized_normalization = {"type": "component_rms", "target": target}
-        else:
-            raise ValueError("normalization must be none or component_rms with target.")
-        remove_mean = params.get("remove_mean", True)
-        if not isinstance(remove_mean, bool):
-            raise ValueError("spectral_random_velocity remove_mean must be boolean.")
-        context = dict(provider_context or {})
-        return {
-            "kind": "spectral_random_velocity", "label": "spectral_random_velocity",
-            "field_name": field_name, "field_code": field_code, "provider_context": context,
-            "params": ic_provider_params_to_solver_units(
-                "spectral_random_velocity",
-                {"field": "Ucat", "seed": seed,
-                 "random": {"distribution": distribution, "mean": mean},
-                 "spectrum": normalized_spectrum, "projection": normalized_projection,
-                 "normalization": normalized_normalization, "remove_mean": remove_mean},
-                scales),
-        }
 
     raise ValueError(f"initial_conditions generator '{generator}' is not one of: "
                      f"{sorted(_PYTHON_INITIAL_CONDITION_PROVIDERS)}.")
@@ -15653,7 +15592,7 @@ def initial_condition_diagnostic_paths(run_dir, resolved_ic):
     if resolved_ic["kind"] not in SPECTRAL_IC_PROVIDERS:
         return []
     paths = [os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")]
-    if resolved_ic["kind"] in SHELL_SPECTRUM_IC_PROVIDERS:
+    if ic_has_shell_spectrum(resolved_ic):
         return paths + [os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)]
     for task in resolved_ic["params"].get("initial_spectra", []):
         base = post_spectra_task_basename(task, "initial_condition")
@@ -15742,7 +15681,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
             details = (result.stderr or result.stdout or "").strip()
             raise ValueError(f"{resolved_ic['kind']} failed with exit code {result.returncode}. Details:\n{details}")
         validate_petsc_vec_binary(output_path)
-        if resolved_ic["kind"] in SHELL_SPECTRUM_IC_PROVIDERS:
+        if ic_has_shell_spectrum(resolved_ic):
             try:
                 run_initial_spectrum_generator(measured_field, staged_grid, spectrum_path, case_dir)
             finally:

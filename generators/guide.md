@@ -13,18 +13,17 @@ configuration.
   units, and refuses meshes the runtime cannot use: multigrid-illegal node counts,
   a periodic seam joining unequal cells, and rotating a periodic grid.
 - `profile.gen`: dimensional PICSLICE generation and field slicing.
-- `ic.gen`: expression-driven and configurable spectral-random PETSc
-  initial-condition vector generation. Select the latter with
-  `generator: spectral_random_velocity`. Channel and duct providers use discrete-curl
-  wall-compatible perturbations in the same script. `generator: resampled_velocity`
+- `ic.gen`: the initial-condition generators. `generator: spectral_velocity` writes a
+  spectral random field in a periodic box, or with `wall_axes` a discrete-curl
+  wall-compatible perturbation for a channel or duct; `generator: stability_mode_velocity`
+  seeds a linear-stability mode. `generator: resampled_velocity`
   imports an external periodic field onto the grid.
-- `periodic_spectral.py`: not a command - the Fourier machinery for uniform periodic
-  axes that `ic.gen` and `spectra.gen` share (grid validation, continuum and
-  PICurv-discrete symbols, resampling and filtering). Both scripts import it from
-  beside themselves.
-- `petsc_binary.py`: not a command - the PETSc binary Vec reader `profile.gen` and
-  `spectra.gen` share, at the PetscInt width their `--petsc-index-bytes` names. `ic.gen`
-  keeps its own writer so a copy of it used as a custom generator stays self-contained.
+- Every file here is a runnable `.gen` script. The code they share is in `picurv_cli/`:
+  `periodic_spectral.py` (Fourier machinery for uniform periodic axes),
+  `petsc_binary.py` (the PETSc binary Vec reader, at the PetscInt width
+  `--petsc-index-bytes` names) and `source_expressions.py` (the expression language).
+  Each script puts that directory on `sys.path` when it needs one. `ic.gen` keeps its own
+  PETSc writer, so a copy of it used as a custom generator still writes its vector.
 - `plot.gen`: normalized scalar-history, iterative-convergence, and spectrum
   report rendering.
 

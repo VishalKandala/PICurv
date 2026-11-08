@@ -2,7 +2,7 @@
 @file periodic_spectral.py
 @brief Fourier machinery for the uniform periodic axes of PICurv's Cartesian grids.
 @details Shared by `ic.gen`, which synthesizes and resamples initial conditions, and
-         `spectra.gen`, which measures spectra. Both need the same answer to three
+         `spectra.gen`, which measures spectra; both load it from `picurv_cli/`. Both need the same answer to three
          questions: which axes may be transformed, what the continuum and PICurv-discrete
          wavenumbers are, and how a periodic field is moved between resolutions. Arrays are
          in PICurv storage order, `[k, j, i, component]`; lengths and wavenumbers are in

@@ -60,14 +60,13 @@ Profile-generation note:
 Initial-condition note:
 
 - `initial_conditions.source` is an expression source, a generator (`ic_gen`,
-  `spectral_random_velocity`, `resampled_velocity`, `channel_spectral_velocity`,
-  `duct_spectral_velocity`, `stability_mode_velocity`), a file (`type: file`, one PETSc `Ucat`
+  `spectral_velocity`, `resampled_velocity`, `stability_mode_velocity`), a file (`type: file`, one PETSc `Ucat`
   or `Ucont` `.dat` vector), or a `sum` of expressions and at most one of those.
 - `picurv precompute --case ...` also materializes configured Python-provider output,
   always at `<run.inputs>/initial_condition/`; destination keys are refused.
 - `ic_gen` runs your own `params.script`; a `programmatic_c` case materializes `<run.inputs>/grid/grid.run` for it first.
 - the spectral providers need a staged `file` or `grid_gen` grid: a triply periodic box
-  for `spectral_random_velocity`, a Cartesian channel or duct for the wall-bounded pair.
+  for `spectral_velocity` without walls, a Cartesian channel or duct with `wall_axes`.
 - field-sliced prescribed profiles default to `generators/profile.gen`; `source.script`
   optionally selects a compatible override.
 - file-backed initial conditions currently support single-block cases only.

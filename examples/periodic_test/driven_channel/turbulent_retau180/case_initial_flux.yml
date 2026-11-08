@@ -16,7 +16,7 @@
 #
 # COST: this is a campaign case, not a smoke test. See driven_channel.md.
 #
-# SEEDING: channel_spectral_velocity, a finite-amplitude perturbation. Transition
+# SEEDING: spectral_velocity, a finite-amplitude perturbation. Transition
 # from it is still not guaranteed; watch fluctuation energy and Reynolds shear
 # stress. See driven_channel.md section 6.
 # ==============================================================================
@@ -41,13 +41,13 @@ properties:
     source:
       sum:
         - {components: cartesian, expression: {w: "6*eta*(1-eta)"}}
-        - generator: channel_spectral_velocity
+        - generator: spectral_velocity
           params:
             field: Ucat
             seed: 12345
             wall_axes: [j]
             streamwise_axis: k
-            perturbation_rms: 0.1
+            normalization: {type: component_rms, target: 0.1}
             wall_modes: 3
             spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
             initial_spectra:

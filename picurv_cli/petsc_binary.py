@@ -2,8 +2,8 @@
 @file petsc_binary.py
 @brief Reader for the PETSc binary Vec files PICurv checkpoints hold, shared by the generators.
 
-Not a command. `profile.gen` and `spectra.gen` import it from beside themselves, as
-`spectra.gen` and `ic.gen` import `periodic_spectral.py`.
+Not a command. `profile.gen` and `spectra.gen` import it from `picurv_cli/`, as they and
+`ic.gen` import `periodic_spectral.py`.
 """
 
 import os

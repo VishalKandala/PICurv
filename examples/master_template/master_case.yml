@@ -100,17 +100,16 @@ properties:
     # source:
     #   sum:
     #     - duct_flow                              # a source named under top-level `sources:`
-    #     - generator: duct_spectral_velocity      # fluctuations only
+    #     - generator: spectral_velocity          # fluctuations only; wall_axes [i, j] is a duct
     #       params: {seed: 12345, wall_axes: [i, j], streamwise_axis: k,
-    #                perturbation_rms: 0.1, initial_spectra: [...]}
+    #                normalization: {type: component_rms, target: 0.1}, initial_spectra: [...]}
     # constraints: {bulk_velocity: 1.0}             # [m/s] rescales the sources, not the generator
     #
     # A generator alone, staged as it writes it; project defaults to false. The blocks below
     # show each one.
     #
     # Generators run in picurv before the solve (single block, staged grid):
-    #   ic_gen | spectral_random_velocity | resampled_velocity | channel_spectral_velocity
-    #   | duct_spectral_velocity | stability_mode_velocity
+    #   ic_gen | spectral_velocity | resampled_velocity | stability_mode_velocity
     # They need a grid picurv can read before launch: `file` or `grid_gen`, or
     # `programmatic_c` for ic_gen only. Their payload is always written to
     # <run.inputs>/initial_condition/; destination keys (output_file, summary_json,
@@ -138,11 +137,11 @@ properties:
     #     config_file: config/initial_conditions/custom.cfg
     #     cli_args: []                # Optional raw tokens appended to the generator call
 
-    # --- Spectral random velocity: triply periodic box, all faces PERIODIC/geometric. ---
+    # --- Spectral velocity, periodic box: no wall_axes, all faces PERIODIC/geometric. ---
     # Seeded Gaussian field shaped by a spectrum, optionally projected solenoidal and
     # rescaled. The decaying_isotropic_turbulence example uses this block.
     # source:
-    #   generator: spectral_random_velocity
+    #   generator: spectral_velocity
     #   params:
     #     field: Ucat
     #     seed: 12345
@@ -179,20 +178,20 @@ properties:
     #     field: Ucont                 # Ucont (default, staged fluxes) | Ucat
     #     remove_mean: true
 
-    # --- Wall-bounded spectral seed: channel (one wall pair) or duct (two). ---
+    # --- Spectral velocity with walls: a channel (one wall_axes pair) or a duct (two). ---
     # A divergence-free perturbation (discrete curl of a seeded vector potential with a
-    # wall envelope) on a flux-normalized mean. Requires a single Cartesian block with
+    # wall envelope), fluctuations only; add a mean with a sum. Requires a single Cartesian block with
     # uniform periodic axes: WALL pairs (noslip or free_slip) on wall_axes, PERIODIC elsewhere, and
     # only the streamwise pair driven (constant_flux or initial_flux). Velocities are
     # in physical units [m/s]. The turbulent_channel example uses this block.
     # source:
-    #   generator: channel_spectral_velocity   # or duct_spectral_velocity
+    #   generator: spectral_velocity
     #   params:
     #     field: Ucat
     #     seed: 12345
-    #     wall_axes: [j]              # channel default [j]; duct default [i, j]
+    #     wall_axes: [j]              # [j] a channel, [i, j] a duct; omitted, a periodic box
     #     streamwise_axis: k          # Must be periodic
-    #     perturbation_rms: 0.1       # [m/s]
+    #     normalization: { type: component_rms, target: 0.1 }   # [m/s]; the default, and the only type with walls
     #     wall_modes: 3               # Wall-normal modes; wall_modes + 1 <= cells/2 per wall axis
     #     spectrum: { type: k4_exponential, k0: 4.0, k_cut: 8.0 }   # wavenumbers in [1/m]
     #     initial_spectra:            # Optional plane/line spectra of the seed, periodic axes only
