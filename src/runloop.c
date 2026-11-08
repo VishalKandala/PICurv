@@ -615,7 +615,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     const PetscReal dt = simCtx->dt;
     
     // Variables for particle removal statistics
-    //PetscInt removed_local_ob, removed_global_ob;
     PetscInt removed_local_lost, removed_global_lost;
     PetscReal removed_scalar_lost = 0.0;
     PetscBool terminated_early = PETSC_FALSE;
@@ -754,7 +753,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost,
                                                &removed_scalar_lost, &simCtx->particlesExitedLastStep,
                                                &simCtx->particlesExitedScalarLastStep); CHKERRQ(ierr);
-            //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
             simCtx->particlesLostLastStep = removed_global_lost;
             simCtx->particlesLostScalarLastStep = removed_scalar_lost;
             simCtx->particlesLostCumulative += removed_global_lost;

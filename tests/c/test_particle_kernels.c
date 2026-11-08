@@ -145,11 +145,12 @@ static PetscErrorCode TestReflectParticleAcrossCellFace(void)
  */
 static PetscErrorCode TestPlaceParticleInsideCell(void)
 {
-    Cell      cell;
-    Cmpnts    p;
-    PetscBool placed = PETSC_FALSE;
-    PetscReal d[NUM_FACES];
-    PetscInt  position = -1;
+    Cell           cell;
+    CellFacePlanes planes;
+    Cmpnts         p;
+    PetscBool      placed = PETSC_FALSE;
+    PetscReal      d[NUM_FACES];
+    PetscInt       position = -1;
 
     PetscFunctionBeginUser;
     BuildShearedUnitCell(0.0, &cell);
@@ -157,7 +158,9 @@ static PetscErrorCode TestPlaceParticleInsideCell(void)
     PetscCall(PlaceParticleInsideCell(&cell, &p, &placed));
     PetscCall(PicurvAssertBool(placed, "a point outside one face of a box cell can be placed"));
     PetscCall(PicurvAssertBool((PetscBool)(p.x > 0.0 && p.x < 1.0e-5), "placed just inside the crossed face"));
-    PetscCall(EvaluateParticlePosition(&cell, d, p, &position, 1.0e-11));
+    MetricBuildCellFacePlanes(&cell, &planes);
+    PetscCall(GetCellCharacteristicSize(&cell, &planes.size));
+    PetscCall(EvaluateParticlePositionInPlanes(&planes, d, p, &position, 1.0e-11));
     PetscCall(PicurvAssertBool((PetscBool)(position >= 0), "the placed point evaluates inside the cell"));
     PetscFunctionReturn(0);
 }

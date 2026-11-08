@@ -34,52 +34,6 @@
  PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize);
 
 /**
- * @brief Computes the signed distance from a point to the plane approximating a quadrilateral face.
- *
- * This function calculates the signed distance from a given point `p_target` to the plane
- * approximating a quadrilateral face defined by points `v1`, `v2`, `v3`, and `v4`.
- * The plane's initial normal is determined using two edge vectors emanating from `v1`
- * (i.e., `v2-v1` and `v4-v1`).
- *
- * **Normal Orientation:**
- * The initial normal's orientation is checked against the cell's interior.
- * A vector from the face centroid to the cell centroid (`vec_face_to_cell_centroid`) is computed.
- * If the dot product of the initial normal and `vec_face_to_cell_centroid` is positive,
- * it means the initial normal is pointing towards the cell's interior (it's an inward normal
- * relative to the cell). In this case, the normal is flipped to ensure it points outward.
- *
- * **Signed Distance Convention:**
- * The signed distance is the projection of the vector from `p_target` to the face's centroid
- * onto the (now guaranteed) outward-pointing plane's normal vector.
- *   - `d_signed < 0`: `p_target` is "outside" and "beyond" the face, in the direction of the outward normal.
- *                     This is the primary case indicating the particle has crossed this face.
- *   - `d_signed > 0`: `p_target` is "outside" but "behind" the face (on the same side as the cell interior
- *                     relative to this face plane).
- *   - `d_signed = 0`: `p_target` is on the face plane (within threshold).
- *
- * @param[in]  v1            First vertex defining the face (used as origin for initial normal calculation).
- * @param[in]  v2            Second vertex defining the face (used for first edge vector: v2-v1).
- * @param[in]  v3            Third vertex defining the face (used for face centroid calculation).
- * @param[in]  v4            Fourth vertex defining the face (used for second edge vector: v4-v1).
- * @param[in]  cell_centroid The centroid of the 8-vertex cell to which this face belongs.
- * @param[in]  p_target      The point from which the distance to the plane is calculated.
- * @param[out] d_signed      Pointer to store the computed signed distance.
- * @param[in]  threshold     The threshold below which the absolute distance is considered zero.
- * @param[out] normal_out    Optional, may be NULL: receives the unit outward normal of the face plane.
- *
- * @note
- * - The order of vertices `v1, v2, v3, v4` is used for calculating the face centroid.
- *   The order of `v1, v2, v4` is used for the initial normal calculation.
- * - The `cell_centroid` is crucial for robustly determining the outward direction of the normal.
- *
- * @return PetscErrorCode Returns 0 on success, PETSC_ERR_ARG_NULL if `d_signed` is NULL,
- *                        or PETSC_ERR_USER if a degenerate plane (near-zero normal) is detected.
- */
-PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
-                                            const Cmpnts cell_centroid,const Cmpnts p_target,
-					    PetscReal *d_signed, const PetscReal threshold, Cmpnts *normal_out);
-
-/**
  * @brief Computes the signed distances from a point to each face of a cubic cell.
  *
  * This function calculates the signed distances from a specified point `p` to each of the six
@@ -105,8 +59,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
  * @param[in]  threshold Absolute distance below which a distance is zero.
  * @param[out] normals   Optional, may be NULL: each face's unit outward normal, in the order of `d`.
  *
- * @return PetscErrorCode 0 on success, or PETSC_ERR_USER for a degenerate face (checked in
- *         BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT order, as CalculateDistancesToCellFaces() always has).
+ * @return PetscErrorCode 0 on success, or PETSC_ERR_USER for a degenerate face; faces are checked
+ *         in BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT order and the first degenerate one is reported.
  */
 PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFacePlanes *planes, PetscReal *d,
                                                   const PetscReal threshold, Cmpnts *normals);
@@ -128,22 +82,6 @@ PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFace
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
  PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result);
-
-/**
- * @brief Retrieves the coordinates of the eight vertices of a cell based on grid indices.
- *
- * This function populates the `cell` structure with the coordinates of the eight vertices
- * of a hexahedral cell given its grid indices `(idx, idy, idz)`.
- *
- * @param[in]  coor   Pointer to a 3D array of `Cmpnts` structures representing the grid coordinates.
- * @param[in]  idx    The i-index of the cell.
- * @param[in]  idy    The j-index of the cell.
- * @param[in]  idz    The k-index of the cell.
- * @param[out] cell   Pointer to a `Cell` structure to store the cell's vertices.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt idy, PetscInt idz, Cell *cell);
 
 /**
  * @brief Initializes traversal parameters for locating a particle.
@@ -178,6 +116,10 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
 /**
  * @brief Retrieves the coordinates of the eight vertices of the current cell.
  *
+ * Vertices 0 to 7 are the nodes (i,j,k), (i+1,j,k), (i+1,j+1,k), (i,j+1,k), (i,j+1,k+1),
+ * (i+1,j+1,k+1), (i+1,j,k+1) and (i,j,k+1) of cell (i,j,k) = (`idx`,`idy`,`idz`), the order
+ * MetricBuildCellFacePlanes() reads.
+ *
  * @param[in]  user  Pointer to the user-defined context containing grid information.
  * @param[in]  idx   The i-index of the current cell.
  * @param[in]  idy   The j-index of the current cell.
@@ -189,56 +131,12 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
 PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, PetscInt idz, Cell *cell);
 
 /**
- * @brief Determines the spatial relationship of a particle relative to a cubic cell.
+ * @brief Classifies a point against a cell's precomputed face planes.
  *
- * This function evaluates whether a particle located at a specific point `p` in 3D space
- * is positioned inside the cell, on the boundary of the cell, or outside the cell. The
- * determination is based on the signed distances from the particle to each of the six
- * faces of the cell. The function utilizes the computed distances to ascertain the particle's
- * position with respect to the cell boundaries, considering a threshold to account for
- * floating-point precision.
+ * Computes the signed distances to the six face planes, zeroing those below
+ * `threshold * planes->size`, then classifies them with DeterminePointPosition().
  *
- * @param[in]  cell      A pointer to a `Cell` structure that defines the cubic cell via its
- *                       vertices. The cell's geometry is essential for accurately computing
- *                       the distances to each face.
- * @param[in]  d         A pointer to an array of six `PetscReal` values that store the
- *                       signed distances from the particle to each face of the cell. These
- *                       distances are typically computed using the `CalculateDistancesToCellFaces`
- *                       function.
- * @param[in]  p         The location of the particle in 3D space, represented by the `Cmpnts`
- *                       structure. This point is the reference for distance calculations to the
- *                       cell's faces.
- * @param[out] position  A pointer to an integer that will be set based on the particle's position
- *                       relative to the cell:
- *                       - `0`: The particle is inside the cell.
- *                       - `1`: The particle is on the boundary of the cell.
- *                       - `-1`: The particle is outside the cell.
- * @param[in]  threshold A `PetscReal` value that defines the minimum distance below which a
- *                       computed distance is considered to be zero. This threshold helps in
- *                       mitigating inaccuracies due to floating-point arithmetic, especially
- *                       when determining if the particle lies exactly on the boundary.
- *
- * @return PetscErrorCode Returns `0` if the function executes successfully. If an error occurs,
- *                        a non-zero error code is returned, indicating the type of failure.
- *
- * @note
- * - It is assumed that the `d` array has been properly allocated and contains valid distance
- *   measurements before calling this function.
- * - The function relies on `CalculateDistancesToCellFaces` to accurately compute the signed
- *   distances to each face. Any inaccuracies in distance calculations can affect the
- *   determination of the particle's position.
- * - The `threshold` parameter should be chosen based on the specific precision requirements
- *   of the application to balance between sensitivity and robustness against floating-point
- *   errors.
- * - The function includes a debug statement that prints the face distances, which can be useful
- *   for verifying the correctness of distance computations during development or troubleshooting.
- */
- PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold);
-
-/**
- * @brief EvaluateParticlePosition() against precomputed face planes and cell size.
- *
- * @param[in]  planes    Face planes with `size` set, e.g. a record of `user->lCellPlanes`.
+ * @param[in]  planes    Face planes with `size` set, e.g. from MetricGatherCellFacePlanes().
  * @param[out] d         Six signed face distances, thresholded at `threshold * planes->size`.
  * @param[in]  p         The particle position.
  * @param[out] position  0 inside, 1 to 3 on a face, edge or corner, -1 outside.
@@ -248,25 +146,6 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
  */
 PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, PetscReal *d, const Cmpnts p,
                                                 PetscInt *position, const PetscReal threshold);
-
-
-/**
- * @brief Finalizes the traversal by reporting the results.
- *
- * This function prints the outcome of the traversal, indicating whether the particle
- * was found within a cell or not, and updates the particle's cell indices accordingly.
- *
- * @param[in]  user           Pointer to the user-defined context containing grid information.
- * @param[out] particle       Pointer to the Particle structure to update with cell indices.
- * @param[in]  traversal_steps The number of traversal steps taken.
- * @param[in]  cell_found      Flag indicating whether the particle was found within a cell.
- * @param[in]  idx             The i-index of the found cell.
- * @param[in]  idy             The j-index of the found cell.
- * @param[in]  idz             The k-index of the found cell.
- *
- * @return PetscErrorCode     Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz);
 
 
 /**
@@ -369,24 +248,6 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                         const struct FacePlaneArrays *planes,
                                                         Particle *particle,
                                                         ParticleLocationStatus *status_out);
-
-/**
- * @brief Reports the outcome of one particle's location search: its consolidated `locate` line.
- *
- * Emitted through LOG_PARTICLE(), so it prints for a traced particle or at VERBOSE with this
- * function allow-listed. Lost and exited particles are counted in `search_metrics.csv`.
- *
- * @param simCtx          Simulation context (traced IDs, step).
- * @param particle        Particle whose location attempt has completed.
- * @param status          Final locate/migration status assigned to the particle.
- * @param start_cell      Cell the walk started from.
- * @param traversal_steps Number of cell-to-cell traversal steps attempted.
- * @param reflections     Number of wall reflections applied during the walk.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode ReportSearchOutcome(const SimCtx *simCtx, const Particle *particle,
-                                   ParticleLocationStatus status, const PetscInt start_cell[3],
-                                   PetscInt traversal_steps, PetscInt reflections);
 
 /**
  * @brief Updates the cell indices based on the signed distances to each face.

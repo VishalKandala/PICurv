@@ -16,7 +16,35 @@
 #include <math.h>
 #include "variables.h"       // Common type definitions
 #include "logging.h"      // Logging macros and definitions
-#include "walkingsearch.h"  // Walking search function for particle migration   
+#include "walkingsearch.h"  // Walking search function for particle migration
+#include "expression.h"     // PicurvMix64, PicurvUnitFromHash
+
+/**
+ * @brief Whether a position lies in an axis-aligned bounding box, faces included.
+ *
+ * @param[in] bbox The box.
+ * @param[in] pos  The position.
+ * @return PETSC_TRUE when `pos` is inside `bbox` or on its boundary.
+ */
+static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *pos)
+{
+    return (PetscBool)(pos->x >= bbox->min_coords.x && pos->x <= bbox->max_coords.x &&
+                       pos->y >= bbox->min_coords.y && pos->y <= bbox->max_coords.y &&
+                       pos->z >= bbox->min_coords.z && pos->z <= bbox->max_coords.z);
+}
+
+/**
+ * @brief Four uniforms in [0,1) from one keyed draw hash.
+ * @details Draw `w` mixes the running hash with `w` and maps it with PicurvUnitFromHash(), so
+ *          the four values depend only on the hash.
+ *
+ * @param[in]  hash A hash from PicurvDrawHash().
+ * @param[out] u    The four uniforms.
+ */
+static inline void ParticleUniformsFromHash(uint64_t hash, PetscReal u[4])
+{
+    for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
+}
 
 /**
  * @brief Box-Muller transform of two uniforms on (0,1) into two independent N(0,1) values.
@@ -64,30 +92,6 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle);
  * @return PetscErrorCode Returns 0 on success, or an error code on failure.
  */
  PetscErrorCode UpdateAllParticlePositions(UserCtx *user);
-
-/**
- * @brief Checks for particles outside the physical domain boundaries and removes them
- *        using DMSwarmRemovePointAtIndex.
- *
- * This function iterates through all particles local to the current MPI rank.
- * It checks if a particle's position (x, y, or z) is outside the specified
- * physical domain boundaries [xMin, xMax], [yMin, yMax], [zMin, zMax].
- *
- * Particles found out of bounds are flagged in a backward scan and removed together
- * by `RemoveFlaggedParticles`.
- *
- * @param user    Pointer to the UserCtx structure.
- * @param[out] removedCountLocal Pointer to store the number of particles removed *on this rank*.
- * @param[out] removedCountGlobal Pointer to store the total number of particles removed *across all ranks*.
- * @param[in]      bboxlist       An array of BoundingBox structures for ALL MPI ranks, indexed 0 to (size-1).
- *                                This array must be up-to-date and available on all ranks.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
-                                              PetscInt *removedCountLocal,
-					      PetscInt *removedCountGlobal,
-					      const BoundingBox *bboxlist);
 
 /**
  * @brief Removes particles that the location algorithm flagged as LOST or EXITED.

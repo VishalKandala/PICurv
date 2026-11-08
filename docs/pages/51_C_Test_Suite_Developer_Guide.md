@@ -178,7 +178,6 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `scatter-all-particle-fields-to-euler-fields-averages-psi`
   - `calculate-particle-count-per-cell-counts-global-cell-ids`
   - `reset-all-particle-statuses-leaves-lost-particles-untouched`
-  - `check-and-remove-out-of-bounds-particles-removes-escaped-particle`
   - `check-and-remove-lost-particles-removes-lost-entries`
   - `brownian-displacement-keyed-on-seed-particle-step`
   - `brownian-displacement-moments`

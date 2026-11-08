@@ -227,8 +227,7 @@ Compiled code should pass IDs directly:
 
 ```c
 PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
-PetscCall(InterpolateEulerFieldToSwarm(user, FIELD_ID_UCAT,
-                                      PARTICLE_FIELD_ID_VELOCITY));
+PetscCall(ScatterParticleFieldToEulerField(user, PARTICLE_FIELD_ID_PSI, user->Psi));
 ```
 
 Code that genuinely receives text should resolve it once at its ingress:

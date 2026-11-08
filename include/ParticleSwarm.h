@@ -23,31 +23,19 @@
 // --------------------- Function Declarations ---------------------
 
 /**
- * @brief Creates and initializes a Particle Swarm.
+ * @brief Creates the particle swarm, registers its fields and sizes it for this rank's share.
  *
- * This function sets up a DMSwarm within the provided UserCtx structure, initializes
- * particle fields, and distributes particles across MPI processes. It ensures that
- * the number of particles is evenly divided among the available MPI ranks. If the total
- * number of particles isn't divisible by the number of processes, the remainder is distributed
- * to the first few ranks.
+ * Volume and Surface seeding give each rank the particles its owned cells seed (by volume, or
+ * by area on the inlet face, the stratified split of the seeding table); PointSource divides
+ * the count evenly, the first ranks taking one more. Collective.
  *
- * Additionally, it now takes a 'bboxlist' array as an input parameter and passes it on to
- * AssignInitialProperties(), enabling particle initialization at the midpoint of each rank's
- * bounding box if ParticleInitialization is set to 0.
- *
- * @param[in,out] user          Pointer to the UserCtx structure containing the simulation context.
+ * @param[in,out] user          Finest-level context; receives the swarm.
  * @param[in]     numParticles  Total number of particles to create across all MPI processes.
  * @param[out]    particlesPerProcess Number of particles assigned to the local rank.
- * @param[in]     bboxlist      Pointer to an array of BoundingBox structures, one per rank.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note
- * - Ensure that `numParticles` is a positive integer.
- * - The `control.dat` file should contain necessary PETSc options.
- * - The `bboxlist` array should be properly populated before calling this function.
  */
-PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist);
+PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess);
 
 /**
  * @brief Initializes the DMSwarm object within the UserCtx structure.
@@ -89,25 +77,20 @@ PetscErrorCode RegisterParticleFields(DM swarm);
 /**
  * @brief Initializes all particle properties in the swarm.
  *
- * This function orchestrates the initialization of particle properties.
- * It first determines the inlet face if surface initialization (Mode 0) is selected
- * by parsing "bcs.dat".
- * Then, it initializes basic particle properties (physical position, Particle ID,
- * and the seeded cell) by calling `InitializeParticleBasicProperties`. Volumetric and
- * surface seeding stratify the particles over the cells' volume or inlet area and key every
- * placement draw on (seed, particle ID), so the population does not depend on the rank layout.
- * Finally, it calls helper functions to initialize other registered swarm fields
- * like "velocity", "weight", and "P" (pressure) to default values.
+ * Surface seeding requires an INLET face. The basic properties (physical position, particle
+ * ID and the seeded cell) are set by `InitializeParticleBasicProperties`: Volume and Surface
+ * seeding stratify the particles over the cells' volume or inlet area and key every placement
+ * draw on (seed, particle ID), so the population does not depend on the rank layout. Every
+ * field the particle catalog marks for default initialization (velocity, weight, Diffusivity,
+ * DiffusivityGradient and Psi) then takes its catalog default. Collective.
  *
  * @param[in,out] user               Pointer to the `UserCtx` structure.
  * @param[in]     particlesPerProcess Number of particles assigned to this MPI process.
- * @param[in]     bboxlist           Array of BoundingBox structures (potentially unused by IPBP).
  *
  * @return PetscErrorCode            Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
-                                              PetscInt particlesPerProcess,
-                                              BoundingBox *bboxlist);
+                                              PetscInt particlesPerProcess);
 
 /**
  * @brief Distributes particles evenly across MPI processes, handling any remainders.
@@ -183,27 +166,6 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *psi);                
               
 /**
- * @brief Checks if a particle's location is within a specified bounding box.
- *
- * This function determines whether the given particle's location lies inside the provided bounding box.
- * It performs an axis-aligned bounding box (AABB) check by comparing the particle's coordinates to the
- * minimum and maximum coordinates of the bounding box in each dimension (x, y, z).
- *
- * Logging statements are included to provide detailed information about the function's execution.
- *
- * @param[in]  bbox     Pointer to the BoundingBox structure containing minimum and maximum coordinates.
- * @param[in]  particle Pointer to the Particle structure containing the particle's location and identifier.
- *
- * @return PetscBool    Returns `PETSC_TRUE` if the particle is inside the bounding box, `PETSC_FALSE` otherwise.
- *
- * @note
- * - The function assumes that the `bbox` and `particle` pointers are valid and non-NULL.
- * - The function includes logging statements that start with the function name.
- * - Be cautious when logging in performance-critical code sections, especially if the function is called frequently.
- */
-PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle);
-
-/**
  * @brief Updates a particle's interpolation weights based on distances to cell faces.
  *
  * This function computes interpolation weights using distances to the six
@@ -252,11 +214,16 @@ PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx);
  * @details Collective. A face cell receives on average `n (u.A) dt` particles, none where the flow
  *          leaves, so the entering fluid has number density `n` whatever its velocity profile.
  *          Counts, positions and identities come from keyed draws on the grid position, the step
- *          and the particle, so they carry no state and do not depend on the rank layout. Field
- *          values are set on the face, where the particle crossed it, and the particle then moves
- *          in along the normal by a uniform share of `u_n dt`. The new particles are left
- *          `NEEDS_LOCATION` for the settlement that follows. Writes `particle_injection.csv`.
- * @param[in,out] user Finest-level context of the block holding the swarm; reads `lUcont`.
+ *          and the particle, so they carry no state and do not depend on the rank layout. A
+ *          particle is placed just inside the face, by area and inward velocity, and its field
+ *          values are set there, where it crossed. It then moves in by a uniform share of `dt`
+ *          times the velocity the configured interpolation method gives at that point (the face
+ *          cell's mean inward velocity where the cell has none) plus this step's Brownian kick
+ *          from the face cell's diffusivity. The new particles are left `NEEDS_LOCATION` for the
+ *          settlement that follows. Writes `particle_injection.csv`.
+ * @param[in,out] user Finest-level context of the block holding the swarm; reads `lUcont`, `lCoor`,
+ *                     the face-normal metric, `lDiffusivity`, and the interpolated velocity's
+ *                     sources (`lUcat`, or `lUcont` and the metrics for FaceFlux).
  * @return PetscErrorCode 0 on success; an error on a face that is not an INLET, an invalid number
  *         density, or a particle-ID or particle-count limit being reached.
  */

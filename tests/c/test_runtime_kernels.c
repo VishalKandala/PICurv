@@ -107,11 +107,10 @@ static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
 static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
 {
     BoundingBox bbox;
-    Particle particle;
+    Cmpnts      pos;
 
     PetscFunctionBeginUser;
     PetscCall(PetscMemzero(&bbox, sizeof(bbox)));
-    PetscCall(PetscMemzero(&particle, sizeof(particle)));
 
     bbox.min_coords.x = 0.0;
     bbox.min_coords.y = 0.0;
@@ -120,13 +119,16 @@ static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
     bbox.max_coords.y = 2.0;
     bbox.max_coords.z = 3.0;
 
-    particle.loc.x = 0.25;
-    particle.loc.y = 1.0;
-    particle.loc.z = 2.5;
-    PetscCall(PicurvAssertBool(IsParticleInsideBoundingBox(&bbox, &particle), "particle should be inside bounding box"));
+    pos.x = 0.25;
+    pos.y = 1.0;
+    pos.z = 2.5;
+    PetscCall(PicurvAssertBool(IsParticleInBox(&bbox, &pos), "particle should be inside bounding box"));
 
-    particle.loc.x = 1.5;
-    PetscCall(PicurvAssertBool((PetscBool)!IsParticleInsideBoundingBox(&bbox, &particle), "particle should be outside bounding box"));
+    pos.x = 1.0;
+    PetscCall(PicurvAssertBool(IsParticleInBox(&bbox, &pos), "particle on the box face should count as inside"));
+
+    pos.x = 1.5;
+    PetscCall(PicurvAssertBool((PetscBool)!IsParticleInBox(&bbox, &pos), "particle should be outside bounding box"));
     PetscFunctionReturn(0);
 }
 /**
@@ -824,37 +826,6 @@ static PetscErrorCode TestResetAllParticleStatusesLeavesLostParticlesUntouched(v
     PetscCall(PicurvAssertIntEqual(LOST, status[1], "LOST particles should remain LOST"));
     PetscCall(PicurvAssertIntEqual(NEEDS_LOCATION, status[2], "NEEDS_LOCATION particles should remain unchanged"));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
-
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
- * @brief Tests direct removal of particles that leave every rank bounding box.
- */
-
-static PetscErrorCode TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    PetscReal *positions = NULL;
-    PetscInt removed_local = 0;
-    PetscInt removed_global = 0;
-    PetscInt nlocal = 0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
-
-    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
-    positions[0] = 0.5; positions[1] = 0.5; positions[2] = 0.5;
-    positions[3] = 9.0; positions[4] = 9.0; positions[5] = 9.0;
-    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
-
-    PetscCall(CheckAndRemoveOutOfBoundsParticles(user, &removed_local, &removed_global, simCtx->bboxlist));
-    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
-    PetscCall(PicurvAssertIntEqual(1, removed_local, "Exactly one particle should be removed as out-of-bounds on a single rank"));
-    PetscCall(PicurvAssertIntEqual(1, removed_global, "Global out-of-bounds removal count should match the local single-rank result"));
-    PetscCall(PicurvAssertIntEqual(1, nlocal, "One in-bounds particle should remain after out-of-bounds removal"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -1654,12 +1625,22 @@ static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     PetscCall(ComputeAndStoreNeighborRanks(user));
 
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xm, "single-rank xm neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xp, "single-rank xp neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_ym, "single-rank ym neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_yp, "single-rank yp neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zm, "single-rank zm neighbor should be null"));
-    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zp, "single-rank zp neighbor should be null"));
+    /* A non-periodic single-rank grid: no face, edge or corner neighbour, and itself at the centre. */
+    for (PetscInt n = 0; n < 27; ++n) {
+        PetscCall(PicurvAssertIntEqual(n == RANK_NEIGHBOR_INDEX(0, 0, 0) ? 0 : MPI_PROC_NULL, user->neighbors.rank[n],
+                                       "single-rank neighbours should be null except the rank itself"));
+    }
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+
+    /* Periodic in x: the rank is its own neighbour across both x faces, and nothing else exists. */
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 6, 6, 6, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(ComputeAndStoreNeighborRanks(user));
+    for (PetscInt n = 0; n < 27; ++n) {
+        const PetscBool along_x = (PetscBool)(n == RANK_NEIGHBOR_INDEX(-1, 0, 0) || n == RANK_NEIGHBOR_INDEX(0, 0, 0) ||
+                                              n == RANK_NEIGHBOR_INDEX(1, 0, 0));
+        PetscCall(PicurvAssertIntEqual(along_x ? 0 : MPI_PROC_NULL, user->neighbors.rank[n],
+                                       "x-periodic single-rank neighbours should wrap to the rank along x only"));
+    }
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -1756,7 +1737,6 @@ int main(int argc, char **argv)
         {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},
         {"calculate-particle-count-per-cell-counts-global-cell-ids", TestCalculateParticleCountPerCellCountsGlobalCellIDs},
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},
-        {"check-and-remove-out-of-bounds-particles-removes-escaped-particle", TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle},
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
         {"sort-particles-by-cell-keeps-each-point-whole", TestSortParticlesByCellKeepsEachPointWhole},
         {"brownian-displacement-keyed-on-seed-particle-step", TestBrownianDisplacementIsKeyedOnSeedParticleAndStep},

@@ -31,8 +31,8 @@ PetscErrorCode InitializeSwarm(UserCtx* user) {
 
 
 /**
- * @brief Internal helper implementation: `RegisterSwarmField()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref RegisterSwarmField().
+ * @see RegisterSwarmField()
  */
 PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype)
 {
@@ -98,6 +98,29 @@ typedef struct {
     PetscInt    count;     /**< Particles this rank seeds */
 } SeedingCellTable;
 
+/* A seeding point's logical coordinates stay at or below 1 - SEEDING_LOGIC_MARGIN, for
+   MetricLogicalToPhysical(); a point on a face lies SEEDING_FACE_OFFSET of the cell inside it. */
+#define SEEDING_LOGIC_MARGIN 1.0e-7
+#define SEEDING_FACE_OFFSET  1.0e-6
+
+/** @brief Origin node of cell `c` of a seeding table, cells numbered i fastest. */
+static inline void SeedingCellOrigin(const SeedingCellTable *table, PetscInt c, PetscInt origin[3])
+{
+    origin[0] = table->origin[0] + c % table->n[0];
+    origin[1] = table->origin[1] + (c / table->n[0]) % table->n[1];
+    origin[2] = table->origin[2] + c / (table->n[0] * table->n[1]);
+}
+
+/**
+ * @brief Logical seeding coordinates from `u`: each clamped to [0, 1 - SEEDING_LOGIC_MARGIN], and
+ *        for `face` >= 0 the normal one replaced by the point just inside that face.
+ */
+static inline void SeedingLogicalPoint(const PetscReal u[3], PetscInt face, PetscReal logic[3])
+{
+    for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - SEEDING_LOGIC_MARGIN), 0.0);
+    if (face >= 0) logic[face / 2] = (face % 2) ? 1.0 - SEEDING_FACE_OFFSET : SEEDING_FACE_OFFSET;
+}
+
 /**
  * @brief Measure density at a logical point: the Jacobian determinant for the volume, or the
  *        area element |dx/ds x dx/dt| across the face for a face, with the normal coordinate
@@ -124,7 +147,7 @@ static PetscErrorCode SeedingMeasureDensity(UserCtx *user, const Cmpnts ***coor,
         cross.z = J[0][b] * J[1][c] - J[1][b] * J[0][c];
         *density = PetscSqrtReal(cross.x * cross.x + cross.y * cross.y + cross.z * cross.z);
     }
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -201,10 +224,10 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     PetscCall(PetscMalloc2(n_cells, &table->pid_lo, n_cells, &table->pid_hi));
     if (build_bound) PetscCall(PetscMalloc1(n_cells, &table->bound));
     for (PetscInt c = 0; c < n_cells; ++c) {
-        const PetscInt i = table->origin[0] + c % table->n[0];
-        const PetscInt j = table->origin[1] + (c / table->n[0]) % table->n[1];
-        const PetscInt k = table->origin[2] + c / (table->n[0] * table->n[1]);
-        PetscReal      density;
+        PetscInt  origin[3];
+        PetscReal density;
+        SeedingCellOrigin(table, c, origin);
+        const PetscInt i = origin[0], j = origin[1], k = origin[2];
         measure[c] = 0.0;
         for (PetscInt g = 0; g < 8; ++g) {
             const PetscReal l[3] = {gauss[g & 1], gauss[(g >> 1) & 1], gauss[(g >> 2) & 1]};
@@ -236,6 +259,16 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     PetscCheck(global_max > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                face < 0 ? "Volumetric particle seeding found no owned volume on any rank."
                         : "Surface particle seeding found no inlet area on any rank; it needs an INLET face.");
+
+    if (numParticles == 0) {
+        // Nothing to place (an inlet's table): every cell's range is empty. numParticles is the
+        // same on every rank, so all of them skip the reductions below.
+        PetscCall(PetscArrayzero(table->pid_lo, n_cells));
+        PetscCall(PetscArrayzero(table->pid_hi, n_cells));
+        PetscCall(PetscFree2(measure, quanta));
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
 
     // --- 2. Integer measures, summed over rows and over each rank's segment of a row ---
     const PetscInt n_rows = global_cells[1] * global_cells[2];
@@ -285,7 +318,7 @@ static PetscErrorCode FreeSeedingCellTable(SeedingCellTable *table)
     PROFILE_HELPER_BEGIN;
     PetscCall(PetscFree2(table->pid_lo, table->pid_hi));
     PetscCall(PetscFree(table->bound));
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -296,7 +329,7 @@ static PetscErrorCode FreeSeedingCellTable(SeedingCellTable *table)
  *          the inward normal velocity / `flux_bound` when `velocity` is given. Every draw is
  *          keyed on the run seed, the particle ID and the attempt, so the point depends only on
  *          the particle, not on the rank that seeds it. A surface point is put just inside the
- *          cell, 1e-6 of the cell from the face, where its velocity is taken.
+ *          cell, SEEDING_FACE_OFFSET of the cell from the face, where its velocity is taken.
  * @param[in]  user   Grid context.
  * @param[in]  coor   Ghosted node-coordinate array.
  * @param[in]  table  A table built with `build_bound` set.
@@ -322,19 +355,18 @@ static PetscErrorCode DrawSeedingPoint(
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    *ci_metric_lnode_out = table->origin[0] + c % table->n[0];
-    *cj_metric_lnode_out = table->origin[1] + (c / table->n[0]) % table->n[1];
-    *ck_metric_lnode_out = table->origin[2] + c / (table->n[0] * table->n[1]);
+    {
+        PetscInt origin[3];
+        SeedingCellOrigin(table, c, origin);
+        *ci_metric_lnode_out = origin[0]; *cj_metric_lnode_out = origin[1]; *ck_metric_lnode_out = origin[2];
+    }
 
     // Accept uniform logicals with probability density / bound; a cell whose density varies
     // little accepts almost every draw. The cap only guards a degenerate envelope.
     for (PetscInt attempt = 0; attempt < 1000; ++attempt) {
         PetscReal density;
-        uint64_t  hash = PicurvDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt);
-        for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
-        // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
-        for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - 1.0e-7), 0.0);
-        if (table->face >= 0) logic[table->face / 2] = (table->face % 2) ? 1.0 - 1.0e-6 : 1.0e-6;
+        ParticleUniformsFromHash(PicurvDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt), u);
+        SeedingLogicalPoint(u, table->face, logic);
         PetscCall(SeedingMeasureDensity(user, coor, table->face, *ci_metric_lnode_out, *cj_metric_lnode_out,
                                         *ck_metric_lnode_out, logic, &density));
         if (velocity) {
@@ -357,7 +389,7 @@ static PetscErrorCode DrawSeedingPoint(
     }
     *xi_metric_logic_out = logic[0]; *eta_metric_logic_out = logic[1]; *zta_metric_logic_out = logic[2];
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -366,11 +398,9 @@ static PetscErrorCode DrawSeedingPoint(
  * @brief Initialize position-independent particle fields after a particle is created.
  */
 static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
-                                                PetscInt particlesPerProcess,
-                                                BoundingBox *bboxlist) // bboxlist unused for placement
+                                                PetscInt particlesPerProcess)
 {
     PetscErrorCode ierr;
-    (void)bboxlist;
     DM             swarm = user->swarm;
     PetscReal      *positions_field = NULL; // Pointer to swarm field for physical positions (x,y,z)
     PetscInt64     *particleIDs = NULL;     // Pointer to swarm field for Particle IDs
@@ -386,10 +416,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 
     PROFILE_FUNCTION_BEGIN;
 
-    SimCtx *simCtx = user->simCtx;
-
     // --- 1. Input Validation and Basic Setup ---
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user.");
+    SimCtx *simCtx = user->simCtx;
     rank = simCtx->rank;
     size = simCtx->size;
 
@@ -547,146 +576,73 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 }
 
 /**
- * @brief Assign one configured initial value to a swarm field entry.
+ * @brief Set local particles `first` to `end` - 1 of every field the particle catalog marks
+ *        PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE to the field's catalog default.
  */
-static PetscErrorCode InitializeSwarmFieldValue(const ParticleFieldDescriptor *descriptor,
-                                                PetscInt p, PetscReal *fieldData)
+static PetscErrorCode InitializeDefaultParticleFields(DM swarm, PetscInt first, PetscInt end)
 {
     PetscFunctionBeginUser;
-
-    PROFILE_HELPER_BEGIN;
-
-    PetscCheck(descriptor != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Particle field descriptor cannot be NULL during initialization.");
-    PetscCheck(fieldData != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Particle field data cannot be NULL during initialization.");
-    PetscCheck(descriptor->data_type == PETSC_REAL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Default initialization currently supports only PETSC_REAL particle fields; '%s' uses %s.",
-               descriptor->canonical_name, PetscDataTypes[descriptor->data_type]);
-    PetscCheck((descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE) != 0,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Particle field '%s' does not use catalog-default initialization.",
-               descriptor->canonical_name);
-
-    for (PetscInt d = 0; d < descriptor->components; ++d) {
-        fieldData[descriptor->components * p + d] = descriptor->default_real_value;
-    }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Apply a configured initial field specification across the local swarm.
- */
-static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId field_id)
-{
-    PetscErrorCode ierr;
-    DM             swarm = user->swarm;
-    PetscReal     *fieldData = NULL;
-    PetscInt       nLocal;
-    const ParticleFieldDescriptor *descriptor = NULL;
-    const char     *fieldName = NULL;
-
-    PetscFunctionBeginUser;
-    
     PROFILE_FUNCTION_BEGIN;
+    for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+        const ParticleFieldDescriptor *descriptor = NULL;
+        PetscReal                     *field = NULL;
 
-    ierr = ParticleFieldGetDescriptor(field_id, &descriptor); CHKERRQ(ierr);
-    fieldName = descriptor->canonical_name;
-
-    // Get the number of local particles
-    ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_INFO, "%" PetscInt_FMT " local particles found.\n", nLocal);
-
-    // Retrieve the swarm field pointer for the specified fieldName
-    ierr = DMSwarmGetField(swarm, fieldName, NULL, NULL, (void**)&fieldData); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Retrieved field '%s'.\n", fieldName);
-
-    // Loop over all particles and update the field using the helper function
-    for (PetscInt p = 0; p < nLocal; p++) {
-        ierr = InitializeSwarmFieldValue(descriptor, p, fieldData); CHKERRQ(ierr);
-    PetscReal disp_data[descriptor->components];
-    
-        for (PetscInt d = 0; d < descriptor->components; d++) {
-    disp_data[d] = fieldData[descriptor->components * p + d];
+        PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+        if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE)) continue;
+        PetscCheck(descriptor->data_type == PETSC_REAL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+                   "Default initialization supports only PETSC_REAL particle fields; '%s' uses %s.",
+                   descriptor->canonical_name, PetscDataTypes[descriptor->data_type]);
+        PetscCall(DMSwarmGetField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
+        for (PetscInt p = first; p < end; ++p) {
+            for (PetscInt d = 0; d < descriptor->components; ++d) field[descriptor->components * p + d] = descriptor->default_real_value;
         }
-        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %" PetscInt_FMT ": %s[%" PetscInt_FMT "] = [%.6f, ...,%.6f].\n", p,fieldName,descriptor->components,disp_data[0],disp_data[descriptor->components-1]);
+        PetscCall(DMSwarmRestoreField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
     }
-    
-    // Restore the swarm field pointer
-    ierr = DMSwarmRestoreField(swarm, fieldName, NULL, NULL, (void**)&fieldData); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_INFO, "Initialization of field '%s' complete.\n", fieldName);
-    
-
     PROFILE_FUNCTION_END;
-
     PetscFunctionReturn(0);
 }
 
 
 /**
- * @brief Internal helper implementation: `AssignInitialPropertiesToSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AssignInitialPropertiesToSwarm().
+ * @see AssignInitialPropertiesToSwarm()
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
-                                            PetscInt particlesPerProcess,
-                                            BoundingBox *bboxlist)
+                                            PetscInt particlesPerProcess)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
 
-    SimCtx *simCtx = user->simCtx;
-    
     // --- 0. Input Validation ---
-    if (!user || !bboxlist) {
-        LOG_ALLOW(GLOBAL, LOG_ERROR, "Null user or bboxlist.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input detected.");
-    }
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user.");
+    SimCtx *simCtx = user->simCtx;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Initializing swarm with %" PetscInt_FMT " particles per process. Mode: %s.\n",
             particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
-    // --- 1. Parse BCS File for Inlet Information (if surface initialization) ---
+    // --- 1. Surface seeding needs the INLET face the boundary conditions identified ---
     if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM) {
-    if(user->inletFaceDefined == PETSC_FALSE){
-    LOG_ALLOW(GLOBAL, LOG_ERROR, "Particle Initialization on inlet surface selected, but no INLET face was identified from bcs.dat. Cannot proceed.\n");
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "ParticleInitialization Mode 0 requires an INLET face to be defined in bcs.dat.");
-    }else{
-    LOG_ALLOW(GLOBAL, LOG_INFO, "After Parsing BCS file for Inlet, Inlet face = %s\n", BCFaceToString((BCFace)user->identifiedInletBCFace));
-    }
+        if (user->inletFaceDefined == PETSC_FALSE) {
+            LOG_ALLOW(GLOBAL, LOG_ERROR, "Particle Initialization on inlet surface selected, but no INLET face was identified from bcs.dat. Cannot proceed.\n");
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Surface particle seeding requires an INLET face in the boundary conditions.");
+        }
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Inlet face for surface seeding = %s\n", BCFaceToString((BCFace)user->identifiedInletBCFace));
     }
 
     // --- 2. Initialize Basic Particle Properties (Position, PID, Cell IDs placeholder) ---
     // Placement draws are keyed on (seed, PID), so no generator state is passed in.
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Calling InitializeParticleBasicProperties.\n");
-    ierr = InitializeParticleBasicProperties(user, particlesPerProcess, bboxlist); CHKERRQ(ierr);
+    ierr = InitializeParticleBasicProperties(user, particlesPerProcess); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully initialized basic particle properties.\n");
 
-    // --- 3. Initialize Other Swarm Fields (Velocity, Weight, Pressure, etc.) ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'velocity' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_VELOCITY); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "'velocity' field initialization complete.\n");
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'weight' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_WEIGHT); CHKERRQ(ierr); // Weight is a three-component field.
-    LOG_ALLOW(LOCAL, LOG_INFO, "'weight' field initialization complete.\n");
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Diffusivity' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "'Diffusivity' field initialization complete.\n");
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'DiffusivityGradient' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "'DiffusivityGradient' field initialization complete.\n");
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Psi' (Scalar) field.\n");
-    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_PSI); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "'P' field initialization complete.\n");
-    
+    // --- 3. The catalog's default-initialized fields: velocity, weight, Diffusivity, DiffusivityGradient, Psi ---
+    {
+        PetscInt n_local = 0;
+        ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
+        ierr = InitializeDefaultParticleFields(user->swarm, 0, n_local); CHKERRQ(ierr);
+    }
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully completed all swarm property initialization.\n");
 
 
@@ -753,12 +709,11 @@ static PetscErrorCode DistributeParticlesByOwnedMeasure(UserCtx *user, PetscInt 
 }
 
 /**
- * @brief Internal helper implementation: `CreateParticleSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CreateParticleSwarm().
+ * @see CreateParticleSwarm()
  */
-PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist) {
+PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess) {
     PetscErrorCode ierr;                      // PETSc error handling variable
-    (void)bboxlist;
     PetscMPIInt rank, size;                   // Variables to store MPI rank and size
     PetscInt remainder = 0;                   // Remainder of particles after division
     
@@ -910,14 +865,14 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     // so we initialize it to a known invalid state.
     particle->destination_rank = MPI_PROC_NULL;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
 
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateSwarmFields()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateSwarmFields().
+ * @see UpdateSwarmFields()
  */
 PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *positions, 
@@ -984,53 +939,13 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
         psi[i] = particle->psi;
     }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `IsParticleInsideBoundingBox()`.
- * @details Local to this translation unit.
- */
-PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    // Validate input pointers
-    if (!bbox) {
-        // LOG_ALLOW error message and return PETSC_FALSE
-    LOG_ALLOW(LOCAL,LOG_ERROR, "Error - 'bbox' pointer is NULL.");
-        PROFILE_FUNCTION_END;
-        return PETSC_FALSE;
-    }
-    if (!particle) {
-    LOG_ALLOW(LOCAL,LOG_ERROR,"Error - 'particle' pointer is NULL.");
-        PROFILE_FUNCTION_END;
-        return PETSC_FALSE;
-    }
-
-    // Extract particle location and bounding box coordinates
-    const Cmpnts loc = particle->loc;
-    const Cmpnts min_coords = bbox->min_coords;
-    const Cmpnts max_coords = bbox->max_coords;
-
-    // Check if the particle's location is within the bounding box
-    if ((loc.x >= min_coords.x && loc.x <= max_coords.x) &&
-        (loc.y >= min_coords.y && loc.y <= max_coords.y) &&
-        (loc.z >= min_coords.z && loc.z <= max_coords.z)) {
-        PROFILE_FUNCTION_END;
-        return PETSC_TRUE;
-    }
-
-    PROFILE_FUNCTION_END;
-    return PETSC_FALSE;
-}
-
-
-/**
- * @brief Internal helper implementation: `UpdateParticleWeights()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateParticleWeights().
+ * @see UpdateParticleWeights()
  */
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
@@ -1063,7 +978,7 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
 
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1087,7 +1002,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 
     // --- Phase 1: Create the DMSwarm Object (Always required) ---
     // This creates the container and registers the fields. It does not add particles yet.
-    ierr = CreateParticleSwarm(user, simCtx->np, &particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
+    ierr = CreateParticleSwarm(user, simCtx->np, &particlesPerProcess); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "DMSwarm object and fields created successfully.\n");
 
 
@@ -1110,7 +1025,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     if (should_initialize_new_particles) {
         // --- PATH A: Generate a fresh population of particles ---
         LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: INITIALIZE. Generating new particle population.\n");
-        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
+        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess); CHKERRQ(ierr);
 
     } else {
         // --- PATH B: Load particle population from restart files ---
@@ -1268,8 +1183,8 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&ucont));
     PetscCall(DMDAVecGetArrayRead(user->fda, metric_vec, (void *)&metric));
     for (PetscInt c = 0; c < n_cells; ++c) {
-        const PetscInt origin[3] = {table->origin[0] + c % table->n[0], table->origin[1] + (c / table->n[0]) % table->n[1],
-                                    table->origin[2] + c / (table->n[0] * table->n[1])};
+        PetscInt origin[3];
+        SeedingCellOrigin(table, c, origin);
         PetscInt f[3] = {origin[0] + 1, origin[1] + 1, origin[2] + 1};
         f[normal] = negative ? 0 : nodes[normal] - 2;
         const Cmpnts    u = ucont[f[2]][f[1]][f[0]], m = metric[f[2]][f[1]][f[0]];
@@ -1298,11 +1213,10 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
             normal_of[c].x = sign * m.x / norm_m; normal_of[c].y = sign * m.y / norm_m; normal_of[c].z = sign * m.z / norm_m;
             flux_bound[c] = 0.0;
             for (PetscInt q = 0; count[c] > 0 && q < 9; ++q) {
-                PetscReal logic[3];
+                PetscReal lattice[3], logic[3];
                 Cmpnts    point, u_q;
-                logic[a] = 0.5 * (q % 3); logic[b] = 0.5 * (q / 3);
-                logic[normal] = negative ? 1.0e-6 : 1.0 - 1.0e-6;
-                for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(logic[d], 1.0 - 1.0e-7), 0.0);
+                lattice[a] = 0.5 * (q % 3); lattice[b] = 0.5 * (q / 3); lattice[normal] = 0.0;
+                SeedingLogicalPoint(lattice, (PetscInt)inlet->face, logic);
                 PetscCall(MetricLogicalToPhysical(user, coor, origin[0], origin[1], origin[2], logic[0], logic[1], logic[2], &point));
                 PetscCall(InterpolateVelocityAtPoint(velocity, origin, logic, point, &u_q));
                 flux_bound[c] = PetscMax(flux_bound[c], u_q.x * normal_of[c].x + u_q.y * normal_of[c].y + u_q.z * normal_of[c].z);
@@ -1326,16 +1240,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         PetscInt    p = first;
 
         PetscCall(DMSwarmSetLocalSizes(swarm, first + n_new, -1));
-        for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
-            const ParticleFieldDescriptor *descriptor = NULL;
-            PetscReal *field = NULL;
-
-            PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
-            if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE)) continue;
-            PetscCall(DMSwarmGetField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
-            for (PetscInt q = first; q < first + n_new; ++q) PetscCall(InitializeSwarmFieldValue(descriptor, q, field));
-            PetscCall(DMSwarmRestoreField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
-        }
+        PetscCall(InitializeDefaultParticleFields(swarm, first, first + n_new));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lDiffusivity, (void *)&diffusivity));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
@@ -1433,6 +1338,8 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &event.physical_time));
     PetscCall(InterpolateVelocityAtPointBegin(user, &velocity));
 
+    PetscReal cells_per_volume = 0.0;
+    PetscBool have_cells_per_volume = PETSC_FALSE; /* computed when an inlet first needs it */
     for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
         struct ParticleInlet *inlet = &simCtx->particleInlets[n];
 
@@ -1443,8 +1350,10 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
             PetscCall(BuildSeedingCellTable(user, coor, (PetscInt)inlet->face, 0, PETSC_TRUE, &inlet->table));
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
-            {
-                /* particles_per_cell is a mean over the grid: cells over volume makes it a density. */
+            if (!have_cells_per_volume) {
+                /* particles_per_cell is a mean over the grid: cells over volume makes it a density.
+                   The volume is the sum of the cells' 1/Aj, not the Jacobian integral the
+                   seeding table uses. table_built is the same on every rank, so all reduce. */
                 const DMDALocalInfo *info = &user->info;
                 const PetscReal   ***aj = NULL;
                 PetscReal            volume = 0.0;
@@ -1455,8 +1364,10 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
                     volume += 1.0 / aj[k][j][i];
                 PetscCall(DMDAVecRestoreArrayRead(user->da, user->Aj, (void *)&aj));
                 PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &volume, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
-                inlet->cells_per_volume = (PetscReal)(info->mx - 2) * (info->my - 2) * (info->mz - 2) / volume;
+                cells_per_volume = (PetscReal)(info->mx - 2) * (info->my - 2) * (info->mz - 2) / volume;
+                have_cells_per_volume = PETSC_TRUE;
             }
+            inlet->cells_per_volume = cells_per_volume;
             inlet->table_built = PETSC_TRUE;
         }
         PetscCall(InjectAtInlet(user, inlet, &event, first_id, velocity, local[n]));

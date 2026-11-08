@@ -62,7 +62,7 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
     // Average edge length
     *cellSize = totalEdgeLen / 12.0;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
@@ -80,39 +80,6 @@ static inline PetscReal FacePlaneDistance(const FacePlane *plane, const Cmpnts p
 }
 
 /**
- * @brief Internal helper implementation: `ComputeSignedDistanceToPlane()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
-                                            const Cmpnts cell_centroid,const Cmpnts p_target,
-					    PetscReal *d_signed, const PetscReal threshold, Cmpnts *normal_out)
-{
-    FacePlane plane;
-    PetscBool degenerate;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (d_signed == NULL) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "Output pointer 'd_signed' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer 'd_signed' must not be NULL.");
-    }
-    if (MetricFacePlane(v1, v2, v3, v4, cell_centroid, &plane, &degenerate)) {
-        LOG_ALLOW(LOCAL, LOG_WARNING, "Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n");
-    }
-    if (degenerate) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "Degenerate plane: offending vertices for normal v1(%.3e,%.3e,%.3e), v2(%.3e,%.3e,%.3e), v4(%.3e,%.3e,%.3e)\n",
-                  v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v4.x, v4.y, v4.z);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER, "Degenerate plane detected (normal vector is near zero).");
-    }
-    if (normal_out) *normal_out = plane.normal;
-    *d_signed = FacePlaneDistance(&plane, p_target, threshold);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Final Signed Distance: %.15e\n", *d_signed);
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Implementation of \ref CalculateDistancesToCellFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/walkingsearch.h`.
@@ -121,7 +88,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFacePlanes *planes, PetscReal *d,
                                                   const PetscReal threshold, Cmpnts *normals)
 {
-    // The order faces were always evaluated in, so the first degenerate face reported is unchanged.
+    // Faces are evaluated in this order, so a degenerate face is reported in it.
     static const int order[NUM_FACES] = {BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT};
 
     PetscFunctionBeginUser;
@@ -174,7 +141,7 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
 	      d[0], d[1], d[2], d[3], d[4], d[5]);
     
-    PROFILE_FUNCTION_END;      
+    PROFILE_HELPER_END;      
     PetscFunctionReturn(0); // Indicate successful execution of the function.
 }
 
@@ -234,46 +201,7 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
         *result = -1; // Outside the cell
     }
 
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0); // Indicate successful execution
-}
-
-/**
- * @brief Implementation of \ref GetCellVerticesFromGrid().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/walkingsearch.h`.
- * @see GetCellVerticesFromGrid()
- */
-PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt idy, PetscInt idz,
-                                       Cell *cell)
-{
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    // Validate input pointers
-    if (coor == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "'coor' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input array 'coor' is NULL.");
-    }
-    if (cell == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "'cell' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output parameter 'cell' is NULL.");
-    }
-
-    // Assign vertices based on grid indices matching the figure
-    // Vertex numbering follows the convention depicted in the figure
-    cell->vertices[0] = coor[idz][idy][idx];         // Vertex 0: (i,   j,   k)
-    cell->vertices[1] = coor[idz][idy][idx+1];       // Vertex 1: (i+1, j,   k)
-    cell->vertices[2] = coor[idz][idy+1][idx+1];     // Vertex 2: (i+1, j+1, k)
-    cell->vertices[3] = coor[idz][idy+1][idx];       // Vertex 3: (i,   j+1, k)
-    cell->vertices[4] = coor[idz+1][idy+1][idx];     // Vertex 4: (i,   j+1, k+1)
-    cell->vertices[5] = coor[idz+1][idy+1][idx+1];   // Vertex 5: (i+1, j+1, k+1)
-    cell->vertices[6] = coor[idz+1][idy][idx+1];     // Vertex 6: (i+1, j,   k+1)
-    cell->vertices[7] = coor[idz+1][idy][idx];       // Vertex 7: (i,   j,   k+1)
-
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Retrieved vertices for cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ").\n", idx, idy, idz);
-
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
@@ -325,7 +253,6 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
       }
     } else {
         // No valid previous cell ID (e.g., -1,-1,-1 or first time).
-        // IMPROVED: Use distance-based multi-seed approach to find the closest strategic cell.
         // Sample the 6 face centers + volume center (7 total candidates) and start from the closest.
 
         Cmpnts ***cent;
@@ -405,7 +332,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     // Initialize traversal step counter
     *traversal_steps = 0;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -464,7 +391,7 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
         *is_within = PETSC_FALSE;
     }
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -500,7 +427,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     {
         const Cmpnts *coor = (const Cmpnts *)coor_flat;
 #define PICURV_NODE(i, j, k) coor[(((k) - gzs) * gym + ((j) - gys)) * gxm + ((i) - gxs)]
-        // Vertex numbering of GetCellVerticesFromGrid().
+        // Vertex numbering documented with RetrieveCurrentCell() in walkingsearch.h.
         cell->vertices[0] = PICURV_NODE(idx,     idy,     idz);
         cell->vertices[1] = PICURV_NODE(idx + 1, idy,     idz);
         cell->vertices[2] = PICURV_NODE(idx + 1, idy + 1, idz);
@@ -513,7 +440,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     }
     ierr = VecRestoreArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -534,39 +461,13 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
     // 0 inside, 1 (2 or 3) on a face (edge or corner), -1 outside.
     ierr = DeterminePointPosition(d, position); CHKERRQ(ierr);
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Implementation of \ref EvaluateParticlePosition().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/walkingsearch.h`.
- * @see EvaluateParticlePosition()
- */
-PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold)
-{
-    PetscErrorCode ierr;
-    CellFacePlanes planes;
-    PetscReal      size;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    if (cell == NULL || position == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
-    }
-    ierr = GetCellCharacteristicSize(cell, &size); CHKERRQ(ierr);
-    MetricBuildCellFacePlanes(cell, &planes);
-    planes.size = size;
-    ierr = EvaluateParticlePositionInPlanes(&planes, d, p, position, threshold); CHKERRQ(ierr);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateCellIndicesBasedOnDistances()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateCellIndicesBasedOnDistances().
+ * @see UpdateCellIndicesBasedOnDistances()
  */
 PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
 {
@@ -625,48 +526,14 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
     *idz = PetscMax(czs,               PetscMin(*idz, czm));
     */
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
 
 /**
- * @brief Implementation of \ref FinalizeTraversal().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/walkingsearch.h`.
- * @see FinalizeTraversal()
- */
-PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    // Validate input pointers
-    if (user == NULL || particle == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
-    }
-
-    if (cell_found) {
-      LOG_ALLOW(LOCAL,LOG_INFO, "Particle located in cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") after %" PetscInt_FMT " traversal steps.\n",
-            idx, idy, idz, traversal_steps);
-    }
-    else {
-      LOG_ALLOW(LOCAL,LOG_WARNING, "Particle could not be located within the grid after %" PetscInt_FMT " traversal steps.\n", (PetscInt)traversal_steps);
-        particle->cell[0] = -1;
-        particle->cell[1] = -1;
-        particle->cell[2] = -1;
-    }
-
-    LOG_ALLOW(LOCAL, LOG_INFO, "Completed final traversal sync across all ranks.\n");
-
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Internal helper implementation: `FindOwnerOfCell()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FindOwnerOfCell().
+ * @see FindOwnerOfCell()
  */
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank)
 {
@@ -709,7 +576,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
         (j >= info->ys_cell && j < info->ys_cell + info->ym_cell) &&
         (k >= info->zs_cell && k < info->zs_cell + info->zm_cell)) *owner_rank = (PetscMPIInt)r;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -737,7 +604,7 @@ PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, Petsc
     p->y += 2.0 * d[face] * n[face].y;
     p->z += 2.0 * d[face] * n[face].z;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -772,7 +639,7 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
         if (dp[f] >= 0.0) continue;
         if (dc[f] <= 0.0) {
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Cell centroid is not inside face %" PetscInt_FMT "'s plane (d = %.3e); cannot place the particle.\n", f, dc[f]);
-            PROFILE_FUNCTION_END;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
         t = PetscMax(t, dp[f] / (dp[f] - dc[f]));
@@ -784,10 +651,20 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
     p->z += t * (c.z - p->z);
     *placed = PETSC_TRUE;
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
+
+/**
+ * @brief Forget the cell the stuck-walk detector compared against, after the particle moved
+ *        without the walk stepping (a wrap, a reflection or the reflection fallback).
+ */
+static inline void ResetStuckDetection(PetscInt *repeated, PetscInt *prev_i, PetscInt *prev_j, PetscInt *prev_k)
+{
+    *repeated = 0;
+    *prev_i = PETSC_MIN_INT; *prev_j = PETSC_MIN_INT; *prev_k = PETSC_MIN_INT;
+}
 
 /**
  * @brief Implementation of \ref LocateParticleOrFindMigrationTarget().
@@ -819,11 +696,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     rank = user->simCtx->rank;
-    if (user && user->simCtx) {
-        user->simCtx->searchMetrics.searchAttempts++;
-        if (user->simCtx->searchMetrics.currentSettlementPass > 1) {
-            user->simCtx->searchMetrics.reSearchCount++;
-        }
+    user->simCtx->searchMetrics.searchAttempts++;
+    if (user->simCtx->searchMetrics.currentSettlementPass > 1) {
+        user->simCtx->searchMetrics.reSearchCount++;
     }
 
     // Only a pass-1 walk from the previous-step cell relies on the particle having moved a short
@@ -846,7 +721,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         traversal_steps++;
 
         // --- 2a. GLOBAL Domain Boundary Check ---
-        // IMPROVED: Instead of failing immediately when hitting a boundary, clamp the indices
+        // Instead of failing when the walk reaches a domain boundary, clamp the indices
         // to the boundary and continue searching. This allows the search to explore other
         // directions that might lead to the particle.
         PetscBool hit_boundary = PETSC_FALSE;
@@ -1005,7 +880,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                         LOG_PARTICLE(user->simCtx, particle->PID, "locate", "wrapped through %s to (%.6e, %.6e, %.6e), cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                                      BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
                     }
-                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                 } else if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;
@@ -1022,7 +897,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     ierr = ReflectParticleAcrossCellFace(current_planes, crossed, &particle->loc); CHKERRQ(ierr);
                     reflections++;
                     user->simCtx->searchMetrics.reflectionCount++;
-                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                     LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflected about boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%.6e, %.6e, %.6e)\n",
                                  crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
                 } else {
@@ -1032,7 +907,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     ierr = PlaceParticleInsideCell(&current_cell, &particle->loc, &placed); CHKERRQ(ierr);
                     if (placed) {
                         user->simCtx->searchMetrics.reflectionFallbackCount++;
-                        repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                        ResetStuckDetection(&repeatedIndexCount, &prevIdx, &prevIdy, &prevIdz);
                         LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflection cap %d reached: placed just inside cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                                      REFLECTION_CAP, idx, idy, idz);
                     } else {
@@ -1085,33 +960,15 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         }
     }
 
-    // --- 4. Report the Final Outcome ---
-    ierr = ReportSearchOutcome(user->simCtx, particle, *status_out, start_cell, traversal_steps, reflections); CHKERRQ(ierr);
-    if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Implementation of \ref ReportSearchOutcome().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/walkingsearch.h`.
- * @see ReportSearchOutcome()
- */
-PetscErrorCode ReportSearchOutcome(const SimCtx *simCtx, const Particle *particle,
-                                   ParticleLocationStatus status, const PetscInt start_cell[3],
-                                   PetscInt traversal_steps, PetscInt reflections)
-{
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    LOG_PARTICLE(simCtx, particle->PID, "locate",
+    // --- 4. Report the Final Outcome: the particle's consolidated locate line ---
+    LOG_PARTICLE(user->simCtx, particle->PID, "locate",
                  "%s from cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") in %" PetscInt_FMT " step(s), %" PetscInt_FMT " reflection(s) | weights (%.6f, %.6f, %.6f) | at (%.6e, %.6e, %.6e) | destination rank %d\n",
-                 ParticleLocationStatusToString(status), start_cell[0], start_cell[1], start_cell[2],
+                 ParticleLocationStatusToString(*status_out), start_cell[0], start_cell[1], start_cell[2],
                  particle->cell[0], particle->cell[1], particle->cell[2], traversal_steps, reflections,
                  particle->weights.x, particle->weights.y, particle->weights.z,
                  particle->loc.x, particle->loc.y, particle->loc.z, (int)particle->destination_rank);
-    PROFILE_FUNCTION_END;
+    if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
+
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

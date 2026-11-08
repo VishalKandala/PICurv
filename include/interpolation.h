@@ -83,72 +83,6 @@
     )(corner_arr, faceX_arr, faceY_arr, faceZ_arr, user_ctx)
 
 /**
- * @brief Macro that calls either the scalar or vector piecewise interpolation function
- *        based on the type of the `fieldPtr` parameter (3D array).
- *
- * Usage example:
- *
- *   // For scalar:
- *   PetscReal ***fieldScal;
- *   PetscReal outVal;
- *   PieceWiseLinearInterpolation(fieldName, fieldScal, i, j, k, &outVal);
- *
- *   // For vector:
- *   Cmpnts ***fieldVec;
- *   Cmpnts vec;
- *   PieceWiseLinearInterpolation(fieldName, fieldVec, i, j, k, &vec);
- */
-#define PieceWiseLinearInterpolation(fieldName, fieldPtr, i, j, k, outPtr) \
-  _Generic((fieldPtr),                                                     \
-    PetscReal ***: PieceWiseLinearInterpolation_Scalar,                    \
-    Cmpnts      ***: PieceWiseLinearInterpolation_Vector                   \
-  )(fieldName, fieldPtr, i, j, k, outPtr)
-
-/**
- * @brief Returns the scalar value from the input cell index without blending.
- *
- * This is a first-order piecewise-constant lookup helper used in workflows that
- * intentionally disable trilinear blending.
- *
- * @param[in]  fieldName Field label used for diagnostics.
- * @param[in]  fieldScal Scalar field array indexed as [k][j][i].
- * @param[in]  iCell Cell i-index.
- * @param[in]  jCell Cell j-index.
- * @param[in]  kCell Cell k-index.
- * @param[out] val Output scalar value.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode PieceWiseLinearInterpolation_Scalar(
-    const char *fieldName,
-    PetscReal ***fieldScal,
-    PetscInt iCell,
-    PetscInt jCell,
-    PetscInt kCell,
-    PetscReal *val);
-
-/**
- * @brief Returns the vector value from the input cell index without blending.
- *
- * This is a first-order piecewise-constant lookup helper used in workflows that
- * intentionally disable trilinear blending.
- *
- * @param[in]  fieldName Field label used for diagnostics.
- * @param[in]  fieldVec Vector field array indexed as [k][j][i].
- * @param[in]  iCell Cell i-index.
- * @param[in]  jCell Cell j-index.
- * @param[in]  kCell Cell k-index.
- * @param[out] vec Output vector value.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode PieceWiseLinearInterpolation_Vector(
-    const char *fieldName,
-    Cmpnts ***fieldVec,
-    PetscInt iCell,
-    PetscInt jCell,
-    PetscInt kCell,
-    Cmpnts *vec);
-
-/**
  * @brief Macro that calls either the scalar or vector trilinear interpolation function
  *        based on the type of the `fieldPtr` parameter (3D array).
  *
@@ -158,39 +92,35 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
  *   Cmpnts vec;
  *   
  *   // For scalars:
- *   TrilinearInterpolation(fieldName, fieldScal, i, j, k, a1, a2, a3, &result);
+ *   TrilinearInterpolation(fieldScal, i, j, k, a1, a2, a3, &result);
  *
  *   // For vectors:
- *   TrilinearInterpolation(fieldName, fieldVec, i, j, k, a1, a2, a3, &vec);
+ *   TrilinearInterpolation(fieldVec, i, j, k, a1, a2, a3, &vec);
  */
-#define TrilinearInterpolation(fieldName, fieldPtr, i, j, k, a1, a2, a3, outPtr)           \
+#define TrilinearInterpolation(fieldPtr, i, j, k, a1, a2, a3, outPtr)                      \
   _Generic((fieldPtr),                                                                     \
     PetscReal ***: TrilinearInterpolation_Scalar,                                          \
     Cmpnts      ***: TrilinearInterpolation_Vector                                         \
-  )(fieldName, fieldPtr, i, j, k, a1, a2, a3, outPtr)
+  )(fieldPtr, i, j, k, a1, a2, a3, outPtr)
 
 // Function declarations
 
 /**
- * @brief Computes the trilinear interpolated scalar at a given point.
+ * @brief Trilinear interpolation of a scalar from the eight entries (i..i+1, j..j+1, k..k+1).
  *
- * each cell a PetscReal.
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same interface.
+ * The weights come from `ComputeTrilinearWeights()`, which clamps the coordinates to [0,1].
  *
- * @param fieldName A
- * @param fieldScal 3D
- * @param i Integral
- * @param j Integral
- * @param k Integral
- * @param a1 Normalized
- * @param a2 Normalized
- * @param a3 Normalized
- * @param val Pointer
+ * @param[in]  fieldScal Scalar array indexed [k][j][i].
+ * @param[in]  i         i index of the lowest of the eight entries.
+ * @param[in]  j         j index of the lowest of the eight entries.
+ * @param[in]  k         k index of the lowest of the eight entries.
+ * @param[in]  a1        Coordinate in the eight-entry cell along i, in [0,1].
+ * @param[in]  a2        Coordinate along j, in [0,1].
+ * @param[in]  a3        Coordinate along k, in [0,1].
+ * @param[out] val       The interpolated value.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
-    const char   *fieldName,
     PetscReal  ***fieldScal,
     PetscInt      i,
     PetscInt      j,
@@ -201,25 +131,22 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     PetscReal    *val);
 
 /**
- * @brief Computes the trilinear interpolated vector (e.g., velocity) at a given point.
+ * @brief Trilinear interpolation of a vector from the eight entries (i..i+1, j..j+1, k..k+1).
  *
- * each cell of type Cmpnts.
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same interface.
+ * The weights come from `ComputeTrilinearWeights()`, which clamps the coordinates to [0,1];
+ * the weighted sum is divided by the weights' sum, and is zero when that sum is below 1e-14.
  *
- * @param fieldName A
- * @param fieldVec 3D
- * @param i Integral
- * @param j Integral
- * @param k Integral
- * @param a1 Normalized
- * @param a2 Normalized
- * @param a3 Normalized
- * @param vec Pointer
+ * @param[in]  fieldVec  Vector array indexed [k][j][i].
+ * @param[in]  i         i index of the lowest of the eight entries.
+ * @param[in]  j         j index of the lowest of the eight entries.
+ * @param[in]  k         k index of the lowest of the eight entries.
+ * @param[in]  a1        Coordinate in the eight-entry cell along i, in [0,1].
+ * @param[in]  a2        Coordinate along j, in [0,1].
+ * @param[in]  a3        Coordinate along k, in [0,1].
+ * @param[out] vec       The interpolated vector.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
-    const char   *fieldName,
     Cmpnts     ***fieldVec,
     PetscInt      i,
     PetscInt      j,
@@ -265,56 +192,21 @@ PetscErrorCode InterpolateVelocityAtPoint(const VelocityPointInterpolator *inter
 PetscErrorCode InterpolateVelocityAtPointEnd(VelocityPointInterpolator **interp);
 
 /**
- * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
- *        using a robust, PETSc-idiomatic two-stage process.
+ * @brief Interpolates the Eulerian fields the particles carry to every local particle.
  *
- * This function first converts the cell-centered input data to corner-node data,
- * storing this intermediate result in a PETSc Vec to correctly handle the communication
- * of ghost-point information across parallel ranks. It then performs a final trilinear
- * interpolation from the ghosted corner data to each particle's location.
+ * Interpolates `Ucat` to the particle `velocity`, `Diffusivity` to `Diffusivity` and
+ * `DiffusivityGradient` to `DiffusivityGradient`, with the method in
+ * `simCtx->interpolationMethod`:
+ *   - Trilinear: from the dual cell of the eight nearest cell centres, in one pass that
+ *     shares each particle's dual cell and weights across the fields;
+ *   - CornerAveraged: cell centres averaged to the corners, then trilinear from the host
+ *     cell's corners, one pass per field;
+ *   - FaceFlux: velocity from the host cell's face fluxes; the other fields as Trilinear.
  *
- * Workflow:
- *   1.  Create temporary PETSc Vecs (`cornerGlobal`, `cornerLocal`) to manage the
- *       intermediate corner-node data, using the existing nodal DMDA (`user->fda`).
- *   2.  Call a dispatch macro that uses the runtime block size (`bs`) to select the
- *       correct underlying center-to-corner function, writing results into `cornerGlobal`.
- *   3.  Perform a ghost-point exchange (`DMGlobalToLocal`) to transfer the boundary
- *       data from `cornerGlobal` into the ghost regions of `cornerLocal`.
- *   4.  Loop over all local particles. For each particle:
- *       a. Convert its global cell index to a local index relative to the ghosted array.
- *       b. Check if the particle's interpolation stencil is fully contained within
- *          the owned+ghost region. If not, log a warning and set the result to zero.
- *       c. Perform the final trilinear interpolation using the ghosted `cornerLocal` data.
- *   5.  Restore all PETSc objects to prevent memory leaks.
+ * Reads the ghosted local vectors of the source fields, which must be current. A particle
+ * whose stencil lies outside the ghosted region gets zero. Collective.
  *
- * @param[in]  user                     User context with DMDA, DMSwarm, etc.
- * @param[in]  source_field_id Typed identity of the cell-centered Eulerian source.
- * @param[in]  target_field_id Typed identity of the PETSC_REAL particle destination.
- *
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode InterpolateEulerFieldToSwarm(
-    UserCtx    *user,
-    FieldId      source_field_id,
-    ParticleFieldId target_field_id);
-
-
-/**
- * @brief Interpolates all relevant fields from the DMDA to the DMSwarm.
- *
- * Currently, it interpolates:
- *   - user->Ucat (vector field) into the DMSwarm field "swarmVelocity".
- *
- * To add more fields, duplicate the call to InterpolateOneFieldOverSwarm and provide:
- *   - The global Vec for that field (e.g. user->Tcat for temperature),
- *   - A human-readable field name (for logging),
- *   - A DMSwarm output field name (e.g. "swarmTemperature").
- *
- * @param[in,out] user Pointer to a UserCtx containing:
- *                     - user->da (DM for the grid),
- *                     - user->swarm (DMSwarm for particles),
- *                     - user->Ucat (Vec for the vector field),
- *                     - possibly more fields like user->Tcat, user->Pcat, etc.
+ * @param[in,out] user Block context holding the swarm and the source fields.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
@@ -466,13 +358,38 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
                                           DM dataDM, Vec sumVec, Vec avgVec);
 
 /**
+ * @brief Cell mean of a particle field: the field summed over each cell's particles, divided by
+ *        the cell's count.
+ * @ingroup scatter_module
+ *
+ * Zeroes a ghosted accumulator, adds every local particle into its cell with
+ * AccumulateParticleField(), sums the ranks' copies into the owners (local-to-global ADD), and
+ * divides by `countVec` with NormalizeGridVectorByCount(); an empty cell's mean is zero.
+ * Collective.
+ *
+ * @param[in]     user              Context holding the swarm and the cell DM `da`.
+ * @param[in]     particle_field_id PETSC_REAL particle field to average.
+ * @param[in]     dataDM            DMDA of the mean, with as many DOF as the field has components.
+ * @param[in]     countVec          Global particles-per-cell vector on `user->da`; only its owned
+ *                                  entries are read.
+ * @param[in]     recount           PETSC_TRUE to recount `user->ParticleCount` (and reset
+ *                                  `user->lParticleCount`) with CalculateParticleCountPerCell()
+ *                                  before dividing; `countVec` is then normally `user->ParticleCount`.
+ * @param[in,out] meanVec           Global vector on `dataDM` receiving the owned means.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ScatterParticleFieldCellMean(UserCtx *user, ParticleFieldId particle_field_id, DM dataDM,
+                                            Vec countVec, PetscBool recount, Vec meanVec);
+
+/**
  * @brief Scatters a particle field (scalar or vector) to the corresponding Eulerian field average.
  * @ingroup scatter_module
  *
  * This is the main user-facing function. It determines the target Eulerian DM
  * from the particle catalog, validates the provided `eulerFieldAverageVec`
  * against the target DM, and then orchestrates the scatter operation by calling
- * the internal helper function `ScatterParticleFieldToEulerField_Internal`.
+ * ScatterParticleFieldCellMean(), recounting the particles per cell first.
  * The final averaged result is stored IN-PLACE in `eulerFieldAverageVec`.
  *
  * @param[in] user                 Pointer to UserCtx containing da, fda, swarm, ParticleCount.

@@ -23,14 +23,13 @@ void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal 
 }
 
 /**
- * @brief Internal helper implementation: `CalculateBrownianDisplacement()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CalculateBrownianDisplacement().
+ * @see CalculateBrownianDisplacement()
  */
 PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, PetscReal diff_eff, Cmpnts *displacement)
 {
     const SimCtx  *simCtx = user->simCtx;
     PetscReal      u[4], n[4], sigma;
-    uint64_t       hash;
 
     PetscFunctionBeginUser;
     displacement->x = displacement->y = displacement->z = 0.0;
@@ -38,8 +37,7 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
-    hash = PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
-    for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
+    ParticleUniformsFromHash(PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step), u);
     GenerateGaussianNoise(1.0 - u[0], u[1], &n[0], &n[1]); /* 1 - u lies in (0, 1]: log finite */
     GenerateGaussianNoise(1.0 - u[2], u[3], &n[2], &n[3]);
 
@@ -51,8 +49,8 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 }
 
 /**
- * @brief Internal helper implementation: `UpdateParticlePosition()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateParticlePosition().
+ * @see UpdateParticlePosition()
  */
 PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 {
@@ -73,13 +71,13 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
   particle->loc.y += ((particle->vel.y + particle->diffusivitygradient.y) * dt) + brownian_disp.y;
   particle->loc.z += ((particle->vel.z + particle->diffusivitygradient.z) * dt) + brownian_disp.z;
 
-  PROFILE_FUNCTION_END;
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper implementation: `UpdateAllParticlePositions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateAllParticlePositions().
+ * @see UpdateAllParticlePositions()
  */
 PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 {
@@ -166,100 +164,8 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 
 
 /**
- * @brief Test whether a particle position lies within an axis-aligned bounding box.
- */
-static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *pos) {
-    return (pos->x >= bbox->min_coords.x && pos->x <= bbox->max_coords.x &&
-            pos->y >= bbox->min_coords.y && pos->y <= bbox->max_coords.y &&
-            pos->z >= bbox->min_coords.z && pos->z <= bbox->max_coords.z);
-}
-
-
-
-/**
- * @brief Internal helper implementation: `CheckAndRemoveOutOfBoundsParticles()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
-                                              PetscInt *removedCountLocal,
-                                              PetscInt *removedCountGlobal,
-                                              const BoundingBox *bboxlist)
-{
-    PetscErrorCode ierr;
-    DM             swarm = user->swarm;
-    PetscInt       nLocalInitial;
-    PetscReal      *pos_p = NULL;
-    PetscInt64     *pid_p = NULL; // For better logging
-    PetscBool      *remove = NULL;
-    PetscInt       local_removed_count = 0;
-    PetscInt       global_removed_count_mpi = 0;
-    PetscMPIInt    rank, size;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-    rank = user->simCtx->rank;
-    size = user->simCtx->size;
-    LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Checking for out-of-bounds particles...", rank);
-
-    // Initialize output parameters to ensure clean state
-    *removedCountLocal = 0;
-    if (removedCountGlobal) *removedCountGlobal = 0;
-
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalInitial); CHKERRQ(ierr);
-
-    // Only proceed if there are particles to check on this rank.
-    // All ranks will still participate in the final collective MPI_Allreduce.
-    if (nLocalInitial > 0) {
-        // Get access to swarm fields once before the loop begins.
-        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
-        ierr = PetscMalloc1(nLocalInitial, &remove); CHKERRQ(ierr);
-
-        // --- Flag escaped particles BACKWARDS, the order the removal below fills their slots in ---
-        for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
-            Cmpnts current_pos = {pos_p[3*p + 0], pos_p[3*p + 1], pos_p[3*p + 2]};
-
-            // Remove the particle unless it is inside ANY of the rank bounding boxes
-            remove[p] = PETSC_TRUE;
-            for (PetscMPIInt proc = 0; proc < size; proc++) {
-                if (IsParticleInBox(&bboxlist[proc], &current_pos)) {
-                    remove[p] = PETSC_FALSE;
-                    break; // Particle is inside a valid domain, stop checking.
-                }
-            }
-
-            if (remove[p]) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing out-of-bounds particle [PID %lld] at local index %" PetscInt_FMT ". Pos: (%g, %g, %g)\n",
-                          rank, (long long)pid_p[p], p, current_pos.x, current_pos.y, current_pos.z);
-                local_removed_count++;
-            }
-        }
-
-        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
-        ierr = RemoveFlaggedParticles(swarm, nLocalInitial, remove, PETSC_TRUE); CHKERRQ(ierr);
-        ierr = PetscFree(remove); CHKERRQ(ierr);
-    } // End of if (nLocalInitial > 0)
-
-    PetscInt nLocalFinal;
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalFinal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Finished removing %" PetscInt_FMT " out-of-bounds particles. Final local size: %" PetscInt_FMT ".\n", rank, local_removed_count, nLocalFinal);
-
-    // --- Synchronize counts across all ranks ---
-    *removedCountLocal = local_removed_count;
-    if (removedCountGlobal) {
-        ierr = MPI_Allreduce(&local_removed_count, &global_removed_count_mpi, 1, MPIU_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRQ(ierr);
-        *removedCountGlobal = global_removed_count_mpi;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " out-of-bounds particles globally.\n", *removedCountGlobal);
-    }
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Internal helper implementation: `CheckAndRemoveLostParticles()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref CheckAndRemoveLostParticles().
+ * @see CheckAndRemoveLostParticles()
  */
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
@@ -354,8 +260,8 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 
 
 /**
- * @brief Internal helper implementation: `SetMigrationRanks()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetMigrationRanks().
+ * @see SetMigrationRanks()
  */
 PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationList, PetscInt migrationCount)
 {
@@ -567,7 +473,7 @@ PetscErrorCode PerformMigration(UserCtx *user, PetscInt *n_survivors)
 }
 
 //-----------------------------------------------------------------------------
-// MODULE (COUNT): Calculates Particle Count Per Cell - REVISED FOR DMDAVecGetArray
+// MODULE (COUNT): Particle count per cell
 //-----------------------------------------------------------------------------
 
 /**
@@ -676,58 +582,18 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = VecZeroEntries(countVec); CHKERRQ(ierr); // Ensure global vector is zeroed before accumulation
     ierr = DMLocalToGlobalBegin(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
     ierr = DMLocalToGlobalEnd(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
-    /* 
-     * OPTIONAL: Synchronize Ghosts for Stencil Operations
-     * If a future function needs to read ParticleCount from neighbor cells (e.g., density smoothing 
-     * or gradient calculations), uncomment the following lines to update the ghost slots 
-     * in user->lParticleCount with the final summed values.
-     * 
-     ierr = UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT); CHKERRQ(ierr);
-     */
+    // The ghost cells of localcountVec still hold only this rank's particles. A caller that
+    // reads neighbour counts refreshes them with UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT).
 
-    // --- Verification Logging ---
-    PetscReal total_counted_particles = 0.0, max_count_in_cell = 0.0;
-    ierr = VecSum(countVec, &total_counted_particles); CHKERRQ(ierr);
-    PetscInt max_idx_global = -1;
-    ierr = VecMax(countVec, &max_idx_global, &max_count_in_cell); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Total counted globally = %.0f, Max count in cell = %.0f\n",
-              total_counted_particles, max_count_in_cell);
-
-    // --- ADD THIS DEBUGGING BLOCK ---
-    if (max_idx_global >= 0) { // Check if VecMax found a location
-         // Need to convert the flat global index back to 3D global index (I, J, K)
-         // Get global grid dimensions (Nodes, NOT Cells IM/JM/KM)
-         PetscInt M, N;
-         M = user->info.mx; N = user->info.my;
-         // Note: Assuming DOF=1 for countVec, index mapping uses node dimensions M,N,P from DMDA creation (IM+1, etc)
-         // Re-check if your DMDA uses cell counts (IM) or node counts (IM+1) for Vec layout. Let's assume Node counts M,N,P.
-         PetscInt Kmax = max_idx_global / (M * N);
-         PetscInt Jmax = (max_idx_global % (M * N)) / M;
-         PetscInt Imax = max_idx_global % M;
-         LOG_ALLOW(GLOBAL, LOG_INFO, "  -> Max count located at global index (I,J,K) = (%d, %d, %d) [Flat index: %d]\n",
-                   (int)Imax, (int)Jmax, (int)Kmax, (int)max_idx_global);
-
-        // Also, let's explicitly check the count at (0,0,0)
-        PetscScalar count_at_origin = 0.0;
-        PetscScalar ***count_arr_for_check;
-        ierr = DMDAVecGetArrayRead(da, countVec, &count_arr_for_check); CHKERRQ(ierr);
-        // Check bounds before accessing - crucial if using global indices
-        PetscInt xs, ys, zs, xm, ym, zm;
-        xs = user->info.xs; ys = user->info.ys; zs = user->info.zs;
-        xm = user->info.xm; ym = user->info.ym; zm = user->info.zm;
-        if (0 >= xs && 0 < xs+xm && 0 >= ys && 0 < ys+ym && 0 >= zs && 0 < zs+zm) {
-             count_at_origin = count_arr_for_check[0][0][0]; // Access using global index (0,0,0)
-        } else {
-            // Origin is not on this rank (relevant for parallel, but check anyway)
-            count_at_origin = -999.0; // Indicate it wasn't accessible locally
-        }
-        ierr = DMDAVecRestoreArrayRead(da, countVec, &count_arr_for_check); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  -> Count at global index (0,0,0) = %.1f\n", count_at_origin);
-
-    } else {
-         LOG_ALLOW(GLOBAL, LOG_WARNING, "  -> VecMax did not return a location for the maximum value.\n");
+    // The total and the fullest cell are reductions, so they are taken only when they are
+    // printed; the level and the allow-list are the same on every rank.
+    if (LOG_LEVEL_ADMITS(LOG_INFO)) {
+        PetscReal total_counted_particles = 0.0, max_count_in_cell = 0.0;
+        ierr = VecSum(countVec, &total_counted_particles); CHKERRQ(ierr);
+        ierr = VecMax(countVec, NULL, &max_count_in_cell); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Total counted globally = %.0f, Max count in cell = %.0f\n",
+                  total_counted_particles, max_count_in_cell);
     }
-    // --- END DEBUGGING BLOCK ---
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle counting complete.\n");
 
@@ -786,8 +652,8 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 }
 
 /**
- * @brief Internal helper implementation: `PreCheckAndResizeSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PreCheckAndResizeSwarm().
+ * @see PreCheckAndResizeSwarm()
  */
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
                                       PetscInt ti,
@@ -824,8 +690,8 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
 
 
 /**
- * @brief Internal helper implementation: `GetLocalPIDSnapshot()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GetLocalPIDSnapshot().
+ * @see GetLocalPIDSnapshot()
  */
 PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[], 
                                    PetscInt n_local, 
@@ -877,8 +743,8 @@ PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[],
 }
 
 /**
- * @brief Internal helper implementation: `AddToMigrationList()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref AddToMigrationList().
+ * @see AddToMigrationList()
  */
 PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
                                   PetscInt *capacity_p,
@@ -927,7 +793,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
     (*count_p)++;
     
 
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -968,8 +834,8 @@ static PetscErrorCode VerifyNewcomersAgainstPIDs(UserCtx *user, PetscInt n_befor
 }
 
 /**
- * @brief Internal helper implementation: `FlagNewcomersForLocation()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FlagNewcomersForLocation().
+ * @see FlagNewcomersForLocation()
  */
 PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, PetscInt first_newcomer)
 {
@@ -1000,8 +866,8 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, Petsc
 }
 
 /**
- * @brief Internal helper implementation: `MigrateRestartParticlesUsingCellID()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref MigrateRestartParticlesUsingCellID().
+ * @see MigrateRestartParticlesUsingCellID()
  */
 PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 {
@@ -1079,6 +945,11 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 
 /**
  * @brief Select the rank whose gathered bounding box is the best owner candidate for a particle.
+ * @details Tries this rank, then the neighbour across the face, edge or corner the particle
+ *          left by (from the stored DMDAGetNeighbors() ranks, wrapped on periodic axes), then,
+ *          because the bounding boxes of curvilinear subdomains overlap, the face neighbours
+ *          on each axis it left by, and finally every rank. The guess only picks where the
+ *          walk runs next; the walk decides the owner.
  * @note Testing status:
  *       The current direct surface reaches this helper through orchestrator
  *       tests, but direction-complete immediate-neighbor coverage and the
@@ -1090,105 +961,75 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
                                                  const BoundingBox *bboxlist,
                                                  PetscMPIInt *guess_rank_out)
 {
-    PetscMPIInt     rank, size;
-    const RankNeighbors *neighbors = &user->neighbors; // Use a direct pointer for clarity
-    const BoundingBox   *localBBox = &user->bbox;
+    PetscMPIInt          rank, size;
+    const PetscMPIInt   *neighbor;
+    const BoundingBox   *localBBox;
 
     PetscFunctionBeginUser;
 
     PROFILE_HELPER_BEGIN;
 
-    // --- 1. Input Validation and Setup ---
     if (!user || !particle || !guess_rank_out || !bboxlist) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null pointer provided to GuessParticleOwnerWithBBox.");
     }
-    if (!localBBox|| !neighbors) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Required user->bboxl or user->neighbors is not initialized.");
-    }
-
+    neighbor  = user->neighbors.rank;
+    localBBox = &user->bbox;
     rank = user->simCtx->rank;
     size = user->simCtx->size;
-    
+
     *guess_rank_out = MPI_PROC_NULL; // Default to "not found"
 
     // The caller reports the guess's result in the particle's locate line.
-    // --- Step 0: Check if the particle is inside the CURRENT rank's bounding box FIRST. ---
-    // This handles the common case of initial placement where a particle is "lost" but physically local.
+    // --- 1. This rank: initial placement leaves particles "lost" that are physically local ---
     if (IsParticleInBox(localBBox, &particle->loc)) {
-      *guess_rank_out = rank;
-
-      PROFILE_FUNCTION_END;
-      PetscFunctionReturn(0); // Found it, we're done.
+        *guess_rank_out = rank;
+        PROFILE_HELPER_END;
+        PetscFunctionReturn(0);
     }
-    // --- 2. Fast Path: Check Immediate Neighbors Based on Exit Direction ---
-    
-    // Determine likely exit direction(s) to prioritize neighbor check
-    PetscBool exit_xm = particle->loc.x < localBBox->min_coords.x;
-    PetscBool exit_xp = particle->loc.x > localBBox->max_coords.x;
-    PetscBool exit_ym = particle->loc.y < localBBox->min_coords.y;
-    PetscBool exit_yp = particle->loc.y > localBBox->max_coords.y;
-    PetscBool exit_zm = particle->loc.z < localBBox->min_coords.z;
-    PetscBool exit_zp = particle->loc.z > localBBox->max_coords.z;
 
-    // The neighbour across the face, edge or corner it left by: this rank's process-grid
-    // coordinates stepped by the exit direction on every axis, in FindOwnerOfCell's numbering.
-    {
-        const PetscInt  *procs = user->RankCellInfoProcs;
-        const PetscBool  low[3] = {exit_xm, exit_ym, exit_zm}, high[3] = {exit_xp, exit_yp, exit_zp};
-        PetscInt         c[3] = {rank % procs[0], (rank / procs[0]) % procs[1], rank / (procs[0] * procs[1])};
-        PetscBool        exists = PETSC_TRUE;
-        for (PetscInt d = 0; d < 3; ++d) {
-            c[d] += high[d] ? 1 : (low[d] ? -1 : 0);
-            if (c[d] < 0 || c[d] >= procs[d]) {
-                if (user->boundary_faces[2 * d].mathematical_type != PERIODIC) exists = PETSC_FALSE;
-                c[d] = (c[d] + procs[d]) % procs[d];
-            }
-        }
-        if (exists) {
-            const PetscMPIInt across = (PetscMPIInt)(c[0] + procs[0] * (c[1] + procs[1] * c[2]));
-            if (across != rank && IsParticleInBox(&bboxlist[across], &particle->loc)) {
-                *guess_rank_out = across;
-                PROFILE_FUNCTION_END;
+    // --- 2. The neighbour across the face, edge or corner it left by ---
+    const PetscBool low[3]  = {particle->loc.x < localBBox->min_coords.x, particle->loc.y < localBBox->min_coords.y,
+                               particle->loc.z < localBBox->min_coords.z};
+    const PetscBool high[3] = {particle->loc.x > localBBox->max_coords.x, particle->loc.y > localBBox->max_coords.y,
+                               particle->loc.z > localBBox->max_coords.z};
+    PetscInt step[3];
+    for (PetscInt d = 0; d < 3; ++d) step[d] = high[d] ? 1 : (low[d] ? -1 : 0);
+    const PetscMPIInt across = neighbor[RANK_NEIGHBOR_INDEX(step[0], step[1], step[2])];
+    if (across != MPI_PROC_NULL && across != rank && IsParticleInBox(&bboxlist[across], &particle->loc)) {
+        *guess_rank_out = across;
+        PROFILE_HELPER_END;
+        PetscFunctionReturn(0);
+    }
+
+    // --- 3. Bounding boxes of curvilinear subdomains overlap, so a face neighbour may hold a
+    //        particle that left across an edge or corner. A face neighbour that is the one
+    //        tried above, which it is when only one axis was left by, is not tried again. ---
+    for (PetscInt d = 0; d < 3; ++d) {
+        for (PetscInt side = -1; side <= 1; side += 2) {
+            PetscInt offset[3] = {0, 0, 0};
+            if (!((side < 0) ? low[d] : high[d])) continue;
+            offset[d] = side;
+            const PetscMPIInt face = neighbor[RANK_NEIGHBOR_INDEX(offset[0], offset[1], offset[2])];
+            if (face != MPI_PROC_NULL && face != across && IsParticleInBox(&bboxlist[face], &particle->loc)) {
+                *guess_rank_out = face;
+                PROFILE_HELPER_END;
                 PetscFunctionReturn(0);
             }
         }
     }
 
-    if (exit_xm && neighbors->rank_xm != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xm], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_xm;
-    } else if (exit_xp&& neighbors->rank_xp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_xp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_xp;
-    } else if (exit_ym && neighbors->rank_ym != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_ym], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_ym;
-    } else if (exit_yp && neighbors->rank_yp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_yp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_yp;
-    } else if (exit_zm && neighbors->rank_zm != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_zm], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_zm;
-    } else if (exit_zp && neighbors->rank_zp != MPI_PROC_NULL && IsParticleInBox(&bboxlist[neighbors->rank_zp], &particle->loc)) {
-        *guess_rank_out = neighbors->rank_zp;
-    }
-    // Bounding boxes of curvilinear subdomains overlap, so a face neighbour may hold a particle
-    // that left across an edge; any other owner is found by the scan below.
-
-    if (*guess_rank_out != MPI_PROC_NULL) {
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0); // Found it, we're done.
-    }
-
-    // --- 3. Robust Fallback: Check All Other Ranks ---
-    // If we get here, the particle was not in any of the immediate face neighbors' boxes.
+    // --- 4. Every other rank ---
     for (PetscMPIInt r = 0; r < size; ++r) {
-        if (r == rank) continue; // Don't check ourselves.
-
+        if (r == rank) continue;
         if (IsParticleInBox(&bboxlist[r], &particle->loc)) {
             *guess_rank_out = r;
-            PROFILE_FUNCTION_END;
-            PetscFunctionReturn(0); // Found it, we're done.
+            PROFILE_HELPER_END;
+            PetscFunctionReturn(0);
         }
     }
 
     // Not in any rank's bounding box: guess_rank_out stays MPI_PROC_NULL, signaling failure to the caller.
-    PROFILE_FUNCTION_END;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
