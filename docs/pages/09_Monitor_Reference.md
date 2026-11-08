@@ -250,7 +250,7 @@ logging:
   The same lines print for every particle at `VERBOSE` when the stage's function is
   allow-listed; tracing selects a few particles at any level instead. With `trace_particles`
   empty a stage pays one compare per particle. It needs particles: validation refuses it when
-  `models.physics.particles.count` is 0. The banner lists the traced IDs.
+  the case seeds none and no inlet injects any. The banner lists the traced IDs.
 - The progress line follows every completed step with the slowest rank's mean wall time per
   step, the time left at that rate, and, with particles, the run's lost-particle count. At
   `WARNING` and above each update is its own line, so a scheduler log keeps the history.

@@ -2713,7 +2713,7 @@ def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
     case_path = tmp_path / "case_restart_warn.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
     case_text = case_text.replace("  start_step: 0\n", "  start_step: 5\n")
-    case_text = case_text.replace("      count: 0\n", "      count: 10\n")
+    case_text = case_text.replace("    particles: {}\n", "    particles: {particles_per_cell: 1}\n")
     case_path.write_text(case_text, encoding="utf-8")
 
     result = run_picurv(

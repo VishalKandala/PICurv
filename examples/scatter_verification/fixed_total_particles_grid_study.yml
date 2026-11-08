@@ -6,23 +6,24 @@ base_configs:
 
 study_type: "grid_independence"
 
+# particles_per_cell falls with the cells so every grid holds 32,768 particles.
 parameter_sets:
   - case.grid.programmatic_settings.im: 8
     case.grid.programmatic_settings.jm: 8
     case.grid.programmatic_settings.km: 8
-    case.models.physics.particles.count: 32768
+    case.models.physics.particles.particles_per_cell: 64
   - case.grid.programmatic_settings.im: 16
     case.grid.programmatic_settings.jm: 16
     case.grid.programmatic_settings.km: 16
-    case.models.physics.particles.count: 32768
+    case.models.physics.particles.particles_per_cell: 8
   - case.grid.programmatic_settings.im: 32
     case.grid.programmatic_settings.jm: 32
     case.grid.programmatic_settings.km: 32
-    case.models.physics.particles.count: 32768
+    case.models.physics.particles.particles_per_cell: 1
   - case.grid.programmatic_settings.im: 64
     case.grid.programmatic_settings.jm: 64
     case.grid.programmatic_settings.km: 64
-    case.models.physics.particles.count: 32768
+    case.models.physics.particles.particles_per_cell: 0.125
 
 metrics:
   - name: final_relative_L2_error

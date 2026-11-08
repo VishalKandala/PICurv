@@ -64,8 +64,7 @@ grid:
 
 models:
   physics:
-    particles:
-      count: 0
+    particles: {}
     turbulence:
       # This configuration, with the Werner wall model below, reproduces Lee & Moser's
       # Re_tau = 1000 channel (measurement wmles-channel-retau1000-werner-2026-10-09).

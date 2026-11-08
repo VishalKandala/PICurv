@@ -65,8 +65,7 @@ grid:
 
 models:
   physics:
-    particles:
-      count: 0
+    particles: {}
     turbulence:
       les:
         enabled: false

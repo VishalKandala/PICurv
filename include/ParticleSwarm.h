@@ -233,7 +233,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx);
 /**
  * @brief Read the inlets that inject particles from the options database.
  * @details Reads `-particle_inlet_count`, and for each inlet `n`, `-particle_inlet_<n>_face`,
- *          `-particle_inlet_<n>_number_density` (particles per m^3, an expression in `t`) and the
+ *          `-particle_inlet_<n>_particles_per_cell` (the mean per cell of the grid, an expression in `t`) and the
  *          field plan under `particle_inlet_<n>_fields`.
  * @param[in,out] simCtx Context receiving the inlets; none when the count is absent or zero.
  * @return PetscErrorCode 0 on success.

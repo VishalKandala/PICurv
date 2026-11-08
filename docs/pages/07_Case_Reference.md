@@ -254,7 +254,7 @@ Common mappings:
 - the coefficient log is set in `monitor.yml -> diagnostics.les` (@ref p09_les_diagnostics_sub); `physics.turbulence.les.diagnostics` is its deprecated former location, still read with a warning
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
 - `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only); a physical length, divided by `length_ref`
-- `physics.particles.count` -> `-numParticles`
+- `physics.particles.particles_per_cell` -> `-numParticles`, resolved from the grid (`Volume`: per cell; `Surface`: per face cell of the first `INLET` face); `physics.particles.count` -> `-numParticles` for `PointSource` only (@ref p45_contract_sec)
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - `physics.particles.random_seed` -> `-particle_random_seed` (integer `0`..`2147483647`, default `12345`)
@@ -1247,7 +1247,7 @@ inlet and outlet handlers remove, the periodic handlers wrap, and an inlet with 
 reflects. `wrap` is accepted on `PERIODIC` faces only, and they accept nothing else. See
 @ref p44_ppol_sec.
 
-Optional key `particles: {number_density, fields}` on an `INLET` face of block 0 injects
+Optional key `particles: {particles_per_cell, fields}` on an `INLET` face of block 0 injects
 particles every step, in proportion to the flow. See @ref p45_inject_sec.
 
 Pulsatile expression example:

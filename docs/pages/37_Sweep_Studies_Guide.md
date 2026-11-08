@@ -69,7 +69,7 @@ Each combination yields a generated run with fully materialized config set.
 
 Parameter keys can target nested case/solver/monitor/post values such as:
 
-- `case.models.physics.particles.count`
+- `case.models.physics.particles.particles_per_cell`
 - `case.run_control.dt_physical`
 
 Not every study should use the default `msd_final` metric shorthand. Cases that

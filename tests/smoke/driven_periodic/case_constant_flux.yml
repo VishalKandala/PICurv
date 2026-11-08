@@ -66,8 +66,7 @@ models:
   domain:
     blocks: 1
   physics:
-    particles:
-      count: 0
+    particles: {}
     turbulence:
       les:
         enabled: false

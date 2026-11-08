@@ -40,7 +40,7 @@ models:
     particles:
       # 50 particles per cell (the paper's NPG), seeded uniformly in volume:
       # 50 x 4 x 48 x 36.
-      count: 345600
+      particles_per_cell: 50
       init_mode: Volume
       restart_mode: init
       random_seed: 12345

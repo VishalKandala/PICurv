@@ -87,7 +87,7 @@ models:
         enabled: false      # No LES -- analytical flow only
 
     particles:
-      count: 10000          # Moderate ensemble for interpolation error statistics
+      particles_per_cell: 0.3125          # Moderate ensemble for interpolation error statistics
       init_mode: "Volume"   # Random seeding throughout the domain
       restart_mode: "init"
 

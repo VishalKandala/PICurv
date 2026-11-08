@@ -15,7 +15,7 @@ Particle controls live in:
 models:
   physics:
     particles:
-      count: 50000
+      particles_per_cell: 10          # Surface | Volume; a PointSource takes count instead
       init_mode: "Surface"            # Surface | Volume | PointSource
       restart_mode: "init"            # init | load
       random_seed: 12345              # optional; seeds placement and Brownian draws
@@ -29,7 +29,13 @@ models:
 
 Mapping to control flags:
 
-- `count` -> `-numParticles`
+- `particles_per_cell` -> `-numParticles`, resolved by the CLI from the grid: `Volume` seeds it
+  times the cells of block 0, `Surface` it times the face cells of the first `INLET` face in
+  face order (`-Xi +Xi -Eta +Eta -Zeta +Zeta`), the face the solver seeds. It is a mean: the
+  particles are spread by volume or area, so on a graded grid small cells hold fewer, and the
+  solver logs the per-cell minimum, mean and maximum. It may be fractional; the total is rounded.
+- `count` -> `-numParticles`, for `PointSource` only, which has no cells; `Volume` and `Surface`
+  refuse it
 - `init_mode` -> `-pinit`
 - `restart_mode` -> `-particle_restart_mode`
 - `random_seed` -> `-particle_random_seed` (optional; integer `0`..`2147483647`, default `12345`)
@@ -54,7 +60,7 @@ sources:
 models:
   physics:
     particles:
-      count: 50000
+      particles_per_cell: 10
       init_mode: "Volume"
       fields:
         Psi: mixture                              # a name under sources:
@@ -135,7 +141,7 @@ and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expre
 **Status: experimental.** See the evidence below; nothing has been measured at scale.
 
 An INLET face adds particles every step when its entry carries `particles`. Nothing needs
-to be seeded, so `count: 0` starts a flow-through case from an empty domain, and two inlets
+to be seeded, so a case without `particles_per_cell` starts flow-through from an empty domain, and two inlets
 can carry different values:
 
 ```yaml
@@ -145,15 +151,17 @@ boundary_conditions:
   handler: prescribed_velocity
   source: {components: normal, expression: "6*y*(1-y)"}
   particles:
-    number_density: 2.0e6                # particles per m^3 of entering fluid; a number or an expression in t
+    particles_per_cell: 10               # mean per cell the entering fluid carries; a number or an expression in t
     fields: {Psi: {expression: "y"}}     # optional; the case's particles.fields otherwise
 ```
 
 **Rate.** Each particle stands for an equal share of fluid, so particles enter in proportion
-to the flow. A face cell with volume flux `Q` receives on average `n Q dt` particles per step
-and none where the flow leaves, which keeps the number density `n` under any velocity
-profile. Expect a steady population of about `n V` for a domain of volume `V`, after one
-flow-through time; the particles per cell follow from the grid, so small cells hold fewer.
+to the flow. `particles_per_cell` is a mean over the grid: with `N` cells of total volume `V`
+it is the number density `n = particles_per_cell N / V`, the density a `Volume` seed of the
+same value has. A face cell with volume flux `Q` receives on average `n Q dt` particles per
+step and none where the flow leaves, which keeps that density under any velocity profile.
+Expect a steady population of about `particles_per_cell N` after one flow-through time; on a
+graded grid small cells hold fewer.
 Nothing adds or removes particles to even this out, so recirculating or stagnant regions
 fed slowly by the inlet can run short. `particles_per_cell_min` in `search_metrics.csv` shows it.
 
@@ -201,7 +209,7 @@ checks counts and identities against the formula at 2 and 4 ranks. Integration v
 particle and `Psi` budgets every step.
 
 Mapping to control flags: `-particle_inlet_count`, then per inlet `-particle_inlet_<n>_face`,
-`-particle_inlet_<n>_number_density` and the field options under `-particle_inlet_<n>_fields_*`.
+`-particle_inlet_<n>_particles_per_cell` and the field options under `-particle_inlet_<n>_fields_*`.
 
 @section p45_mode_values_sec 2. Accepted `init_mode` Values
 
@@ -234,8 +242,8 @@ Enum mapping in C (`ParticleInitializationType`):
 from a boundary into the interior. Choose `Volume` when you want the interior populated
 from the start.
 
-**Parameters it owns.** The particle count; the surface is derived from the configured
-inlet face.
+**Parameters it owns.** `particles_per_cell`, per face cell of the inlet face; the surface is
+derived from the configured inlet face.
 
 **Interactions.** Needs an identifiable inlet face; the startup log reports which face
 was chosen. Particles are stratified over the inlet area (section 4): each inlet cell holds
@@ -268,7 +276,7 @@ planar faces. Counts per cell are stratified, not Poisson-distributed.
 **When to choose it.** Whenever you want interior statistics immediately - dispersion,
 mixing, or any case where waiting for particles to arrive from a boundary wastes the run.
 
-**Parameters it owns.** The particle count.
+**Parameters it owns.** `particles_per_cell`, the mean over the grid's cells.
 
 **Interactions.** Particle density is uniform per unit physical volume on any grid.
 Particles are stratified over the volume (section 4): each cell holds its share of the

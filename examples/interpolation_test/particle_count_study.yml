@@ -7,7 +7,7 @@ base_configs:
 study_type: "sensitivity"
 
 parameters:
-  case.models.physics.particles.count: [50000, 500000, 5000000]
+  case.models.physics.particles.particles_per_cell: [1.5, 15, 150]
 
 metrics:
   - name: max_L2_error

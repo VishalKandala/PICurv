@@ -20,7 +20,7 @@ grid:
 models:
   physics:
     dimensionality: 3D
-    particles: {count: 0, restart_mode: init}
+    particles: {restart_mode: init}
 boundary_conditions:
 - face: -Xi
   type: WALL

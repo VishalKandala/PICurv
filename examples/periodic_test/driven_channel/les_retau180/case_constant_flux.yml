@@ -54,8 +54,7 @@ grid:
 
 models:
   physics:
-    particles:
-      count: 0
+    particles: {}
     turbulence:
       # The constant model applies constant_cs from the first step and allocates no
       # coefficient field; this variant has not been compared with a reference.

@@ -11,10 +11,10 @@
 #
 #  STUDY KNOBS:
 #  - grid.programmatic_settings.im/jm/km
-#  - models.physics.particles.count
+#  - models.physics.particles.particles_per_cell
 #
-#  The bundled studies use explicit parameter_sets so grid size and particle
-#  count remain coupled in meaningful ways (fixed total particles or fixed PPC).
+#  The bundled studies use explicit parameter_sets so grid size and particles
+#  per cell remain coupled in meaningful ways (fixed total particles or fixed PPC).
 # ==============================================================================
 
 properties:
@@ -57,7 +57,7 @@ models:
         enabled: false
 
     particles:
-      count: 32768
+      particles_per_cell: 8
       init_mode: "Volume"
       restart_mode: "init"
 

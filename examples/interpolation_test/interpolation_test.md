@@ -66,14 +66,14 @@ Output files:
 ## Particle Count Study
 
 This example also supports a particle-count sensitivity study where only
-`models.physics.particles.count` changes while the grid, timestep, analytical
+`models.physics.particles.particles_per_cell` changes while the grid, timestep, analytical
 field, and interpolation method remain fixed.
 
-Recommended counts:
+Recommended values, on the 32^3 cells:
 
-- 50,000
-- 500,000
-- 5,000,000
+- 1.5 (49,152 particles)
+- 15 (491,520)
+- 150 (4,915,200)
 
 ### Option A: Local Parameter Study
 
@@ -84,18 +84,18 @@ different case variants. Keep:
 - `Standard_Output.yml`
 - `interpolation_analysis.yml`
 
-unchanged, and change only `models.physics.particles.count` in copied case
+unchanged, and change only `models.physics.particles.particles_per_cell` in copied case
 files such as:
 
-- `interpolation_test_np_50000.yml`
-- `interpolation_test_np_500000.yml`
-- `interpolation_test_np_5000000.yml`
+- `interpolation_test_ppc_1.5.yml`
+- `interpolation_test_ppc_15.yml`
+- `interpolation_test_ppc_150.yml`
 
 Example local command:
 
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
-  --case  examples/interpolation_test/interpolation_test_np_50000.yml \
+  --case  examples/interpolation_test/interpolation_test_ppc_1.5.yml \
   --solver examples/interpolation_test/Analytical.yml \
   --monitor examples/interpolation_test/Standard_Output.yml \
   --post examples/interpolation_test/interpolation_analysis.yml
@@ -139,9 +139,9 @@ Submit immediately:
 
 What to inspect before submission:
 
-- `studies/<study_id>/cases/case_####/` contains one generated case per count
+- `studies/<study_id>/cases/case_####/` contains one generated case per value
 - each generated `interpolation_test.yml` has the intended
-  `models.physics.particles.count`
+  `models.physics.particles.particles_per_cell`
 - generated scheduler scripts under `studies/<study_id>/scheduler/`
 
 What to inspect after completion:

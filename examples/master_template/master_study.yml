@@ -49,11 +49,11 @@ parameters:
 #   - case.grid.programmatic_settings.im: 32
 #     case.grid.programmatic_settings.jm: 32
 #     case.grid.programmatic_settings.km: 64
-#     case.models.physics.particles.count: 50000
+#     case.models.physics.particles.particles_per_cell: 8
 #   - case.grid.programmatic_settings.im: 64
 #     case.grid.programmatic_settings.jm: 64
 #     case.grid.programmatic_settings.km: 128
-#     case.models.physics.particles.count: 400000
+#     case.models.physics.particles.particles_per_cell: 1
 
 # Metrics are read from each finished case's run directory. Omitting the block
 # means [msd_final].

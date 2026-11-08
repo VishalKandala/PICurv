@@ -278,7 +278,11 @@ models:
                          # component is held fixed; the grid is unchanged)
 
     particles:
-      count: 0             # [Integer] -> -numParticles
+      # particles_per_cell: 10  # [Positive Number, optional] Mean particles per cell seeded at t = 0:
+      #                         # Volume seeds this times the cells, spread by volume; Surface this
+      #                         # many per face cell of the first INLET face. Omit to seed none.
+      #                         # -> -numParticles (resolved from the grid by the CLI)
+      # count: 1000             # [Integer] PointSource only, which has no cells: the particles at the point
       init_mode: "Surface" # [string] -> -pinit. Options: "Surface", "Volume", "PointSource"
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
       random_seed: 12345   # [Integer, optional] -> -particle_random_seed. 0..2147483647; seeds
@@ -478,8 +482,10 @@ boundary_conditions:
     handler: prescribed_velocity
     source: {components: normal, expression: 1.5}  # Speed into the domain [m/s]
     # particles:                      # Optional: inject particles here every step, in proportion to the flow.
-    #   number_density: 2.0e6         #   Particles per m^3 of entering fluid, number or expression in t
-    #                                 #   -> -particle_inlet_<n>_number_density. particle_policy defaults to reflect.
+    #   particles_per_cell: 10        #   Mean per cell of the grid the entering fluid carries, number or
+    #                                 #   expression in t; the solver converts it with the grid's cells and
+    #                                 #   volume. -> -particle_inlet_<n>_particles_per_cell. particle_policy
+    #                                 #   defaults to reflect.
     #   fields: {Psi: {expression: "y"}}  # Values at the face; default models.physics.particles.fields
     # constraints:                    # Optional, applied in this order:
     #   scale: 1.0                    #   multiplies the source

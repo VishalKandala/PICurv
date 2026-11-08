@@ -6,25 +6,21 @@ base_configs:
 
 study_type: "grid_independence"
 
-# Keep approximately 8 particles per cell so the study isolates how the grid
-# itself changes the scatter metric while particle occupancy stays comparable.
+# The base case's particles_per_cell: 8 holds on every grid, so the study isolates how
+# the grid itself changes the scatter metric while particle occupancy stays the same.
 parameter_sets:
   - case.grid.programmatic_settings.im: 8
     case.grid.programmatic_settings.jm: 8
     case.grid.programmatic_settings.km: 8
-    case.models.physics.particles.count: 4096
   - case.grid.programmatic_settings.im: 16
     case.grid.programmatic_settings.jm: 16
     case.grid.programmatic_settings.km: 16
-    case.models.physics.particles.count: 32768
   - case.grid.programmatic_settings.im: 32
     case.grid.programmatic_settings.jm: 32
     case.grid.programmatic_settings.km: 32
-    case.models.physics.particles.count: 262144
   - case.grid.programmatic_settings.im: 64
     case.grid.programmatic_settings.jm: 64
     case.grid.programmatic_settings.km: 64
-    case.models.physics.particles.count: 2097152
 
 metrics:
   - name: final_relative_L2_error

@@ -1043,7 +1043,7 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
 {
     const char *options = "-particle_inlet_count 1\n"
                           "-particle_inlet_0_face 4\n"
-                          "-particle_inlet_0_number_density \"2000.0 + 0*t\"\n"
+                          "-particle_inlet_0_particles_per_cell \"16.0 + 0*t\"\n"
                           "-particle_inlet_0_fields_count 1\n"
                           "-particle_inlet_0_fields_0_name Psi\n"
                           "-particle_inlet_0_fields_0_expr_0 \"z + 1\"\n";
@@ -1082,7 +1082,7 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
     for (PetscInt j = 1; j <= ny; ++j)
     for (PetscInt i = 1; i <= nx; ++i) {
         const PetscInt64 id = simCtx->step * faces + face_start + (i - 1) + (PetscInt64)nx * (j - 1);
-        const PetscReal  mean = PetscMax(TEST_INLET_FLUX(i, j), 0.0) * 2000.0 * L * L * L * simCtx->dt;
+        const PetscReal  mean = PetscMax(TEST_INLET_FLUX(i, j), 0.0) * 16.0 * (PetscReal)(nx * ny * nz) * simCtx->dt; /* a unit box */
         const PetscReal  whole = PetscFloorReal(mean);
         const uint64_t   hash = PicurvDrawHash((PetscInt64)simCtx->particleRandomSeed, PICURV_DRAW_SPACE_INLET, 0, id, 0);
         const PetscInt   n = (PetscInt)whole + ((PicurvUnitFromHash(hash) < mean - whole) ? 1 : 0);
@@ -1352,7 +1352,7 @@ static PetscErrorCode TestSourceDrawsAreKeyedOnTheGrid(void)
  */
 static PetscErrorCode TestInjectionRefusesAFaceThatIsNotAnInlet(void)
 {
-    const char    *options = "-particle_inlet_count 1\n-particle_inlet_0_face 0\n-particle_inlet_0_number_density \"1.0\"\n";
+    const char    *options = "-particle_inlet_count 1\n-particle_inlet_0_face 0\n-particle_inlet_0_particles_per_cell \"1.0\"\n";
     SimCtx        *simCtx = NULL;
     UserCtx       *user = NULL;
     char           tmpdir[PETSC_MAX_PATH_LEN];

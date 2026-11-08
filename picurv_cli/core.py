@@ -9051,8 +9051,8 @@ _CASE_SCHEMA = {
     ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
-    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed",
-                                         "fields", "iem_constant"},
+    ("models", "physics", "particles"): {"count", "particles_per_cell", "init_mode", "restart_mode", "point_source",
+                                         "random_seed", "fields", "iem_constant"},
     ("models", "physics", "particles", "fields"): None,
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     # 'rans' stays listed so a case carrying it gets the planned-status refusal rather
@@ -9081,8 +9081,8 @@ _CASE_SCHEMA = {
     ("boundary_conditions", "[]", "params"): None,
     ("boundary_conditions", "[]", "[]", "params"): None,
     ("boundary_conditions", "[]", "constraints"): None,
-    ("boundary_conditions", "[]", "particles"): {"number_density", "fields"},
-    ("boundary_conditions", "[]", "[]", "particles"): {"number_density", "fields"},
+    ("boundary_conditions", "[]", "particles"): {"particles_per_cell", "number_density", "fields"},
+    ("boundary_conditions", "[]", "[]", "particles"): {"particles_per_cell", "number_density", "fields"},
     ("boundary_conditions", "[]", "particles", "fields"): None,
     ("boundary_conditions", "[]", "[]", "particles", "fields"): None,
     ("boundary_conditions", "[]", "[]", "constraints"): None,
@@ -9431,6 +9431,7 @@ INPUT_QUANTITIES = {
     ("case", "models", "physics", "dimensionality"): NOT_A_QUANTITY,
     ("case", "models", "physics", "fsi"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "count"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "particles_per_cell"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "init_mode"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "restart_mode"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "random_seed"): NOT_A_QUANTITY,
@@ -10430,6 +10431,27 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: {e}")
             pinit_code = None
 
+        # Cell seeding is sized per cell; only a point source, which has no cells, takes a count.
+        if pinit_code in PARTICLE_CELL_SEEDED_MODES and 'count' in particles_cfg:
+            errors.append(f"  {case_path}: models.physics.particles.count is retired for {init_mode_raw} seeding: "
+                          "give particles_per_cell, the mean number per cell (per inlet face cell for Surface), "
+                          "or omit both to seed none.")
+        if pinit_code == 2 and 'particles_per_cell' in particles_cfg:
+            errors.append(f"  {case_path}: a PointSource has no cells: give models.physics.particles.count, "
+                          "not particles_per_cell.")
+        if 'particles_per_cell' in particles_cfg:
+            per_cell = particles_cfg['particles_per_cell']
+            if isinstance(per_cell, bool) or not isinstance(per_cell, (int, float)) or not per_cell > 0:
+                errors.append(f"  {case_path}: models.physics.particles.particles_per_cell must be a positive "
+                              f"number (got {per_cell!r}).")
+            elif pinit_code in PARTICLE_CELL_SEEDED_MODES:
+                try:
+                    if particle_seed_count(case_cfg, case_path) < 1:
+                        errors.append(f"  {case_path}: models.physics.particles.particles_per_cell {per_cell} "
+                                      "seeds no particle on this grid.")
+                except ValueError as e:
+                    errors.append(f"  {case_path}: {e}")
+
         # One base seed drives every particle random stream - initial placement, inlet
         # re-placement, and Brownian motion - so identical inputs on the same rank count
         # reproduce. Omitted, the runtime uses 12345.
@@ -10449,14 +10471,14 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         elif 'restart_mode' not in particles_cfg:
             try:
                 start_step = int(rc.get('start_step', 0))
-                particle_count = int(particles_cfg.get('count', 0) or 0)
+                particle_count = particle_seed_count(case_cfg, case_path)
             except (TypeError, ValueError):
                 start_step = 0
                 particle_count = 0
             if start_step > 0 and particle_count > 0:
                 warnings.append(
                     f"{case_path}: models.physics.particles.restart_mode is omitted for a particle restart "
-                    "(run_control.start_step > 0, count > 0). C will default to 'load'."
+                    "(run_control.start_step > 0, with particles seeded). C will default to 'load'."
                 )
 
         if pinit_code == 2:
@@ -10476,9 +10498,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             except ValueError as e:
                 errors.append(f"  {case_path}: {e}")
                 particle_fields = []
-            if particle_fields and int(particles_cfg.get('count', 0) or 0) <= 0 and not case_injects_particles(case_cfg):
+            if particle_fields and not case_seeds_particles(case_cfg) and not case_injects_particles(case_cfg):
                 errors.append(f"  {case_path}: models.physics.particles.fields needs particles "
-                              "(count > 0, or an inlet with particles).")
+                              "(particles_per_cell, a PointSource count, or an inlet with particles).")
             if particle_fields and ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
                 errors.append(
                     f"  {case_path}: models.physics.particles.fields cannot be combined with "
@@ -10835,10 +10857,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         try:
             physics_cfg = (case_cfg.get('models') or {}).get('physics') if isinstance(case_cfg, dict) and isinstance(case_cfg.get('models') or {}, dict) else None
             particles_cfg = physics_cfg.get('particles') if isinstance(physics_cfg, dict) else None
-            particle_count = particles_cfg.get('count', 0) if isinstance(particles_cfg, dict) else 0
-            if resolve_traced_particle_ids(monitor_cfg) and not particle_count and not case_injects_particles(case_cfg):
+            if (resolve_traced_particle_ids(monitor_cfg) and not case_seeds_particles(case_cfg)
+                    and not case_injects_particles(case_cfg)):
                 errors.append(f"  {monitor_path}: 'logging.trace_particles' needs particles; "
-                              "models.physics.particles.count is 0 and no inlet injects any.")
+                              "the case seeds none and no inlet injects any.")
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
         particle_console_freq = io_cfg.get('particle_console_output_frequency')
@@ -12814,7 +12836,7 @@ def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
     if requirement == "particles":
         particles = physics.get("particles", {}) or {}
         try:
-            return int(particles.get("count", 0) or 0) > 0 or case_injects_particles(case_cfg)
+            return case_seeds_particles(case_cfg) or case_injects_particles(case_cfg)
         except (TypeError, ValueError):
             return False
     turbulence = physics.get("turbulence", {}) or {}
@@ -14753,23 +14775,77 @@ def particle_field_control_lines(prefix: str, fields: list, where: str) -> list:
 
 def normalize_inlet_particles(spec, case_cfg: dict, where: str) -> dict:
     """!
-    @brief Validate a `particles` mapping on an inlet: its number density and its field values.
+    @brief Validate a `particles` mapping on an inlet: its particles per cell and its field values.
     @param[in] spec The mapping.
     @param[in] case_cfg Case configuration holding `sources:` and `constants:`.
     @param[in] where Configuration path of the mapping.
-    @return `{"number_density": text, "fields": list}`; fields empty when the case's apply.
+    @return `{"particles_per_cell": text, "fields": list}`; fields empty when the case's apply.
     @throws ValueError on an unknown key or an invalid value.
     """
-    if not isinstance(spec, dict) or "number_density" not in spec or set(spec) - {"number_density", "fields"}:
-        raise ValueError(f"{where} takes number_density and optionally fields.")
+    if isinstance(spec, dict) and "number_density" in spec:
+        raise ValueError(f"{where}.number_density is retired: give particles_per_cell, the mean number per cell "
+                         "the entering fluid carries; the solver converts it with the grid's cells and volume.")
+    if not isinstance(spec, dict) or "particles_per_cell" not in spec or set(spec) - {"particles_per_cell", "fields"}:
+        raise ValueError(f"{where} takes particles_per_cell and optionally fields.")
     ic_gen = load_ic_generator_module()
-    density = spec["number_density"]
-    if isinstance(density, (int, float)) and not isinstance(density, bool) and density <= 0:
-        raise ValueError(f"{where}.number_density must be positive (got {density}).")
-    text = _source_text(density, _source_constants({}, case_cfg, where, ic_gen), ("t",),
-                        f"{where}.number_density", ic_gen)
+    per_cell = spec["particles_per_cell"]
+    if isinstance(per_cell, (int, float)) and not isinstance(per_cell, bool) and per_cell <= 0:
+        raise ValueError(f"{where}.particles_per_cell must be positive (got {per_cell}).")
+    text = _source_text(per_cell, _source_constants({}, case_cfg, where, ic_gen), ("t",),
+                        f"{where}.particles_per_cell", ic_gen)
     fields = normalize_particle_fields(spec["fields"], case_cfg, f"{where}.fields") if spec.get("fields") else []
-    return {"number_density": text, "fields": fields}
+    return {"particles_per_cell": text, "fields": fields}
+
+
+#: Seeding modes whose particles fill cells, and so take `particles_per_cell`.
+PARTICLE_CELL_SEEDED_MODES = (0, 1)
+
+
+def case_seeds_particles(case_cfg: dict) -> bool:
+    """!
+    @brief Whether the case seeds particles at t = 0, read from the inputs alone, with no grid.
+    @param[in] case_cfg Parsed case configuration.
+    @return True for a positive `particles_per_cell` or `count`; validation reports invalid values.
+    """
+    particles = (((case_cfg or {}).get("models") or {}).get("physics") or {}).get("particles") or {}
+    try:
+        return float(particles.get("particles_per_cell", 0) or 0) > 0 or int(particles.get("count", 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def particle_seed_count(case_cfg: dict, case_path: str, staged_grid: "str | None" = None) -> int:
+    """!
+    @brief The number of particles seeded at t = 0, from `particles_per_cell` or a point source's `count`.
+    @details `Volume` seeds `particles_per_cell` times the cells of block 0, spread by volume, and
+             `Surface` that many per face cell of the first INLET face in face order, the face the
+             solver seeds. A point source has no cells and takes `count`.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Path to case.yml, for case-relative grid paths.
+    @param[in] staged_grid Already staged `inputs/grid/grid.run`, if any.
+    @return The seed count; 0 when nothing is seeded.
+    @throws ValueError when the count cannot be resolved.
+    """
+    particles = (((case_cfg or {}).get("models") or {}).get("physics") or {}).get("particles") or {}
+    if "particles_per_cell" not in particles:
+        return int(particles.get("count", 0) or 0)
+    per_cell = float(particles["particles_per_cell"])
+    dims = resolve_grid_node_dims(case_cfg, case_path, staged_grid)
+    if not dims:
+        raise ValueError("models.physics.particles.particles_per_cell needs the grid's cell counts, which this "
+                         "grid source does not declare before it is generated.")
+    cells = [n - 1 for n in dims[0]]
+    if normalize_particle_init_mode(particles.get("init_mode", "Surface")) == 0:
+        raw_blocks = case_cfg.get("boundary_conditions") or []
+        entries = raw_blocks[0] if raw_blocks and isinstance(raw_blocks[0], list) else raw_blocks
+        inlets = [e.get("face") for e in entries if isinstance(e, dict) and e.get("type") == "INLET"]
+        order = ["-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"]
+        faces = [f for f in order if f in inlets]
+        if not faces:
+            raise ValueError("Surface seeding needs an INLET face on block 0.")
+        axis = order.index(faces[0]) // 2
+        cells[axis] = 1
+    return int(round(per_cell * cells[0] * cells[1] * cells[2]))
 
 
 def case_injects_particles(case_cfg: dict) -> bool:
@@ -15365,8 +15441,10 @@ def required_petsc_index_bytes(case_cfg: dict, case_path: str, monitor_cfg: "dic
     @param[in] staged_grid Staged PICGRID, if any.
     @return (4 or 8, reason).
     """
-    particles = (((case_cfg.get("models") or {}).get("physics") or {}).get("particles") or {})
-    particle_entries = int(particles.get("count", 0) or 0) * PARTICLE_FIELD_MAX_COMPONENTS
+    try:
+        particle_entries = particle_seed_count(case_cfg, case_path, staged_grid) * PARTICLE_FIELD_MAX_COMPONENTS
+    except ValueError:
+        particle_entries = 0  # validation reports an unresolvable count
     statistics = bool(monitor_cfg) and normalize_field_statistics_config(monitor_cfg, case_cfg)["enabled"]
     components = STATISTICS_FIELD_COMPONENTS if statistics else GRID_FIELD_MAX_COMPONENTS
     grid_entries = max([(im + 1) * (jm + 1) * (km + 1) * components
@@ -16480,17 +16558,18 @@ def resolve_particle_console_output_frequency(io_cfg: dict) -> "int | None":
         return io_cfg['particle_console_output_frequency']
     return io_cfg.get('data_output_frequency')
 
-def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
+def parse_and_add_model_flags(case_cfg: dict, control_lines: list, particle_count: int = 0):
     """!
     @brief Parses the 'models' section of case.yml and adds corresponding C-solver flags.
     @param[in] case_cfg The parsed case.yml configuration dictionary.
     @param[out] control_lines A list of strings to which C-flags will be appended.
+    @param[in] particle_count The seed count, resolved from `particles_per_cell` or a point source's `count`.
     """
     models = case_cfg.get('models', {})
     FLAG_MAP = {
         'domain': {'blocks': '-nblk'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
-        'physics.particles': {'count': '-numParticles', 'random_seed': '-particle_random_seed'},
+        'physics.particles': {'random_seed': '-particle_random_seed'},
     }
     for section_path, flags in FLAG_MAP.items():
         current_level = models
@@ -16501,6 +16580,8 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
                     control_lines.append(f"{flag} {format_flag_value(current_level[yaml_key])}")
         except KeyError: continue
 
+    if particle_count:
+        control_lines.append(f"-numParticles {particle_count}")
     if 'source_random_seed' in case_cfg:
         control_lines.append(f"-source_random_seed {format_flag_value(case_cfg['source_random_seed'])}")
 
@@ -16512,7 +16593,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     if models.get('physics', {}).get('dimensionality') == '2D':
         control_lines.append("-TwoD 1")
     
-    particles_cfg = models.get('physics', {}).get('particles', {})
+    particles_cfg = models.get('physics', {}).get('particles') or {}
     p_init_mode_str = particles_cfg.get('init_mode', 'Surface')
     pinit_code = normalize_particle_init_mode(p_init_mode_str)
     control_lines.append(f"-pinit {pinit_code}")
@@ -17251,7 +17332,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         where = f"boundary_conditions {entry['face']}.particles"
         prefix = f"-particle_inlet_{index}"
         control_lines.append(f"{prefix}_face {list(BC_FACE_MAP.values()).index(entry['face'])}")
-        control_lines.append(f"{prefix}_number_density \"{expression_control_value(entry['particles']['number_density'], where)}\"")
+        control_lines.append(f"{prefix}_particles_per_cell \"{expression_control_value(entry['particles']['particles_per_cell'], where)}\"")
         if entry["particles"]["fields"]:
             control_lines.extend(particle_field_control_lines(f"{prefix}_fields", entry["particles"]["fields"], f"{where}.fields"))
 
@@ -17262,7 +17343,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg),
         explicit=configs.get("decomposition"), cluster_cfg=configs.get("cluster_cfg"))
     
-    parse_and_add_model_flags(case_cfg, control_lines)
+    parse_and_add_model_flags(case_cfg, control_lines, particle_seed_count(
+        case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")))
     append_les_diagnostics_flags(resolve_les_diagnostics(case_cfg, configs.get('monitor') or {}), control_lines)
     
     if 'solver_parameters' in case_cfg:
@@ -22254,12 +22336,8 @@ def _build_summary_context(run_dir: str) -> dict:
 
     particle_count_cfg = None
     if case_cfg:
-        particle_count_cfg = (
-            case_cfg.get("models", {})
-            .get("physics", {})
-            .get("particles", {})
-            .get("count")
-        )
+        particles = case_cfg.get("models", {}).get("physics", {}).get("particles", {})
+        particle_count_cfg = particles.get("particles_per_cell", particles.get("count"))
 
     return {
         "run_dir": run_dir,

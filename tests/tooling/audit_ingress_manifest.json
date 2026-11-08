@@ -186,6 +186,6 @@
     "-%_%_name",
     "-%_count",
     "-particle_inlet_%_face",
-    "-particle_inlet_%_number_density"
+    "-particle_inlet_%_particles_per_cell"
   ]
 }

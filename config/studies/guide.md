@@ -11,7 +11,7 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 - execution controls for scheduler array behavior.
 
 Parameter keys may target nested config values such as
-`case.models.physics.particles.count`. Use `parameters` for cross-product sweeps and
+`case.models.physics.particles.particles_per_cell`. Use `parameters` for cross-product sweeps and
 `parameter_sets` when you need explicit coupled bundles instead.
 Within `parameters`, you can also map a parent key (e.g. `case.run_control`) to a list of dicts;
 each dict is applied wholesale as one group, forming a cross-product with other parameters

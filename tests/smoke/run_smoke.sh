@@ -719,7 +719,7 @@ grid["im"] = 8
 grid["jm"] = 8
 grid["km"] = 16
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 
 solver_cfg.setdefault("operation_mode", {})
@@ -979,7 +979,7 @@ grid["jm"] = 8
 grid["km"] = 16
 
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 
 solver_cfg.setdefault("operation_mode", {})
@@ -1062,7 +1062,7 @@ grid["jm"] = 8
 grid["km"] = 16
 
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 
 # An analytically prescribed field is evaluated pointwise, so the same grid point
@@ -1212,7 +1212,7 @@ case_cfg["run_control"]["start_step"] = 0
 case_cfg["run_control"]["total_steps"] = 3
 case_cfg["run_control"]["dt_physical"] = 0.001
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
@@ -1273,7 +1273,7 @@ case_cfg["run_control"]["start_step"] = 0
 case_cfg["run_control"]["total_steps"] = 3
 case_cfg["run_control"]["dt_physical"] = 0.001
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
@@ -1465,11 +1465,11 @@ case_cfg, solver_cfg, monitor_cfg, post_cfg = (configs[p] for p in (case_path, s
 
 case_cfg["run_control"].update(start_step=0, total_steps=8, dt_physical=0.04)
 case_cfg["grid"]["programmatic_settings"].update(im=8, jm=8, km=16, zMaxs=0.2)
-case_cfg["models"]["physics"]["particles"] = {"count": 0, "restart_mode": "init"}
+case_cfg["models"]["physics"]["particles"] = {"restart_mode": "init"}
 case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 case_cfg["properties"]["initial_conditions"] = {"source": {"components": "cartesian", "expression": {"u": 0.0, "v": 0.0, "w": 1.0}}}
 inlet = next(entry for entry in case_cfg["boundary_conditions"] if entry["type"] == "INLET")
-inlet["particles"] = {"number_density": 2000.0, "fields": {"Psi": {"expression": "1.0"}}}
+inlet["particles"] = {"particles_per_cell": 0.390625, "fields": {"Psi": {"expression": "1.0"}}}
 solver_cfg.setdefault("operation_mode", {})["eulerian_field_source"] = "analytical"
 monitor_cfg.setdefault("io", {}).update(data_output_frequency=4, particle_console_output_frequency=0)
 post_cfg.setdefault("run_control", {}).update(start_step=0, end_step=8, step_interval=4)
@@ -1536,7 +1536,7 @@ grid["im"] = 8
 grid["jm"] = 8
 grid["km"] = 16
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["boundary_conditions"] = [
     {"face": "-Xi", "type": "WALL", "handler": "noslip"},
     {"face": "+Xi", "type": "WALL", "handler": "noslip"},
@@ -1604,7 +1604,7 @@ grid["km"] = 16
 case_cfg.setdefault("models", {}).setdefault("domain", {})
 case_cfg["models"]["domain"]["blocks"] = 1
 case_cfg.setdefault("models", {}).setdefault("physics", {})
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["boundary_conditions"] = [
     {"face": "-Xi", "type": "WALL", "handler": "noslip"},
     {"face": "+Xi", "type": "WALL", "handler": "noslip"},
@@ -1859,7 +1859,7 @@ case["grid"]["programmatic_settings"].update(
 for bc in case["boundary_conditions"]:
     if bc["face"] == "+Eta":
         bc["handler"] = "free_slip" if half else "noslip"
-case["models"]["physics"]["particles"] = {"count": 0}
+case["models"]["physics"]["particles"] = {}
 case["models"]["physics"]["turbulence"] = (
     {"les": {"enabled": True, "model": "constant_smagorinsky", "constant_cs": 0.1}}
     if variant == "les" else {"les": False})
@@ -1959,7 +1959,8 @@ def case(cfg):
     cfg["grid"]["programmatic_settings"].update({"im": 24, "jm": 24, "km": 24})
     particles = cfg["models"]["physics"]["particles"]
     particles.pop("point_source", None)
-    particles.update({"init_mode": "Volume", "restart_mode": mode})
+    particles.pop("count", None)
+    particles.update({"init_mode": "Volume", "restart_mode": mode, "particles_per_cell": 64 / 24**3})
 def post(cfg):
     cfg["run_control"].update({"start_step": start, "end_step": start + total})
     cfg.pop("statistics_pipeline", None)  # msd needs a point source; this check compares positions
@@ -2331,7 +2332,7 @@ with open(case_path, "r", encoding="utf-8") as f:
 case_cfg["run_control"].update({"start_step": 0, "total_steps": int(steps), "dt_physical": float(dt)})
 grid = case_cfg["grid"]["programmatic_settings"]
 grid["im"], grid["jm"], grid["km"] = 8, 8, 16
-case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["particles"] = {}
 case_cfg["models"]["physics"]["turbulence"] = {"les": False}
 with open(case_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(case_cfg, f, sort_keys=False)
@@ -3314,7 +3315,7 @@ case_cfg = yaml.safe_load((case_dir / "case.yml").read_text())
 case_cfg["run_control"]["total_steps"] = 2
 case_cfg["properties"]["initial_conditions"]["source"]["params"]["spectrum"].update(k0=2.0, k_cut=4.0)
 # Particles crossing the rank boundary exercise the migration-newcomer cross-check too.
-case_cfg["models"]["physics"]["particles"].update(count=2000, init_mode="Volume")
+case_cfg["models"]["physics"]["particles"].update(particles_per_cell=2000 / 16**3, init_mode="Volume")
 (case_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False))
 solver_cfg = yaml.safe_load((case_dir / "solver.yml").read_text())
 solver_cfg["poisson_solver"]["multigrid"]["levels"] = 2

@@ -48,8 +48,7 @@ grid:
 # --- Model Selection ---
 models:
   physics:
-    particles:
-      count: 0 # No particles for this case
+    particles: {}
 
 # --- Boundary Conditions ---
 # Simple inlet/outlet flow in Z-direction, with walls on X and Y faces.

@@ -1147,9 +1147,10 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 /** @brief One inlet face that injects particles. */
 struct ParticleInlet {
     BCFace             face;
-    PicurvExpression  *number_density; /**< Particles per m^3 of entering fluid, in `t`. */
-    ParticleFieldPlan *plan;           /**< This inlet's field values; NULL uses the case's. */
-    SeedingCellTable   table;          /**< The owned cells on the face; built at the first injection. */
+    PicurvExpression  *particles_per_cell; /**< Mean particles per cell the entering fluid carries, in `t`. */
+    ParticleFieldPlan *plan;               /**< This inlet's field values; NULL uses the case's. */
+    SeedingCellTable   table;              /**< The owned cells on the face; built at the first injection. */
+    PetscReal          cells_per_volume;   /**< The grid's cells over its volume, set with the table. */
     PetscBool          table_built;
 };
 
@@ -1185,10 +1186,10 @@ PetscErrorCode ParticleInletsCreate(SimCtx *simCtx)
         PetscCheck(found && face >= 0 && face < PARTICLE_INLET_FACE_COUNT, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "%s must name a face from 0 to %d.", option, PARTICLE_INLET_FACE_COUNT - 1);
         inlet->face = (BCFace)face;
-        PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_inlet_%" PetscInt_FMT "_number_density", n));
+        PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_inlet_%" PetscInt_FMT "_particles_per_cell", n));
         PetscCall(PetscOptionsGetString(NULL, NULL, option, text, sizeof(text), &found));
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "%s is missing.", option);
-        PetscCall(PicurvExpressionCompile(text, names, 1, PETSC_FALSE, &inlet->number_density));
+        PetscCall(PicurvExpressionCompile(text, names, 1, PETSC_FALSE, &inlet->particles_per_cell));
         PetscCall(PetscSNPrintf(option, sizeof(option), "particle_inlet_%" PetscInt_FMT "_fields", n));
         PetscCall(ParticleFieldPlanCreate(option, &inlet->plan));
         PetscCheck(!inlet->plan || !VerificationScalarOverrideActive(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
@@ -1209,7 +1210,7 @@ PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx)
     PROFILE_HELPER_BEGIN;
     for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
         struct ParticleInlet *inlet = &simCtx->particleInlets[n];
-        PetscCall(PicurvExpressionDestroy(&inlet->number_density));
+        PetscCall(PicurvExpressionDestroy(&inlet->particles_per_cell));
         PetscCall(ParticleFieldPlanDestroy(&inlet->plan));
         if (inlet->table_built) PetscCall(FreeSeedingCellTable(&inlet->table));
     }
@@ -1255,10 +1256,11 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(PicurvExpressionEvaluate(inlet->number_density, &event->physical_time, NULL, &density));
+    PetscCall(PicurvExpressionEvaluate(inlet->particles_per_cell, &event->physical_time, NULL, &density));
     PetscCheck(!PetscIsInfOrNanReal(density) && density >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-               "The number density of inlet %s is %g at t = %g; it must be finite and not negative.",
+               "The particles per cell of inlet %s is %g at t = %g; it must be finite and not negative.",
                BCFaceToString(inlet->face), (double)density, (double)event->physical_time);
+    density *= inlet->cells_per_volume; /* particles per unit of the solver's volume */
 
     // --- 1. How many enter each face cell: the mean's integer part, and one more by chance ---
     PetscCall(PetscMalloc5(n_cells, &count, n_cells, &cell_id, n_cells, &travel, n_cells, &normal_of, n_cells, &flux_bound));
@@ -1272,14 +1274,14 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         f[normal] = negative ? 0 : nodes[normal] - 2;
         const Cmpnts    u = ucont[f[2]][f[1]][f[0]], m = metric[f[2]][f[1]][f[0]];
         const PetscReal flux = PetscMax(sign * ((normal == 0) ? u.x : (normal == 1) ? u.y : u.z), 0.0);
-        const PetscReal expected = density * L_ref * L_ref * L_ref * flux * simCtx->dt;
+        const PetscReal expected = density * flux * simCtx->dt;
         const PetscReal whole = PetscFloorReal(expected);
         /* u_n dt along the inward unit normal: (flux / |m|) dt (sign m / |m|). */
         const PetscReal along_m = sign * flux * simCtx->dt / (m.x * m.x + m.y * m.y + m.z * m.z);
 
         PetscCheck(whole < (PetscReal)PARTICLE_INLET_PIDS_PER_CELL, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                    "Inlet %s would inject %g particles through one face cell in one step; the limit is %" PetscInt64_FMT
-                   ". Lower number_density or the time step.", BCFaceToString(inlet->face), (double)expected,
+                   ". Lower particles_per_cell or the time step.", BCFaceToString(inlet->face), (double)expected,
                    PARTICLE_INLET_PIDS_PER_CELL - 1);
         cell_id[c] = first_id + PicurvFaceCellId(nodes, inlet->face, origin[a], origin[b]);
         count[c] = (PetscInt)whole;
@@ -1441,6 +1443,20 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
             PetscCall(BuildSeedingCellTable(user, coor, (PetscInt)inlet->face, 0, PETSC_TRUE, &inlet->table));
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
+            {
+                /* particles_per_cell is a mean over the grid: cells over volume makes it a density. */
+                const DMDALocalInfo *info = &user->info;
+                const PetscReal   ***aj = NULL;
+                PetscReal            volume = 0.0;
+                PetscCall(DMDAVecGetArrayRead(user->da, user->Aj, (void *)&aj));
+                for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, info->mz - 1); ++k)
+                for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, info->my - 1); ++j)
+                for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, info->mx - 1); ++i)
+                    volume += 1.0 / aj[k][j][i];
+                PetscCall(DMDAVecRestoreArrayRead(user->da, user->Aj, (void *)&aj));
+                PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &volume, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+                inlet->cells_per_volume = (PetscReal)(info->mx - 2) * (info->my - 2) * (info->mz - 2) / volume;
+            }
             inlet->table_built = PETSC_TRUE;
         }
         PetscCall(InjectAtInlet(user, inlet, &event, first_id, velocity, local[n]));
