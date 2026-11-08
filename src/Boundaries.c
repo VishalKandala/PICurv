@@ -1389,15 +1389,11 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
     PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Cell field-ID array cannot be NULL.");
 
-    periodic_i =
-        user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC ||
-        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC;
-    periodic_j =
-        user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC ||
-        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC;
-    periodic_k =
-        user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC ||
-        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC;
+    {
+        PetscBool periodic[3];
+        GetPeriodicAxes(user->simCtx, periodic);
+        periodic_i = periodic[0]; periodic_j = periodic[1]; periodic_k = periodic[2];
+    }
 
     if (!periodic_i && !periodic_j && !periodic_k) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
@@ -1516,18 +1512,16 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
 {
     DMDALocalInfo info;
     Cmpnts ***array;
-    const BCFace negative_faces[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
-    const BCFace positive_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    PetscBool periodic[3];
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     info = user->info;
     PetscCall(DMDAVecGetArray(user->fda, local_vec, &array));
 
+    GetPeriodicAxes(user->simCtx, periodic);
     for (PetscInt axis = 0; axis < 3; axis++) {
-        const PetscBool active =
-            user->boundary_faces[negative_faces[axis]].mathematical_type == PERIODIC ||
-            user->boundary_faces[positive_faces[axis]].mathematical_type == PERIODIC;
+        const PetscBool active = periodic[axis];
         Cmpnts translation;
 
         if (!active) continue;
@@ -1976,18 +1970,14 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update)
 {
     PetscErrorCode ierr;
-    PetscBool is_any_periodic = PETSC_FALSE;
+    PetscBool periodic[3], is_any_periodic;
 
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
 
-    for (int i = 0; i < 6; i++) {
-        if (user->boundary_faces[i].mathematical_type == PERIODIC) {
-            is_any_periodic = PETSC_TRUE;
-            break;
-        }
-    }
+    GetPeriodicAxes(user->simCtx, periodic);
+    is_any_periodic = (PetscBool)(periodic[0] || periodic[1] || periodic[2]);
 
     if (!is_any_periodic) {
         LOG_ALLOW(GLOBAL,LOG_TRACE, "No periodic boundaries defined; skipping ApplyPeriodicBCs.\n");
@@ -3046,10 +3036,20 @@ PetscErrorCode FinalizeCellFieldsFromBoundaryValues(UserCtx *user)
     ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
     ierr = SynchronizePeriodicCellFields(user, 2, cell_fields); CHKERRQ(ierr);
 
-    // Synchronize explicitly because the periodic helper is a no-op when every
-    // direction is non-periodic.
-    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+    // With a periodic axis that synchronisation ends with the local vectors current: it
+    // updates them after the corner writes, and each direction's plane refresh restores what
+    // its transfer changed. With none it does nothing, so they are updated here.
+    {
+        PetscBool periodic[3];
+        GetPeriodicAxes(user->simCtx, periodic);
+        if (!periodic[0] && !periodic[1] && !periodic[2]) {
+            ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+        } else {
+            ierr = VerifyLocalGhostsCurrent(user, FIELD_ID_UCAT, "after the periodic synchronisation"); CHKERRQ(ierr);
+            ierr = VerifyLocalGhostsCurrent(user, FIELD_ID_P, "after the periodic synchronisation"); CHKERRQ(ierr);
+        }
+    }
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
@@ -3176,15 +3176,16 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 {
     PetscErrorCode ierr;
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
-    PetscBool any_periodic = PETSC_FALSE;
+    PetscBool periodic[3], any_periodic;
     PetscInt  passes = user->simCtx->wallfunction ? 3 : 1;
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL,LOG_TRACE,"Boundary Condition Application begins.\n");
 
+    GetPeriodicAxes(user->simCtx, periodic);
+    any_periodic = (PetscBool)(periodic[0] || periodic[1] || periodic[2]);
     for (int face = 0; face < 6; face++) {
-        if (user->boundary_faces[face].mathematical_type == PERIODIC) any_periodic = PETSC_TRUE;
         if (user->boundary_faces[face].handler && user->boundary_faces[face].handler->needs_repeat_pass) passes = 3;
     }
     // STEP 1: The boundary passes. Three let information propagate between coupled boundaries,
