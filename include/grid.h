@@ -292,6 +292,9 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result);
  *          they minimise the largest finest-level share, by dynamic programming over (rank,
  *          spare points used so far): O(ranks x spare^2) once per axis at setup. A rank may take
  *          several: unrefined, 128 cells on 4 ranks split 32/32/32/34 nodes, 32 cells each.
+ *          The share counted is the particles' (GetOwnedCellRange); cell-centred Eulerian storage
+ *          puts cell c at node c + 1, so it differs by one cell at each end and is not balanced
+ *          with it (GitHub #21).
  * @param[in]  coarse_nodes Coarsest-level DA points on the axis.
  * @param[in]  fine_cells   Finest-level physical cells on the axis.
  * @param[in]  refinements  Refinements of the axis between the coarsest and finest levels.

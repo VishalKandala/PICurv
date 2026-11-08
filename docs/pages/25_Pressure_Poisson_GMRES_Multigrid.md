@@ -380,7 +380,13 @@ layout carries 1.42 times the mean cell count on its busiest rank. Grid setup
 several on one rank if that helps, to minimise the largest finest-level share: 33, 32, 32
 and 31 for the same grid, the best that refinement's boundary spacing allows. A rank owns
 the cells whose lower-corner node it owns and the last node is padding, so at a single
-level the same 128 cells split 32 each, with the last rank holding 34 nodes. It applies when the full rank layout is known, which `picurv run` always
+level the same 128 cells split 32 each, with the last rank holding 34 nodes. That count is the
+particles' ownership rule (`GetOwnedCellRange`). Cell-centred Eulerian fields store cell `c` at
+node `c + 1`, so the two rules differ by one cell at each end of an axis and no split balances
+both: at a single level the Eulerian cells split 31/32/32/33, and at three or four levels, where
+refinement fixes the boundaries, the Eulerian cells split 32 each and the particle cells
+33/32/32/31. A 4 x 4 x 4 layout then carries up to (33/32)^3, about 1.10, on its busiest rank in
+whichever phase is unbalanced (GitHub #21). It applies when the full rank layout is known, which `picurv run` always
 supplies; an axis under `semi_coarsening` is not refined and keeps PETSc's split.
 
 Two consequences worth planning around:
