@@ -1,0 +1,1 @@
+- The pressure-solver page now explains that particle and flow cells are assigned to ranks by rules one cell apart at each end of an axis, so on 4 x 4 x 4-type layouts one of them carries up to about 10% more work on its busiest rank (GitHub #21).
