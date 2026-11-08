@@ -96,7 +96,8 @@ PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename
  *
  * Collective: all ranks must enter it. Particles are numbered in rank order and every
  * pps->particle_output_freq-th one is kept; each rank copies only its own kept particles
- * (positions, the requested fields, connectivity and offsets), with no gather.
+ * (positions, the requested fields, connectivity and offsets), with no gather. With no
+ * particles, only `meta->fileType` is set and nothing is allocated.
  *
  * @param[in]  user      The UserCtx containing the DMSwarm.
  * @param[in]  pps       The PostProcessParams struct for configuration.

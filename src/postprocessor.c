@@ -7,14 +7,16 @@
  * a recipe selected, writing one output family per enabled pipeline.
  */
 
-#include "postprocessor.h" // Use our new header
+#include "postprocessor.h"
 #include "statistics_accumulator.h"
 #include "statistics_window.h"
 
 
 /**
- * @brief Internal helper implementation: `SetupPostProcessSwarm()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref SetupPostProcessSwarm().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see SetupPostProcessSwarm()
  */
 PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 {
@@ -162,10 +164,9 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
             ierr = ComputeQCriterion(user); CHKERRQ(ierr);
         }
         else if (strcasecmp(keyword, "DimensionalizeAllLoadedFields") == 0) {
-            /* Retired stage. Loaded fields are now scaled as they are read, which is the
-             * only point that knows which fields a step actually loaded; scaling them here
-             * too would scale them twice. Recipes locked before the change still carry
-             * the token, so it is accepted and does nothing. */
+            /* Accepted and does nothing: loaded fields are scaled as they are read, the only
+             * point that knows which fields a step loaded, so scaling them here would scale
+             * them twice. Locked recipes may still carry the token. */
         }
         else if (strcasecmp(keyword, "NormalizeRelativeField") == 0) {
             if (!args_str) SETERRQ(PETSC_COMM_SELF, 1, "NormalizePressure requires the pressure field name (e.g., 'P') as an argument.");
@@ -290,7 +291,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 
 
 /**
- * @brief Internal helper: writes one window's or ensemble's derived output for a step.
+ * @brief Writes one window's or ensemble's derived output for a step.
  * @details Local to this translation unit. The `.vts` carries every requested output
  *          pointwise; with `csv` and homogeneous directions selected, a profile CSV
  *          carries them merged over those directions.
@@ -301,7 +302,7 @@ static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pp
                                             PetscBool want_vtk, PetscBool want_csv, PetscInt ti)
 {
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
+    PROFILE_FUNCTION_BEGIN;
     if (want_vtk) {
         VTKMetaData meta;
         PetscInt derived_count = 0;
@@ -344,12 +345,12 @@ static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pp
                                                  pps->field_statistics_homogeneous,
                                                  pps->field_statistics_output_prefix, ti));
     }
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper: fills one recipe ensemble's storage from the loaded step.
+ * @brief Fills one recipe ensemble's storage from the loaded step.
  * @details Local to this translation unit. A particle ensemble takes each cell's
  *          particles as its samples; an Eulerian one takes the cell's own state as its
  *          single sample, which is one accepted state of unit weight. Storage holds
@@ -364,13 +365,13 @@ static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *p
     PetscReal scale[PICURV_WINDOW_MAX_REQUESTS];
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
+    PROFILE_FUNCTION_BEGIN;
     if (pps->field_statistics_ensemble_from_particles[index]) {
         PetscCall(PicurvWindowStorageFromParticles(user, definition, storage));
     } else {
         PetscCall(PicurvWindowAccumulate(user, definition, storage, 1.0));
     }
-    if (!pps->dimensionalize) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    if (!pps->dimensionalize) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     for (PetscInt f = 0; f < definition->field_count; ++f) {
         PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->fields[f].field_id),
                                             &scale[f], NULL, 0));
@@ -386,7 +387,7 @@ static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *p
                                             &second, NULL, 0));
         PetscCall(VecScale(storage->cm[pair], 1.0 / (first * second)));
     }
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -579,8 +580,10 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 }
 
 /**
- * @brief Internal helper implementation: `GlobalStatisticsPipeline()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GlobalStatisticsPipeline().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see GlobalStatisticsPipeline()
  */
 PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti)
 {
@@ -646,18 +649,15 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
-    PetscInt n_global;
-    ierr = DMSwarmGetSize(user->swarm, &n_global); CHKERRQ(ierr);
-    if (n_global == 0) {
+    ierr = PetscMemzero(&part_meta, sizeof(VTKMetaData)); CHKERRQ(ierr);
+
+    // --- 1. PREPARE (Collective Call); an empty swarm allocates nothing and writes no file ---
+    ierr = PrepareOutputParticleData(user, pps, &part_meta, &n_total_particles_before_subsample); CHKERRQ(ierr);
+    if (n_total_particles_before_subsample == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Swarm is empty for ti=%" PetscInt_FMT ". Skipping particle file write.\n", ti);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
-
-    ierr = PetscMemzero(&part_meta, sizeof(VTKMetaData)); CHKERRQ(ierr);
-
-    // --- 1. PREPARE (Collective Call) ---
-    ierr = PrepareOutputParticleData(user, pps, &part_meta, &n_total_particles_before_subsample); CHKERRQ(ierr);
 
     // --- 2. WRITE (Collective) and CLEANUP ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting VTP Particle File Writing for ti = %" PetscInt_FMT " (writing %" PetscInt_FMT " of %" PetscInt_FMT " particles) ---\n",
@@ -683,8 +683,10 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 }
 
 /**
- * @brief Internal helper implementation: `ResolvePostProcessingSteps()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ResolvePostProcessingSteps().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see ResolvePostProcessingSteps()
  */
 PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **steps, PetscInt *count)
 {

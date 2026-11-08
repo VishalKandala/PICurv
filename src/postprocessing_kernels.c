@@ -698,8 +698,10 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 // Particle Post-Processing Kernels
 // ===========================================================================
 /**
- * @brief Internal helper implementation: `ComputeSpecificKE()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeSpecificKE().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeSpecificKE()
  */
 PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, const char* ske_field)
 {
@@ -738,8 +740,10 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
 }
 
 /**
- * @brief Internal helper implementation: `ComputeDisplacement()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ComputeDisplacement().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeDisplacement()
  */
 PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
 {

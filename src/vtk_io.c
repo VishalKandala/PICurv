@@ -8,7 +8,7 @@
 static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
 static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
-static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start[3], PetscInt size[3],
+static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start_out[3], PetscInt size_out[3],
                                          PetscScalar **out);
 
 //================================================================================
@@ -109,34 +109,34 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
 
 /**
  * @brief Open a VTK XML document and write its file-level header.
+ * @details `meta->fileType` is VTK_STRUCTURED or VTK_POLYDATA; CreateVTKFileFromMetadata(), the
+ *          only caller, rejects any other type before calling.
  */
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
     PROFILE_FUNCTION_BEGIN;
-    if (meta->fileType == VTK_STRUCTURED) {
-        PROFILE_FUNCTION_END;
-        return WriteVTSXMLHeader(fp, meta, boffset);
-    } else if (meta->fileType == VTK_POLYDATA) {
-        PROFILE_FUNCTION_END;
-        return WriteVTPXMLHeader(fp, meta, boffset);
-    }
+    const PetscErrorCode ierr = (meta->fileType == VTK_STRUCTURED) ? WriteVTSXMLHeader(fp, meta, boffset)
+                                                                   : WriteVTPXMLHeader(fp, meta, boffset);
     PROFILE_FUNCTION_END;
-    return PETSC_ERR_ARG_WRONG;
+    return ierr;
 }
 
 /**
  * @brief Copy this rank's part of the output grid out of a DMDA global vector.
  * @details The output grid is the first `extent` nodes on each axis (the last DA node is a
  *          dummy). This rank's part is its owned box clipped to that grid, copied point by
- *          point (i fastest) with the vector's components interleaved.
+ *          point (i fastest) with the vector's components interleaved. `start_out` and `size_out`
+ *          receive the box's first point and extent on each axis; either may be NULL.
  */
-static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start[3], PetscInt size[3],
+static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start_out[3], PetscInt size_out[3],
                                          PetscScalar **out)
 {
     DM                 dm = NULL;
     DMDALocalInfo      info;
     const PetscScalar *values = NULL;
-    PetscInt           p = 0;
+    PetscInt           p = 0, start_box[3], size_box[3];
+    PetscInt          *start = start_out ? start_out : start_box;
+    PetscInt          *size = size_out ? size_out : size_box;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -252,13 +252,14 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
 //================================================================================
 
 /**
- * @brief Internal helper implementation: `PrepareOutputCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PrepareOutputCoordinates().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see PrepareOutputCoordinates()
  */
 PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords, PetscInt* out_nx, PetscInt* out_ny, PetscInt* out_nz,
                                         PetscInt* out_npoints, PetscInt local_start[3], PetscInt local_size[3])
 {
-    Vec      coords_global;
     PetscInt IM, JM, KM;
 
     PetscFunctionBeginUser;
@@ -269,8 +270,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
     *out_nz = KM - 1;
     *out_npoints = (*out_nx) * (*out_ny) * (*out_nz);
     const PetscInt extent[3] = {*out_nx, *out_ny, *out_nz};
-    coords_global = user->Coor;
-    PetscCall(CopyOwnedOutputBox(coords_global, extent, local_start, local_size, out_coords));
+    PetscCall(CopyOwnedOutputBox(user->Coor, extent, local_start, local_size, out_coords));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -360,7 +360,7 @@ PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename
 
 PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, PetscInt num_components, PetscScalar** out_data)
 {
-    PetscInt IM, JM, KM, dof, start[3], size[3];
+    PetscInt IM, JM, KM, dof;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -369,15 +369,17 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
     PetscCheck(dof == num_components, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
                "Field has %" PetscInt_FMT " components per node, not the %" PetscInt_FMT " requested.", dof, num_components);
     const PetscInt extent[3] = {IM - 1, JM - 1, KM - 1};
-    PetscCall(CopyOwnedOutputBox(field_vec, extent, start, size, out_data));
+    PetscCall(CopyOwnedOutputBox(field_vec, extent, NULL, NULL, out_data));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
 /**
- * @brief Internal helper implementation: `PrepareOutputParticleData()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref PrepareOutputParticleData().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see PrepareOutputParticleData()
  */
 PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, VTKMetaData* meta, PetscInt* p_n_total)
 {
@@ -388,19 +390,19 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
     char          *fields_copy = NULL, *field_name = NULL;
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
+    PROFILE_FUNCTION_BEGIN;
 
     /* Particles are numbered in rank order; output keeps every stride-th one, so this rank
        keeps its particles from local index `first` on, written from output point `before`. */
+    meta->fileType = VTK_POLYDATA;
     PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
     PetscCallMPI(MPI_Exscan(&nlocal, &before, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
     if (user->simCtx->rank == 0) before = 0;
     PetscCall(DMSwarmGetSize(user->swarm, p_n_total));
-    if (*p_n_total == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    if (*p_n_total == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     first = (stride - before % stride) % stride;
     kept  = first < nlocal ? (nlocal - 1 - first) / stride + 1 : 0;
 
-    meta->fileType       = VTK_POLYDATA;
     meta->npoints        = (*p_n_total - 1) / stride + 1;
     meta->local_start[0] = (before + first) / stride;
     meta->local_size[0]  = kept;
@@ -482,6 +484,6 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
         meta->connectivity[i] = meta->local_start[0] + i;
         meta->offsets[i]      = meta->local_start[0] + i + 1;
     }
-    PROFILE_HELPER_END;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
