@@ -52,7 +52,14 @@ uint64_t PicurvMix64(uint64_t z);
 PetscReal PicurvUnitFromHash(uint64_t hash);
 
 /**
- * @brief A standard normal deviate from a hash, by Box-Muller from two uniforms it yields.
+ * @brief Two independent standard normal deviates from a hash, by Box-Muller from two uniforms it yields.
+ * @param[in]  hash   Hash bits; distinct bits give independent pairs.
+ * @param[out] normal The pair.
+ */
+void PicurvNormalPairFromHash(uint64_t hash, PetscReal normal[2]);
+
+/**
+ * @brief A standard normal deviate from a hash: the first of PicurvNormalPairFromHash()'s pair.
  * @param[in] hash Hash bits; distinct bits give independent deviates.
  * @return The deviate.
  */

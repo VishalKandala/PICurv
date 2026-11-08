@@ -17,7 +17,7 @@
 #include "variables.h"       // Common type definitions
 #include "logging.h"      // Logging macros and definitions
 #include "walkingsearch.h"  // Walking search function for particle migration
-#include "expression.h"     // PicurvMix64, PicurvUnitFromHash
+#include "expression.h"     // PicurvMix64, PicurvUnitFromHash, PicurvNormalPairFromHash
 
 /**
  * @brief Whether a position lies in an axis-aligned bounding box, faces included.
@@ -45,16 +45,6 @@ static inline void ParticleUniformsFromHash(uint64_t hash, PetscReal u[4])
 {
     for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
 }
-
-/**
- * @brief Box-Muller transform of two uniforms on (0,1) into two independent N(0,1) values.
- *
- * @param[in]  u1 First uniform; must be strictly positive.
- * @param[in]  u2 Second uniform.
- * @param[out] n1 First Gaussian number.
- * @param[out] n2 Second Gaussian number.
- */
-void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2);
 
 /**
  * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.

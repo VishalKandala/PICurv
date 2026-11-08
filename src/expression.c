@@ -634,17 +634,32 @@ static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstru
 }
 
 /**
+ * @brief Implementation of \ref PicurvNormalPairFromHash().
+ * @see PicurvNormalPairFromHash()
+ */
+void PicurvNormalPairFromHash(uint64_t hash, PetscReal normal[2])
+{
+    /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
+    const PetscReal u1     = 1.0 - PicurvUnitFromHash(hash);
+    const PetscReal u2     = PicurvUnitFromHash(PicurvMix64(hash ^ 0xD1B54A32D192ED03ULL));
+    const PetscReal radius = PetscSqrtReal(-2.0 * PetscLogReal(u1));
+
+    normal[0] = radius * PetscCosReal(2.0 * PETSC_PI * u2);
+    normal[1] = radius * PetscSinReal(2.0 * PETSC_PI * u2);
+}
+
+/**
  * @brief Implementation of \ref PicurvNormalFromHash().
  * @see PicurvNormalFromHash()
  */
 PetscReal PicurvNormalFromHash(uint64_t hash)
 {
     PROFILE_HELPER_BEGIN;
-    /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
-    const PetscReal u1 = 1.0 - PicurvUnitFromHash(hash);
-    const PetscReal u2 = PicurvUnitFromHash(PicurvMix64(hash ^ 0xD1B54A32D192ED03ULL));
+    PetscReal normal[2];
+
+    PicurvNormalPairFromHash(hash, normal);
     PROFILE_HELPER_END;
-    return PetscSqrtReal(-2.0 * PetscLogReal(u1)) * PetscCosReal(2.0 * PETSC_PI * u2);
+    return normal[0];
 }
 
 /**

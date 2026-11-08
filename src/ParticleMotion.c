@@ -10,26 +10,14 @@
 #endif
 
 /**
- * @brief Implementation of \ref GenerateGaussianNoise().
- * @see GenerateGaussianNoise()
- */
-void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2)
-{
-    const PetscReal magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
-    const PetscReal theta     = 2.0 * PETSC_PI * u2;
-
-    *n1 = magnitude * PetscCosReal(theta);
-    *n2 = magnitude * PetscSinReal(theta);
-}
-
-/**
  * @brief Implementation of \ref CalculateBrownianDisplacement().
  * @see CalculateBrownianDisplacement()
  */
 PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, PetscReal diff_eff, Cmpnts *displacement)
 {
     const SimCtx  *simCtx = user->simCtx;
-    PetscReal      u[4], n[4], sigma;
+    uint64_t       hash;
+    PetscReal      n[4], sigma;
 
     PetscFunctionBeginUser;
     displacement->x = displacement->y = displacement->z = 0.0;
@@ -37,9 +25,9 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
-    ParticleUniformsFromHash(PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step), u);
-    GenerateGaussianNoise(1.0 - u[0], u[1], &n[0], &n[1]); /* 1 - u lies in (0, 1]: log finite */
-    GenerateGaussianNoise(1.0 - u[2], u[3], &n[2], &n[3]);
+    hash = PicurvDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
+    PicurvNormalPairFromHash(hash, &n[0]);
+    PicurvNormalPairFromHash(PicurvMix64(hash ^ 1u), &n[2]);
 
     sigma = PetscSqrtReal(2.0 * diff_eff * simCtx->dt);
     displacement->x = sigma * n[0];
