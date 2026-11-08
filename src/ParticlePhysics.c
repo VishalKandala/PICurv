@@ -85,6 +85,9 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         // particle centroid so each cell mean is kept. Relaxing to the stepped mean m alone
         // adds transport that does not vanish with refinement. A particle's cell is stored one
         // index past its origin node, so both fields are read through ghosted copies.
+        // The scatter's count holds only this rank's particles in its ghost cells; the empty-cell
+        // test reads neighbours across subdomain seams, so their totals are fetched first.
+        ierr = UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT); CHKERRQ(ierr);
         ierr = DMGetGlobalVector(user->fda, &slope); CHKERRQ(ierr);
         ierr = ComputeCellScalarGradient(user, user->lPsi, user->lParticleCount, slope); CHKERRQ(ierr);
         ierr = DMGetLocalVector(user->fda, &lslope); CHKERRQ(ierr);

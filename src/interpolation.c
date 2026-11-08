@@ -1107,7 +1107,7 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
         /* Host cell in cell-centred array numbering; its minimum faces are one index below. */
         const PetscInt i = cellIDs[3*p + 0] + 1, j = cellIDs[3*p + 1] + 1, k = cellIDs[3*p + 2] + 1;
         const Cmpnts   w = {weights[3*p + 0], weights[3*p + 1], weights[3*p + 2]};
-        Cmpnts         u;
+        Cmpnts         u = {0.0, 0.0, 0.0}; /* set by the solve; initialised for compilers that cannot see it */
 
         if (i - 1 < info.gxs || i >= info.gxs + info.gxm ||
             j - 1 < info.gys || j >= info.gys + info.gym ||

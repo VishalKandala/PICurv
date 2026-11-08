@@ -7,6 +7,8 @@
 
 #include "ParticleMotion.h"
 #include "ParticleSwarm.h"
+#include "ParticlePhysics.h"
+#include "runloop.h"
 #include "expression.h"
 #include "initialcondition.h"
 #include "Boundaries.h"
@@ -1163,6 +1165,85 @@ static PetscErrorCode TestInjectionFollowsFluxAndIsKeyedOnTheGrid(void)
 }
 
 /**
+ * @brief Checks that IEM's linear reconstruction holds across subdomain seams.
+ * @details Particles fill the box and carry Psi = 2 (x + y + z), so every cell's reconstruction
+ *          reproduces the line up to the noise of its gradient. A seam that hid a neighbour's
+ *          particles from the gradient would leave the cells beside it relaxing toward their
+ *          stepped mean, as far from the line as the stepped mean leaves every cell. Each cell's
+ *          particles are on its owner rank, so the stepped reference is computed there.
+ */
+static PetscErrorCode TestIEMReconstructionAcrossSeams(void)
+{
+    const char *options = "-numParticles 5000\n-pinit 1\n"
+                          "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"2*(x + y + z)\"\n";
+    SimCtx     *simCtx = NULL;
+    UserCtx    *user = NULL;
+    char        tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt    nlocal = 0, *cell = NULL, ncells, cx_n[3];
+    PetscReal  *psi = NULL, *diffusivity = NULL, *pos = NULL, *cx = NULL, *cn = NULL;
+    PetscReal   sums[4] = {0.0, 0.0, 0.0, 0.0}; /* sum before, sum after, squared departure from the line, the same for the stepped mean */
+    PetscReal   decay;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+    simCtx->dt = 0.5;
+    cx_n[0] = user->info.mx - 2; cx_n[1] = user->info.my - 2; cx_n[2] = user->info.mz - 2;
+    ncells = cx_n[0] * cx_n[1] * cx_n[2];
+    decay = PetscExpReal(-simCtx->iem_constant * 0.2 * 0.5 / PetscPowReal(1.0 / (PetscReal)ncells, 0.6666667));
+
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(PetscCalloc2(3 * ncells, &cx, ncells, &cn));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        const PetscInt c = cell[3*p] + cx_n[0] * (cell[3*p+1] + cx_n[1] * cell[3*p+2]);
+        diffusivity[p] = 0.2;
+        sums[0] += psi[p];
+        for (PetscInt d = 0; d < 3; ++d) cx[3*c + d] += pos[3*p + d];
+        cn[c] += 1.0;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    PetscCall(UpdateAllParticleFields(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        const PetscInt  c = cell[3*p] + cx_n[0] * (cell[3*p+1] + cx_n[1] * cell[3*p+2]);
+        const PetscReal line = 2.0 * (pos[3*p] + pos[3*p+1] + pos[3*p+2]);
+        const PetscReal mean = 2.0 * (cx[3*c] + cx[3*c+1] + cx[3*c+2]) / cn[c];
+        const PetscReal stepped = mean + (line - mean) * decay;
+        sums[1] += psi[p];
+        sums[2] += (psi[p] - line) * (psi[p] - line);
+        sums[3] += (stepped - line) * (stepped - line);
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(PetscFree2(cx, cn));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, sums, 4, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    PetscCall(PicurvAssertRealNear(sums[0], sums[1], 1.0e-9, "the reconstruction keeps every cell's scalar sum"));
+    PetscCall(PicurvAssertBool((PetscBool)(sums[3] > 0.0 && sums[2] < 0.05 * sums[3]),
+                               "relaxing toward the reconstruction must keep a linear field close to its line in every subdomain"));
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Velocity sources draw by global index, whatever the decomposition.
  * @details Every value is compared with a draw this test makes from the cell's or face cell's
  *          global indices alone, so a key that depended on the rank layout would fail at any
@@ -1392,6 +1473,7 @@ int main(int argc, char **argv)
         {"injection-follows-flux-and-is-keyed-on-the-grid", TestInjectionFollowsFluxAndIsKeyedOnTheGrid},
         {"injection-refuses-a-face-that-is-not-an-inlet", TestInjectionRefusesAFaceThatIsNotAnInlet},
         {"source-draws-are-keyed-on-the-grid", TestSourceDrawsAreKeyedOnTheGrid},
+        {"iem-reconstruction-across-seams", TestIEMReconstructionAcrossSeams},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");
