@@ -27,6 +27,10 @@
       "classification": "structural",
       "reason": "Not a menu: the Krylov methods for which a `gmres.restart` parameter is meaningful. The outer `poisson_solver.method` is the registered family poisson.method, of which only `fgmres` takes a restart; Newton-Krylov's `linear_solver.method` passes any PETSc KSP token through, so this set only decides whether a restart key is accepted alongside it."
     },
+    "picurv_cli.core::PARTICLE_CELL_SEEDED_MODES": {
+      "classification": "structural",
+      "reason": "Not a menu: the -pinit codes of the particle.init_mode values (Surface, Volume) whose particles fill cells, so the CLI knows which take particles_per_cell and which (PointSource) take count. The user-facing choice is the registered family particle.init_mode."
+    },
     "picurv_cli.core::KRYLOV_KSP_TYPES": {
       "classification": "structural",
       "reason": "PETSc owns this vocabulary, not PICurv. The set is not a menu offered to the user: it is the list of KSP tokens PICurv recognises as Krylov methods so it can WARN when one is configured at the multigrid coarse level. Any PETSc KSP token is accepted whether or not it appears here, so documenting these 22 as a capability family would claim a closed surface that does not exist."
