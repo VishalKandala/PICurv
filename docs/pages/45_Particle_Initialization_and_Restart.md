@@ -157,13 +157,20 @@ flow-through time; the particles per cell follow from the grid, so small cells h
 Nothing adds or removes particles to even this out, so recirculating or stagnant regions
 fed slowly by the inlet can run short. `particles_per_cell_min` in `search_metrics.csv` shows it.
 
-**Placement.** A particle's value is evaluated on the face, where it crossed, at the step's
-time, as on a seeded particle (@ref p45_particle_values_sec): `x y z t xi eta zeta L_xi L_eta L_zeta
-pid uniform() normal()`, with `xi eta zeta` from the crossing cell. It then moves in along
-the face normal by a uniform share of `u_n dt`, so one step's particles do not travel as a
-sheet, and takes the step's Brownian displacement with the diffusivity of its cell, which
-keeps the density uniform up to the inlet. The search that follows the particle update
-locates it.
+**Placement.** Within its face cell, a particle crosses at a point drawn in proportion to the
+inward velocity the swarm's interpolation (`solver.yml` `interpolation.method`) gives there.
+The particles already in the domain move by that velocity, so the layer they leave is thick
+where the flow is fast and thin near a wall, and each face cell's particles refill it where
+it opened. With `FaceFlux` the inward velocity is uniform across a face cell and the point
+is uniform by area; `CornerAveraged` restages Ucat at the corners once per step for it. A
+particle's value is evaluated on the face, where it crossed, at the step's time, as on a
+seeded particle (@ref p45_particle_values_sec): `x y z t xi eta zeta L_xi L_eta L_zeta pid
+uniform() normal()`, with `xi eta zeta` from the crossing cell. It then moves in by a uniform
+share of its velocity times `dt`, so one step's particles do not travel as a sheet, and takes
+the step's Brownian displacement with the diffusivity of its cell, which keeps the density
+uniform up to the inlet. A face cell with flux but no inward velocity anywhere on it spreads
+its particles by area and moves them at the cell's mean. The search that follows the particle
+update locates it.
 
 **Inlet policy.** An injecting inlet defaults to `particle_policy: reflect`. The inlet then
 fixes the total flux entering, and a particle diffusing back across it stays in the domain.

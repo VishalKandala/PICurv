@@ -818,6 +818,99 @@ static void AppendInterpolationTargetText(char *text, size_t size, size_t *used,
 
 
 /**
+ * @brief The dual cell of cell centres a point interpolates from, and its trilinear weights.
+ * @details The octant of the point in its host cell picks the dual cell. At a non-periodic
+ *          boundary the dual cell is clamped to the physical cells, and the weights then
+ *          extrapolate. The weights come from the point's distances to the dual cell's face
+ *          planes. Local to this translation unit.
+ * @param[in]  info       Grid layout.
+ * @param[in]  dual       Dual face-plane arrays (MetricGetFacePlaneArrays() with `dual` set).
+ * @param[in]  periodic   Whether each axis is periodic.
+ * @param[in]  cell       Host cell, geometric indices.
+ * @param[in]  weights    The point's logical coordinates in the host cell.
+ * @param[in]  loc        The point.
+ * @param[out] base       Dual cell origin, geometric indices.
+ * @param[out] a          Trilinear coordinates in the dual cell.
+ * @param[out] w          Corner weights, set only when `unclamped` is true.
+ * @param[out] unclamped  PETSC_TRUE when the dual cell was clamped.
+ * @param[out] outside    PETSC_TRUE when the dual cell lies outside the ghosted region; then
+ *                        nothing else is set.
+ */
+static inline PetscErrorCode CenterDualCellWeights(const DMDALocalInfo *info, const FacePlaneArrays *dual,
+                                                   const PetscBool periodic[3], const PetscInt cell[3],
+                                                   const PetscReal weights[3], Cmpnts loc, PetscInt base[3],
+                                                   PetscReal a[3], PetscReal w[8], PetscBool *unclamped,
+                                                   PetscBool *outside)
+{
+    const PetscInt n_cells[3] = {info->mx - 2, info->my - 2, info->mz - 2};
+    PetscReal      d[NUM_FACES];
+    CellFacePlanes dual_planes;
+    PetscErrorCode ierr;
+
+    /* Called per particle and kept off the PETSc call stack, like the weight helpers. */
+    *unclamped = PETSC_FALSE;
+    for (PetscInt c = 0; c < 3; ++c) {
+        /* Determine octant, then clamp it at non-periodic boundaries */
+        base[c] = cell[c] + ((weights[c] < 0.5) ? -1 : 0);
+        if (!periodic[c]) {
+            if (base[c] < 0)               { base[c] = 0;              *unclamped = PETSC_TRUE; }
+            if (base[c] + 1 >= n_cells[c]) { base[c] = n_cells[c] - 2; *unclamped = PETSC_TRUE; }
+        }
+    }
+    /* Bounds check — dual cell stencil must fit in ghosted region */
+    *outside = (PetscBool)(base[0] + 1 < info->gxs || base[0] + 1 >= info->gxs + info->gxm - 1 ||
+                           base[1] + 1 < info->gys || base[1] + 1 >= info->gys + info->gym - 1 ||
+                           base[2] + 1 < info->gzs || base[2] + 1 >= info->gzs + info->gzm - 1);
+    if (*outside) return PETSC_SUCCESS;
+
+    /* Face distances from the point to the dual cell whose vertex 0 is
+     * lCent[bk+1][bj+1][bi+1] (shifted index: cent[k+1][j+1][i+1] for cell (i,j,k)). */
+    MetricGatherCellFacePlanes(dual, info, base[0] + 1, base[1] + 1, base[2] + 1, &dual_planes);
+    ierr = CalculateDistancesToCellFacePlanes(loc, &dual_planes, d, 1e-11, NULL);
+    if (ierr) return ierr;
+
+    /* Trilinear parametric coordinates from face distances */
+    a[0] = d[LEFT]   / (d[LEFT]   + d[RIGHT]);
+    a[1] = d[BOTTOM] / (d[BOTTOM] + d[TOP]);
+    a[2] = d[BACK]   / (d[FRONT]  + d[BACK]);
+    if (*unclamped) ComputeTrilinearWeightsUnclamped(a[0], a[1], a[2], w);
+    return PETSC_SUCCESS;
+}
+
+/**
+ * @brief A cell-centred vector at a point, from the dual cell CenterDualCellWeights() found.
+ * @details Trilinear inside the domain, the unclamped corner weights where the dual cell was
+ *          clamped. Local to this translation unit.
+ */
+static inline PetscErrorCode CenterInterpolateVector(const char *fieldName, Cmpnts ***fieldVec, const PetscInt base[3],
+                                                     const PetscReal a[3], const PetscReal w[8], PetscBool unclamped,
+                                                     Cmpnts *vec)
+{
+    const PetscInt bi = base[0], bj = base[1], bk = base[2];
+
+    /* Called per particle and kept off the PETSc call stack, like the weight helpers. */
+    if (unclamped) {
+        vec->x = w[0]*fieldVec[bk+1][bj+1][bi+1].x + w[1]*fieldVec[bk+1][bj+1][bi+2].x
+               + w[2]*fieldVec[bk+1][bj+2][bi+1].x + w[3]*fieldVec[bk+1][bj+2][bi+2].x
+               + w[4]*fieldVec[bk+2][bj+1][bi+1].x + w[5]*fieldVec[bk+2][bj+1][bi+2].x
+               + w[6]*fieldVec[bk+2][bj+2][bi+1].x + w[7]*fieldVec[bk+2][bj+2][bi+2].x;
+        vec->y = w[0]*fieldVec[bk+1][bj+1][bi+1].y + w[1]*fieldVec[bk+1][bj+1][bi+2].y
+               + w[2]*fieldVec[bk+1][bj+2][bi+1].y + w[3]*fieldVec[bk+1][bj+2][bi+2].y
+               + w[4]*fieldVec[bk+2][bj+1][bi+1].y + w[5]*fieldVec[bk+2][bj+1][bi+2].y
+               + w[6]*fieldVec[bk+2][bj+2][bi+1].y + w[7]*fieldVec[bk+2][bj+2][bi+2].y;
+        vec->z = w[0]*fieldVec[bk+1][bj+1][bi+1].z + w[1]*fieldVec[bk+1][bj+1][bi+2].z
+               + w[2]*fieldVec[bk+1][bj+2][bi+1].z + w[3]*fieldVec[bk+1][bj+2][bi+2].z
+               + w[4]*fieldVec[bk+2][bj+1][bi+1].z + w[5]*fieldVec[bk+2][bj+1][bi+2].z
+               + w[6]*fieldVec[bk+2][bj+2][bi+1].z + w[7]*fieldVec[bk+2][bj+2][bi+2].z;
+    } else {
+        /* Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
+         * field[bk+1..bk+2][bj+1..bj+2][bi+1..bi+2] = cells (bi..bi+1, bj..bj+1, bk..bk+1). */
+        return TrilinearInterpolation_Vector(fieldName, fieldVec, bi + 1, bj + 1, bk + 1, a[0], a[1], a[2], vec);
+    }
+    return PETSC_SUCCESS;
+}
+
+/**
  * @brief Direct cell-center trilinear interpolation (second-order on curvilinear grids).
  * @details For each particle, determines the 8 nearest cell centers via octant
  *          detection, takes the dual cell they form, computes face-distance-based
@@ -855,15 +948,10 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
     FacePlaneArrays dual_arrays;
     ierr = MetricGetFacePlaneArrays(user, PETSC_TRUE, &dual_arrays); CHKERRQ(ierr);
 
-    /* Number of physical cells in each direction */
-    PetscInt nCellsX = info.mx - 2;
-    PetscInt nCellsY = info.my - 2;
-    PetscInt nCellsZ = info.mz - 2;
-
     /* Periodic flags per direction */
-    PetscBool x_periodic = (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
-    PetscBool y_periodic = (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
-    PetscBool z_periodic = (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
+    const PetscBool periodic[3] = {(PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC),
+                                   (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC),
+                                   (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC)};
 
     /* Get read-only arrays for each cell-centered field and its swarm destination */
     for (PetscInt t = 0; t < ntargets; ++t) {
@@ -890,42 +978,17 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         Particle particle;
         ierr = UnpackSwarmFields(p, pids, weights, pos, cellIDs, NULL, status, NULL, NULL, NULL, &particle); CHKERRQ(ierr);
 
-        /* Step 1: Get host cell indices and existing weights */
-        PetscInt ci = particle.cell[0];
-        PetscInt cj = particle.cell[1];
-        PetscInt ck = particle.cell[2];
-        PetscReal a1 = particle.weights.x;
-        PetscReal a2 = particle.weights.y;
-        PetscReal a3 = particle.weights.z;
-
-        /* Step 2: Determine octant */
-        PetscInt oi = (a1 < 0.5) ? -1 : 0;
-        PetscInt oj = (a2 < 0.5) ? -1 : 0;
-        PetscInt ok = (a3 < 0.5) ? -1 : 0;
-        PetscInt bi = ci + oi;
-        PetscInt bj = cj + oj;
-        PetscInt bk = ck + ok;
-
-        /* Step 3: Clamp octant at non-periodic boundaries */
-        PetscBool needs_unclamped = PETSC_FALSE;
-
-        if (!x_periodic) {
-            if (bi < 0)              { bi = 0;            needs_unclamped = PETSC_TRUE; }
-            if (bi + 1 >= nCellsX)   { bi = nCellsX - 2;  needs_unclamped = PETSC_TRUE; }
-        }
-        if (!y_periodic) {
-            if (bj < 0)              { bj = 0;            needs_unclamped = PETSC_TRUE; }
-            if (bj + 1 >= nCellsY)   { bj = nCellsY - 2;  needs_unclamped = PETSC_TRUE; }
-        }
-        if (!z_periodic) {
-            if (bk < 0)              { bk = 0;            needs_unclamped = PETSC_TRUE; }
-            if (bk + 1 >= nCellsZ)   { bk = nCellsZ - 2;  needs_unclamped = PETSC_TRUE; }
-        }
-
-        /* Step 4: Bounds check — dual cell stencil must fit in ghosted region */
-        if (bi + 1 < info.gxs || bi + 1 >= info.gxs + info.gxm - 1 ||
-            bj + 1 < info.gys || bj + 1 >= info.gys + info.gym - 1 ||
-            bk + 1 < info.gzs || bk + 1 >= info.gzs + info.gzm - 1)
+        /* Steps 1-7: the dual cell from the host cell and the particle's weights, and the
+         * trilinear coordinates in it */
+        const PetscReal host_weights[3] = {particle.weights.x, particle.weights.y, particle.weights.z};
+        PetscInt  base[3];
+        PetscReal a_new[3], w[8] = {0}; /* w is read only when needs_unclamped, which also fills it */
+        PetscBool needs_unclamped, outside;
+        ierr = CenterDualCellWeights(&info, &dual_arrays, periodic, particle.cell, host_weights, particle.loc,
+                                     base, a_new, w, &needs_unclamped, &outside); CHKERRQ(ierr);
+        const PetscInt bi = base[0], bj = base[1], bk = base[2];
+        const PetscReal a1_new = a_new[0], a2_new = a_new[1], a3_new = a_new[2];
+        if (outside)
         {
             n_outside++;
             LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
@@ -936,20 +999,6 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
             }
             continue;
         }
-
-        /* Steps 5-6: Face distances from particle to the dual cell whose vertex 0 is
-         * lCent[bk+1][bj+1][bi+1] (shifted index: cent[k+1][j+1][i+1] for cell (i,j,k)). */
-        PetscReal d[NUM_FACES];
-        CellFacePlanes dual_planes;
-        MetricGatherCellFacePlanes(&dual_arrays, &info, bi + 1, bj + 1, bk + 1, &dual_planes);
-        ierr = CalculateDistancesToCellFacePlanes(particle.loc, &dual_planes, d, 1e-11, NULL); CHKERRQ(ierr);
-
-        /* Step 7: Compute trilinear parametric coordinates from face distances */
-        PetscReal a1_new = d[LEFT]   / (d[LEFT]   + d[RIGHT]);
-        PetscReal a2_new = d[BOTTOM] / (d[BOTTOM] + d[TOP]);
-        PetscReal a3_new = d[BACK]   / (d[FRONT]  + d[BACK]);
-        PetscReal w[8] = {0}; /* Read only when needs_unclamped, which also fills it */
-        if (needs_unclamped) ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
 
         /* Step 8: Call TrilinearInterpolation directly with shifted dual-cell indices.
          * Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
@@ -971,25 +1020,9 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
                 }
                 swarmOut[p] = val;
             } else {
-                Cmpnts ***fieldVec = (Cmpnts ***)targets[t].field_ptr;
                 Cmpnts vec;
-                if (needs_unclamped) {
-                    vec.x = w[0]*fieldVec[bk+1][bj+1][bi+1].x + w[1]*fieldVec[bk+1][bj+1][bi+2].x
-                          + w[2]*fieldVec[bk+1][bj+2][bi+1].x + w[3]*fieldVec[bk+1][bj+2][bi+2].x
-                          + w[4]*fieldVec[bk+2][bj+1][bi+1].x + w[5]*fieldVec[bk+2][bj+1][bi+2].x
-                          + w[6]*fieldVec[bk+2][bj+2][bi+1].x + w[7]*fieldVec[bk+2][bj+2][bi+2].x;
-                    vec.y = w[0]*fieldVec[bk+1][bj+1][bi+1].y + w[1]*fieldVec[bk+1][bj+1][bi+2].y
-                          + w[2]*fieldVec[bk+1][bj+2][bi+1].y + w[3]*fieldVec[bk+1][bj+2][bi+2].y
-                          + w[4]*fieldVec[bk+2][bj+1][bi+1].y + w[5]*fieldVec[bk+2][bj+1][bi+2].y
-                          + w[6]*fieldVec[bk+2][bj+2][bi+1].y + w[7]*fieldVec[bk+2][bj+2][bi+2].y;
-                    vec.z = w[0]*fieldVec[bk+1][bj+1][bi+1].z + w[1]*fieldVec[bk+1][bj+1][bi+2].z
-                          + w[2]*fieldVec[bk+1][bj+2][bi+1].z + w[3]*fieldVec[bk+1][bj+2][bi+2].z
-                          + w[4]*fieldVec[bk+2][bj+1][bi+1].z + w[5]*fieldVec[bk+2][bj+1][bi+2].z
-                          + w[6]*fieldVec[bk+2][bj+2][bi+1].z + w[7]*fieldVec[bk+2][bj+2][bi+2].z;
-                } else {
-                    ierr = TrilinearInterpolation_Vector(fieldName, fieldVec,
-                        bi + 1, bj + 1, bk + 1, a1_new, a2_new, a3_new, &vec); CHKERRQ(ierr);
-                }
+                ierr = CenterInterpolateVector(fieldName, (Cmpnts ***)targets[t].field_ptr, base, a_new, w,
+                                               needs_unclamped, &vec); CHKERRQ(ierr);
                 swarmOut[3*p + 0] = vec.x;
                 swarmOut[3*p + 1] = vec.y;
                 swarmOut[3*p + 2] = vec.z;
@@ -1002,7 +1035,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
             for (PetscInt t = 0; t < ntargets; ++t) AppendInterpolationTargetText(text, sizeof(text), &used, &targets[t], p, bi, bj, bk);
             LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
                          "host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") dual base (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") weights (%.6f, %.6f, %.6f)%s%s\n",
-                         ci, cj, ck, bi, bj, bk, a1_new, a2_new, a3_new,
+                         particle.cell[0], particle.cell[1], particle.cell[2], bi, bj, bk, a1_new, a2_new, a3_new,
                          needs_unclamped ? " unclamped extrapolation" : "", text);
         }
     }
@@ -1416,6 +1449,124 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished for field '%s'.\n", fieldName);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/** @brief The arrays one method's point evaluation reads. */
+struct VelocityPointInterpolator {
+    UserCtx            *user;
+    InterpolationMethod method;
+    PetscBool           periodic[3];
+    Cmpnts           ***field;               /* Ucat, Ucat at the corners, or Ucont */
+    Cmpnts           ***csi, ***eta, ***zet; /* FaceFlux */
+    FacePlaneArrays     dual;                /* Trilinear */
+};
+
+/**
+ * @brief Implementation of \ref InterpolateVelocityAtPointBegin().
+ * @see InterpolateVelocityAtPointBegin()
+ */
+PetscErrorCode InterpolateVelocityAtPointBegin(UserCtx *user, VelocityPointInterpolator **interp)
+{
+    VelocityPointInterpolator *v = NULL;
+
+    PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscNew(&v));
+    v->user = user;
+    v->method = user->simCtx->interpolationMethod;
+    for (PetscInt d = 0; d < 3; ++d) v->periodic[d] = (PetscBool)(user->boundary_faces[2 * d].mathematical_type == PERIODIC);
+    if (v->method == INTERP_FACE_FLUX) {
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&v->field));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&v->csi));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&v->eta));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&v->zet));
+    } else if (v->method == INTERP_CORNER_AVERAGED) {
+        FieldView corner;
+        void     *ucat = NULL, *write = NULL;
+
+        // The same staging as the corner-averaged swarm pass: Ucat at the corners, then ghosts.
+        PetscCall(FieldGetView(user, FIELD_ID_CELL_VECTOR_AT_CORNER, &corner));
+        PetscCall(VecSet(corner.global_vec, 0.0));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, &ucat));
+        PetscCall(DMDAVecGetArray(user->fda, corner.global_vec, &write));
+        PetscCall(InterpolateFieldFromCenterToCorner(3, ucat, write, user));
+        PetscCall(DMDAVecRestoreArray(user->fda, corner.global_vec, &write));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, &ucat));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_CELL_VECTOR_AT_CORNER));
+        PetscCall(DMDAVecGetArrayRead(user->fda, corner.local_vec, (void *)&v->field));
+    } else {
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, (void *)&v->field));
+        PetscCall(MetricGetFacePlaneArrays(user, PETSC_TRUE, &v->dual));
+    }
+    *interp = v;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref InterpolateVelocityAtPoint().
+ * @see InterpolateVelocityAtPoint()
+ */
+PetscErrorCode InterpolateVelocityAtPoint(const VelocityPointInterpolator *interp, const PetscInt cell[3],
+                                          const PetscReal weights[3], Cmpnts point, Cmpnts *u)
+{
+    const DMDALocalInfo *info = &interp->user->info;
+
+    PetscFunctionBegin;
+    /* Called once per draw: a helper event, timed only when enabled by name. */
+    PROFILE_HELPER_BEGIN;
+    u->x = u->y = u->z = 0.0;
+    if (interp->method == INTERP_FACE_FLUX) {
+        /* Host cell in cell-centred array numbering; its minimum faces are one index below. */
+        const PetscInt i = cell[0] + 1, j = cell[1] + 1, k = cell[2] + 1;
+        const Cmpnts   w = {weights[0], weights[1], weights[2]};
+        if (!(i - 1 < info->gxs || i >= info->gxs + info->gxm || j - 1 < info->gys || j >= info->gys + info->gym ||
+              k - 1 < info->gzs || k >= info->gzs + info->gzm))
+            PetscCall(ContravariantToCartesianInCell(interp->field, interp->csi, interp->eta, interp->zet, i, j, k, w, u));
+    } else if (interp->method == INTERP_CORNER_AVERAGED) {
+        if (!(cell[0] < info->gxs || cell[0] >= info->gxs + info->gxm - 1 || cell[1] < info->gys ||
+              cell[1] >= info->gys + info->gym - 1 || cell[2] < info->gzs || cell[2] >= info->gzs + info->gzm - 1))
+            PetscCall(TrilinearInterpolation_Vector("Ucat", interp->field, cell[0], cell[1], cell[2],
+                                                    weights[0], weights[1], weights[2], u));
+    } else {
+        PetscInt  base[3];
+        PetscReal a[3], w[8] = {0};
+        PetscBool unclamped, outside;
+        PetscCall(CenterDualCellWeights(info, &interp->dual, interp->periodic, cell, weights, point, base, a, w,
+                                        &unclamped, &outside));
+        if (!outside) PetscCall(CenterInterpolateVector("Ucat", interp->field, base, a, w, unclamped, u));
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref InterpolateVelocityAtPointEnd().
+ * @see InterpolateVelocityAtPointEnd()
+ */
+PetscErrorCode InterpolateVelocityAtPointEnd(VelocityPointInterpolator **interp)
+{
+    VelocityPointInterpolator *v = *interp;
+    UserCtx                   *user = v->user;
+
+    PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
+    if (v->method == INTERP_FACE_FLUX) {
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&v->zet));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&v->eta));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&v->csi));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, (void *)&v->field));
+    } else if (v->method == INTERP_CORNER_AVERAGED) {
+        FieldView corner;
+        PetscCall(FieldGetView(user, FIELD_ID_CELL_VECTOR_AT_CORNER, &corner));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, corner.local_vec, (void *)&v->field));
+    } else {
+        PetscCall(MetricRestoreFacePlaneArrays(user, &v->dual));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, (void *)&v->field));
+    }
+    PetscCall(PetscFree(*interp));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

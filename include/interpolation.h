@@ -229,6 +229,41 @@ PetscErrorCode TrilinearInterpolation_Vector(
     PetscReal     a3,
     Cmpnts       *vec);
 
+/** @brief The arrays InterpolateVelocityAtPoint() reads, held from Begin to End. */
+typedef struct VelocityPointInterpolator VelocityPointInterpolator;
+
+/**
+ * @brief Opens the arrays for evaluating the particle velocity at points, with the configured
+ *        interpolation method.
+ * @details Collective: the corner-averaged method stages Ucat at the corners, as its swarm
+ *          pass does, which overwrites the vector corner workspace.
+ * @param[in]  user   Grid context; its Ucat, Ucont and metrics must be current.
+ * @param[out] interp Close with InterpolateVelocityAtPointEnd().
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InterpolateVelocityAtPointBegin(UserCtx *user, VelocityPointInterpolator **interp);
+
+/**
+ * @brief The velocity a particle at a point would be given: the value the swarm pass of the
+ *        configured method computes there.
+ * @param[in]  interp  From InterpolateVelocityAtPointBegin().
+ * @param[in]  cell    Host cell, geometric indices; the point must be in a cell this rank owns.
+ * @param[in]  weights The point's logical coordinates in the host cell.
+ * @param[in]  point   The point.
+ * @param[out] u       The velocity; zero, as in the swarm pass, if the stencil lies outside
+ *                     the ghosted region.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InterpolateVelocityAtPoint(const VelocityPointInterpolator *interp, const PetscInt cell[3],
+                                          const PetscReal weights[3], Cmpnts point, Cmpnts *u);
+
+/**
+ * @brief Closes the arrays InterpolateVelocityAtPointBegin() opened.
+ * @param[in,out] interp Set to NULL.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InterpolateVelocityAtPointEnd(VelocityPointInterpolator **interp);
+
 /**
  * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
  *        using a robust, PETSc-idiomatic two-stage process.

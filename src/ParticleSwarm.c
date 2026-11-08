@@ -290,24 +290,33 @@ static PetscErrorCode FreeSeedingCellTable(SeedingCellTable *table)
 }
 
 /**
- * @brief Draw one particle's seeding point inside its cell, uniform in the cell's measure.
- * @details Uniform logical coordinates are accepted with probability density / `bound`. Every
- *          draw is keyed on the run seed, the particle ID and the attempt, so the point depends
- *          only on the particle, not on the rank that seeds it. A surface point is then put just
- *          inside the cell, 1e-6 of the cell from the face.
+ * @brief Draw one particle's seeding point inside its cell, uniform in the cell's measure, or
+ *        on a face in proportion to the flux through it.
+ * @details Uniform logical coordinates are accepted with probability density / `bound`, times
+ *          the inward normal velocity / `flux_bound` when `velocity` is given. Every draw is
+ *          keyed on the run seed, the particle ID and the attempt, so the point depends only on
+ *          the particle, not on the rank that seeds it. A surface point is put just inside the
+ *          cell, 1e-6 of the cell from the face, where its velocity is taken.
  * @param[in]  user   Grid context.
  * @param[in]  coor   Ghosted node-coordinate array.
  * @param[in]  table  A table built with `build_bound` set.
  * @param[in]  c      The cell, an index into the table.
  * @param[in]  pid    The particle's ID.
+ * @param[in]  velocity   NULL, or for a face table the velocity the swarm would give the point.
+ * @param[in]  normal     The face's inward unit normal, read with `velocity`.
+ * @param[in]  flux_bound An upper bound of the inward normal velocity over the face cell, read
+ *                        with `velocity`.
  * @param[out] ci_metric_lnode_out,cj_metric_lnode_out,ck_metric_lnode_out Origin node of the cell.
  * @param[out] xi_metric_logic_out,eta_metric_logic_out,zta_metric_logic_out Logical point in it.
+ * @param[out] velocity_out The point's velocity, set with `velocity`; or NULL.
  * @return PetscErrorCode 0 on success.
  */
 static PetscErrorCode DrawSeedingPoint(
     UserCtx *user, const Cmpnts ***coor, const SeedingCellTable *table, PetscInt c, PetscInt64 pid,
+    const VelocityPointInterpolator *velocity, Cmpnts normal, PetscReal flux_bound,
     PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
-    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out,
+    Cmpnts *velocity_out)
 {
     PetscReal logic[3], u[4];
 
@@ -325,15 +334,27 @@ static PetscErrorCode DrawSeedingPoint(
         for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
         // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
         for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - 1.0e-7), 0.0);
+        if (table->face >= 0) logic[table->face / 2] = (table->face % 2) ? 1.0 - 1.0e-6 : 1.0e-6;
         PetscCall(SeedingMeasureDensity(user, coor, table->face, *ci_metric_lnode_out, *cj_metric_lnode_out,
                                         *ck_metric_lnode_out, logic, &density));
+        if (velocity) {
+            const PetscInt cell[3] = {*ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out};
+            Cmpnts         point;
+            PetscCall(MetricLogicalToPhysical(user, coor, cell[0], cell[1], cell[2], logic[0], logic[1], logic[2], &point));
+            PetscCall(InterpolateVelocityAtPoint(velocity, cell, logic, point, velocity_out));
+            const PetscReal u_n = PetscMax(velocity_out->x * normal.x + velocity_out->y * normal.y + velocity_out->z * normal.z, 0.0);
+            if (u_n > flux_bound) {
+                LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: inward velocity %g exceeds the bound %g in face cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "); placement there is biased.\n",
+                          user->simCtx->rank, (double)u_n, (double)flux_bound, cell[0], cell[1], cell[2]);
+            }
+            density *= u_n / flux_bound;
+        }
         if (u[3] * table->bound[c] <= density) break;
         if (attempt == 999) {
             LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: 1000 rejected draws in cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "); accepting the last one.\n",
                       user->simCtx->rank, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out);
         }
     }
-    if (table->face >= 0) logic[table->face / 2] = (table->face % 2) ? 1.0 - 1.0e-6 : 1.0e-6;
     *xi_metric_logic_out = logic[0]; *eta_metric_logic_out = logic[1]; *zta_metric_logic_out = logic[2];
 
     PROFILE_FUNCTION_END;
@@ -453,9 +474,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         if (seeds_from_table) { // --- 5.a. Volumetric or Surface Initialization ---
             while (seed_pid == seed_table.pid_hi[seed_cell]) seed_pid = seed_table.pid_lo[++seed_cell]; // skip filled (or empty) cells
             pid = seed_pid++;
-            ierr = DrawSeedingPoint(user, coor_nodes_local_array, &seed_table, seed_cell, pid,
+            ierr = DrawSeedingPoint(user, coor_nodes_local_array, &seed_table, seed_cell, pid, NULL, (Cmpnts){0.0, 0.0, 0.0}, 0.0,
                                     &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                    &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+                                    &xi_metric_logic, &eta_metric_logic, &zta_metric_logic, NULL); CHKERRQ(ierr);
             ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
                                     ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                                     xi_metric_logic, eta_metric_logic, zta_metric_logic,
@@ -1204,11 +1225,13 @@ PetscErrorCode ParticleInletsDestroy(SimCtx *simCtx)
  * @param[in,out] inlet    The inlet.
  * @param[in]     event    Time of the step, and the identity keying field draws.
  * @param[in]     first_id This step's first face-cell identity.
+ * @param[in]     velocity The velocity the swarm gives a point, which places the particles.
  * @param[in,out] sums     Adds this rank's flow rate [m^3/s], expected and added particles, and Psi added.
  * @return PetscErrorCode 0 on success.
  */
 static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, const ParticleFieldEvent *event,
-                                    PetscInt64 first_id, PetscReal sums[PARTICLE_INLET_SUMS])
+                                    PetscInt64 first_id, const VelocityPointInterpolator *velocity,
+                                    PetscReal sums[PARTICLE_INLET_SUMS])
 {
     SimCtx                 *simCtx = user->simCtx;
     DM                      swarm = user->swarm;
@@ -1224,7 +1247,8 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     const PetscReal      ***diffusivity = NULL;
     PetscInt64             *cell_id = NULL;
     PetscInt               *count = NULL;
-    Cmpnts                 *travel = NULL, *inward = NULL;
+    Cmpnts                 *travel = NULL, *inward = NULL, *normal_of = NULL;
+    PetscReal              *flux_bound = NULL;
     PetscInt                first = 0, n_new = 0;
     PetscReal               density = 0.0;
     ParticleFieldPlan      *plan = inlet->plan ? inlet->plan : simCtx->particleFieldPlan;
@@ -1237,7 +1261,8 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
                BCFaceToString(inlet->face), (double)density, (double)event->physical_time);
 
     // --- 1. How many enter each face cell: the mean's integer part, and one more by chance ---
-    PetscCall(PetscMalloc3(n_cells, &count, n_cells, &cell_id, n_cells, &travel));
+    PetscCall(PetscMalloc5(n_cells, &count, n_cells, &cell_id, n_cells, &travel, n_cells, &normal_of, n_cells, &flux_bound));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&ucont));
     PetscCall(DMDAVecGetArrayRead(user->fda, metric_vec, (void *)&metric));
     for (PetscInt c = 0; c < n_cells; ++c) {
@@ -1261,6 +1286,27 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         if (PicurvUnitFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INLET, 0, cell_id[c], 0)) < expected - whole) count[c]++;
         travel[c].x = along_m * m.x; travel[c].y = along_m * m.y; travel[c].z = along_m * m.z;
         n_new += count[c];
+        /* The flux through a face cell varies across it as the swarm's velocity does, and the
+         * particles leaving the inlet layer leave a gap that varies the same way, so the new ones
+         * are placed in proportion to the inward velocity. Each method's velocity on a face cell
+         * is bilinear between the corners, edge midpoints and centre, so its largest value there
+         * bounds it; the margin covers curved cells. */
+        {
+            const PetscReal norm_m = PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z);
+            normal_of[c].x = sign * m.x / norm_m; normal_of[c].y = sign * m.y / norm_m; normal_of[c].z = sign * m.z / norm_m;
+            flux_bound[c] = 0.0;
+            for (PetscInt q = 0; count[c] > 0 && q < 9; ++q) {
+                PetscReal logic[3];
+                Cmpnts    point, u_q;
+                logic[a] = 0.5 * (q % 3); logic[b] = 0.5 * (q / 3);
+                logic[normal] = negative ? 1.0e-6 : 1.0 - 1.0e-6;
+                for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(logic[d], 1.0 - 1.0e-7), 0.0);
+                PetscCall(MetricLogicalToPhysical(user, coor, origin[0], origin[1], origin[2], logic[0], logic[1], logic[2], &point));
+                PetscCall(InterpolateVelocityAtPoint(velocity, origin, logic, point, &u_q));
+                flux_bound[c] = PetscMax(flux_bound[c], u_q.x * normal_of[c].x + u_q.y * normal_of[c].y + u_q.z * normal_of[c].z);
+            }
+            flux_bound[c] *= 1.1;
+        }
         sums[0] += flux * simCtx->scaling.U_ref * L_ref * L_ref;
         sums[1] += expected;
     }
@@ -1268,7 +1314,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
     PetscCall(DMDAVecRestoreArrayRead(user->fda, metric_vec, (void *)&metric));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, (void *)&ucont));
 
-    // --- 2. Where: on the face, uniformly by area, keyed on the particle's ID ---
+    // --- 2. Where: on the face, by area and inward velocity, keyed on the particle's ID ---
     PetscCall(DMSwarmGetLocalSize(swarm, &first));
     PetscCall(PetscMalloc1(n_new, &inward));
     if (n_new > 0) {
@@ -1288,7 +1334,6 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
             for (PetscInt q = first; q < first + n_new; ++q) PetscCall(InitializeSwarmFieldValue(descriptor, q, field));
             PetscCall(DMSwarmRestoreField(swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
         }
-        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lDiffusivity, (void *)&diffusivity));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
@@ -1299,11 +1344,16 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
             for (PetscInt k = 0; k < count[c]; ++k, ++p) {
                 const PetscInt64 pid = PARTICLE_INLET_PID_BASE + cell_id[c] * PARTICLE_INLET_PIDS_PER_CELL + k;
                 const PetscReal  share = PicurvUnitFromHash(PicurvDrawHash(seed, PICURV_DRAW_SPACE_INLET, 1, pid, 0));
+                const PetscBool weighted = (PetscBool)(flux_bound[c] > 0.0);
                 PetscInt  ci, cj, ck;
                 PetscReal xi, eta, zta;
-                Cmpnts    point, kick;
+                Cmpnts    point, kick, u_p;
 
-                PetscCall(DrawSeedingPoint(user, coor, table, c, pid, &ci, &cj, &ck, &xi, &eta, &zta));
+                /* Without any inward velocity on the face cell, its count still came from the
+                 * flux: those particles are spread by area, and travel at the cell's mean. */
+                PetscCall(DrawSeedingPoint(user, coor, table, c, pid, weighted ? velocity : NULL, normal_of[c], flux_bound[c],
+                                           &ci, &cj, &ck, &xi, &eta, &zta, &u_p));
+                if (!weighted) { u_p.x = travel[c].x / simCtx->dt; u_p.y = travel[c].y / simCtx->dt; u_p.z = travel[c].z / simCtx->dt; }
                 PetscCall(MetricLogicalToPhysical(user, coor, ci, cj, ck, xi, eta, zta, &point));
                 positions[3 * p + 0] = point.x; positions[3 * p + 1] = point.y; positions[3 * p + 2] = point.z;
                 weights[3 * p + 0] = xi; weights[3 * p + 1] = eta; weights[3 * p + 2] = zta;
@@ -1313,9 +1363,9 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
                 /* This step's Brownian kick, as every other particle had. Without it they refill
                  * the inlet layer that this share also fills, and the first cell runs dense. */
                 PetscCall(CalculateBrownianDisplacement(user, pid, diffusivity[ck + 1][cj + 1][ci + 1], &kick));
-                inward[p - first].x = share * travel[c].x + kick.x;
-                inward[p - first].y = share * travel[c].y + kick.y;
-                inward[p - first].z = share * travel[c].z + kick.z;
+                inward[p - first].x = share * u_p.x * simCtx->dt + kick.x;
+                inward[p - first].y = share * u_p.y * simCtx->dt + kick.y;
+                inward[p - first].z = share * u_p.z * simCtx->dt + kick.z;
                 LOG_PARTICLE(simCtx, pid, "inject", "through %s on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                              BCFaceToString(inlet->face), (int)simCtx->rank, point.x, point.y, point.z, ci, cj, ck);
             }
@@ -1326,8 +1376,8 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void **)&weights));
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lDiffusivity, (void *)&diffusivity));
-        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
     }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
 
     // --- 3. What it carries, set where it crossed the face. Every rank calls this: see the plan. ---
     PetscCall(ParticleFieldPlanApply(user, plan, event, first, first + n_new));
@@ -1348,7 +1398,7 @@ static PetscErrorCode InjectAtInlet(UserCtx *user, struct ParticleInlet *inlet, 
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
     }
     PetscCall(PetscFree(inward));
-    PetscCall(PetscFree3(count, cell_id, travel));
+    PetscCall(PetscFree5(count, cell_id, travel, normal_of, flux_bound));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1364,6 +1414,7 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
     PetscReal          global[PARTICLE_INLET_FACE_COUNT][PARTICLE_INLET_SUMS];
     ParticleFieldEvent event = {0.0, 0};
     PetscInt64         faces = 0, first_id;
+    VelocityPointInterpolator *velocity = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1378,6 +1429,7 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
                "Step %" PetscInt_FMT " on a grid with %" PetscInt64_FMT " boundary face cells passes the last particle ID a "
                "checkpoint can store (2^53).", simCtx->step, faces);
     PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &event.physical_time));
+    PetscCall(InterpolateVelocityAtPointBegin(user, &velocity));
 
     for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
         struct ParticleInlet *inlet = &simCtx->particleInlets[n];
@@ -1391,8 +1443,9 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
             PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
             inlet->table_built = PETSC_TRUE;
         }
-        PetscCall(InjectAtInlet(user, inlet, &event, first_id, local[n]));
+        PetscCall(InjectAtInlet(user, inlet, &event, first_id, velocity, local[n]));
     }
+    PetscCall(InterpolateVelocityAtPointEnd(&velocity));
 
     PetscCallMPI(MPI_Allreduce(local, global, PARTICLE_INLET_FACE_COUNT * PARTICLE_INLET_SUMS, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
     if (simCtx->rank == 0) {
