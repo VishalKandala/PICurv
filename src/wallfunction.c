@@ -71,7 +71,6 @@ void noslip(UserCtx *user,
             Cmpnts *velocity_boundary,
             double normal_x, double normal_y, double normal_z)
 {
-    PROFILE_HELPER_BEGIN;
     (void)user;
     (void)normal_x;
     (void)normal_y;
@@ -93,7 +92,6 @@ void noslip(UserCtx *user,
     (*velocity_boundary).x += velocity_wall.x;
     (*velocity_boundary).y += velocity_wall.y;
     (*velocity_boundary).z += velocity_wall.z;
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -143,7 +141,6 @@ void freeslip(UserCtx *user,
  */
 double E_coeff(double friction_velocity, double roughness_height, double kinematic_viscosity)
 {
-    PROFILE_HELPER_BEGIN;
     // Compute roughness Reynolds number
     double roughness_reynolds = friction_velocity * roughness_height / kinematic_viscosity;
     
@@ -167,7 +164,6 @@ double E_coeff(double friction_velocity, double roughness_height, double kinemat
     }
     
     // Return E = exp[κ(B - ΔB)]
-    PROFILE_HELPER_END;
     return exp(KAPPA * (LOGLAW_B - roughness_correction));
 }
 
@@ -178,7 +174,6 @@ double E_coeff(double friction_velocity, double roughness_height, double kinemat
 double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
                           double friction_velocity, double roughness_height)
 {
-    PROFILE_HELPER_BEGIN;
     // Normalized wall distance
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
     
@@ -202,7 +197,6 @@ double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
         tangential_velocity = -1.0;
     }
     
-    PROFILE_HELPER_END;
     return tangential_velocity;
 }
 
@@ -218,7 +212,6 @@ double f_hydset(double kinematic_viscosity, double known_velocity,
                 double wall_distance, double friction_velocity_guess, 
                 double roughness_height)
 {
-    PROFILE_HELPER_BEGIN;
     double yplus = friction_velocity_guess * wall_distance / kinematic_viscosity;
     double residual;
     
@@ -232,7 +225,6 @@ double f_hydset(double kinematic_viscosity, double known_velocity,
         residual = friction_velocity_guess * (1.0 / KAPPA * log(E * yplus)) - known_velocity;
     }
     
-    PROFILE_HELPER_END;
     return residual;
 }
 
@@ -246,7 +238,6 @@ double df_hydset(double kinematic_viscosity, double known_velocity,
                  double wall_distance, double friction_velocity_guess,
                  double roughness_height)
 {
-    PROFILE_HELPER_BEGIN;
     const double perturbation = 1.e-7;
     
     double f_plus = f_hydset(kinematic_viscosity, known_velocity, wall_distance,
@@ -255,7 +246,6 @@ double df_hydset(double kinematic_viscosity, double known_velocity,
     double f_minus = f_hydset(kinematic_viscosity, known_velocity, wall_distance,
                              friction_velocity_guess - perturbation, roughness_height);
     
-    PROFILE_HELPER_END;
     return (f_plus - f_minus) / (2.0 * perturbation);
 }
 
@@ -269,7 +259,6 @@ double find_utau_hydset(double kinematic_viscosity, double known_velocity,
                         double wall_distance, double initial_guess,
                         double roughness_height)
 {
-    PROFILE_HELPER_BEGIN;
     double friction_velocity = initial_guess;
     double friction_velocity_old = initial_guess;
     
@@ -302,7 +291,6 @@ double find_utau_hydset(double kinematic_viscosity, double known_velocity,
                  iteration, fabs(friction_velocity - friction_velocity_old));
     }
     
-    PROFILE_HELPER_END;
     return friction_velocity;
 }
 
@@ -316,12 +304,10 @@ double find_utau_hydset(double kinematic_viscosity, double known_velocity,
  */
 double nu_t(double yplus)
 {
-    PROFILE_HELPER_BEGIN;
     // van Driest damping function: [1 - exp(-y+ / A+)]²
     double damping_function = 1.0 - exp(-yplus / DAMPING_COEFFICIENT);
     
     // Mixing length model: ν_t / ν = κ * y+ * D²
-    PROFILE_HELPER_END;
     return KAPPA * yplus * damping_function * damping_function;
 }
 
@@ -334,7 +320,6 @@ double nu_t(double yplus)
 double integrate_1(double kinematic_viscosity, double wall_distance,
                    double friction_velocity, int integration_mode)
 {
-    PROFILE_HELPER_BEGIN;
     const int num_points = 30;
     double step_size = wall_distance / (num_points - 1);
     double integral_values[num_points];
@@ -370,7 +355,6 @@ double integrate_1(double kinematic_viscosity, double wall_distance,
                    (2.0 * integral_values[0] + integral_values[1] +
                     2.0 * integral_values[num_points-1] + integral_values[num_points-2]);
     
-    PROFILE_HELPER_END;
     return integral_sum;
 }
 
@@ -387,13 +371,11 @@ double integrate_1(double kinematic_viscosity, double wall_distance,
 double taw(double kinematic_viscosity, double friction_velocity,
            double wall_distance, double velocity, double pressure_gradient_tangent)
 {
-    PROFILE_HELPER_BEGIN;
     // Compute integrated viscosity profiles
     double F1 = integrate_1(kinematic_viscosity, wall_distance, friction_velocity, 0);
     double Fy = integrate_1(kinematic_viscosity, wall_distance, friction_velocity, 1);
     
     // Apply momentum balance: τ_w * F1 = u - (dp/dx) * Fy
-    PROFILE_HELPER_END;
     return (1.0 / F1) * (velocity - pressure_gradient_tangent * Fy);
 }
 
@@ -407,11 +389,9 @@ double u_Cabot(double kinematic_viscosity, double wall_distance,
                double friction_velocity, double pressure_gradient_tangent,
                double wall_shear_stress)
 {
-    PROFILE_HELPER_BEGIN;
     double F1 = integrate_1(kinematic_viscosity, wall_distance, friction_velocity, 0);
     double Fy = integrate_1(kinematic_viscosity, wall_distance, friction_velocity, 1);
     
-    PROFILE_HELPER_END;
     return wall_shear_stress * F1 + pressure_gradient_tangent * Fy;
 }
 
@@ -423,12 +403,10 @@ double f_Cabot(double kinematic_viscosity, double velocity, double wall_distance
                double friction_velocity_guess, double pressure_gradient_tangent,
                double pressure_gradient_normal)
 {
-    PROFILE_HELPER_BEGIN;
     (void)pressure_gradient_normal;
     double wall_shear = taw(kinematic_viscosity, friction_velocity_guess,
                            wall_distance, velocity, pressure_gradient_tangent);
     
-    PROFILE_HELPER_END;
     return friction_velocity_guess - sqrt(fabs(wall_shear));
 }
 
@@ -442,7 +420,6 @@ double df_Cabot(double kinematic_viscosity, double velocity, double wall_distanc
                 double friction_velocity_guess, double pressure_gradient_tangent,
                 double pressure_gradient_normal)
 {
-    PROFILE_HELPER_BEGIN;
     const double perturbation = 1.e-7;
     
     double f_plus = f_Cabot(kinematic_viscosity, velocity, wall_distance,
@@ -453,7 +430,6 @@ double df_Cabot(double kinematic_viscosity, double velocity, double wall_distanc
                             friction_velocity_guess - perturbation,
                             pressure_gradient_tangent, pressure_gradient_normal);
     
-    PROFILE_HELPER_END;
     return (f_plus - f_minus) / (2.0 * perturbation);
 }
 
@@ -468,7 +444,6 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
                      double pressure_gradient_normal, double *friction_velocity,
                      double *wall_shear_velocity, double *wall_shear_normal)
 {
-    PROFILE_HELPER_BEGIN;
     double current_guess = initial_guess;
     double new_guess;
     
@@ -510,7 +485,6 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
                               velocity, pressure_gradient_tangent);
     *wall_shear_normal = taw(kinematic_viscosity, new_guess, wall_distance,
                             0.0, pressure_gradient_normal);
-    PROFILE_HELPER_END;
 }
 
 // ============================================================================
@@ -524,7 +498,6 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 double u_Werner(double kinematic_viscosity, double wall_distance,
                 double friction_velocity)
 {
-    PROFILE_HELPER_BEGIN;
     /* The pointwise profile, and the production path: `wall_function()` evaluates it at
        the boundary cell with the friction velocity `find_utau_Werner()` takes from the
        reference cell, so one relation is used in both directions. */
@@ -545,7 +518,6 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
         velocity = power_law_coefficient * pow(yplus, power_law_exponent) * friction_velocity;
     }
     
-    PROFILE_HELPER_END;
     return velocity;
 }
 
@@ -635,7 +607,6 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
 double find_utau_Werner(double kinematic_viscosity, double velocity,
                         double wall_distance, double initial_guess)
 {
-    PROFILE_HELPER_BEGIN;
     const double A = 8.3;
     const double B = 1.0 / 7.0;
     const double speed = fabs(velocity);
@@ -647,10 +618,8 @@ double find_utau_Werner(double kinematic_viscosity, double velocity,
        the data alone: the sublayer holds while U y / nu <= VISCOUS_SUBLAYER_YPLUS^2, the
        same switch `u_Werner()` applies to y+. Both branches then invert explicitly. */
     if (speed * y_over_nu <= VISCOUS_SUBLAYER_YPLUS * VISCOUS_SUBLAYER_YPLUS) {
-        PROFILE_HELPER_END;
         return sqrt(speed / y_over_nu);                           /* U = u_tau^2 y / nu */
     }
-    PROFILE_HELPER_END;
     return pow(speed / (A * pow(y_over_nu, B)), 1.0 / (1.0 + B)); /* U = A u_tau^(1+B) (y/nu)^B */
 }
 
@@ -703,7 +672,6 @@ void wall_function(UserCtx *user, double distance_reference, double distance_bou
                    Cmpnts *velocity_boundary, PetscReal *friction_velocity,
                    double normal_x, double normal_y, double normal_z)
 {
-    PROFILE_HELPER_BEGIN;
     SimCtx *simCtx = user->simCtx;
     double kinematic_viscosity = 1.0 / simCtx->ren;
     
@@ -756,7 +724,6 @@ void wall_function(UserCtx *user, double distance_reference, double distance_bou
     (*velocity_boundary).x += velocity_wall.x;
     (*velocity_boundary).y += velocity_wall.y;
     (*velocity_boundary).z += velocity_wall.z;
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -769,7 +736,6 @@ void wall_function_loglaw(UserCtx *user, double roughness_height,
                           Cmpnts *velocity_boundary, PetscReal *friction_velocity,
                           double normal_x, double normal_y, double normal_z)
 {
-    PROFILE_HELPER_BEGIN;
     SimCtx *simCtx = user->simCtx;
     double kinematic_viscosity = 1.0 / simCtx->ren;
     
@@ -820,7 +786,6 @@ void wall_function_loglaw(UserCtx *user, double roughness_height,
     (*velocity_boundary).x += velocity_wall.x;
     (*velocity_boundary).y += velocity_wall.y;
     (*velocity_boundary).z += velocity_wall.z;
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -835,7 +800,6 @@ void wall_function_Cabot(UserCtx *user, double roughness_height,
                          double pressure_gradient_x, double pressure_gradient_y,
                          double pressure_gradient_z, int iteration_count)
 {
-    PROFILE_HELPER_BEGIN;
     (void)roughness_height;
     SimCtx *simCtx = user->simCtx;
     double kinematic_viscosity = 1.0 / simCtx->ren;
@@ -901,5 +865,4 @@ void wall_function_Cabot(UserCtx *user, double roughness_height,
     (*velocity_boundary).x += velocity_wall.x;
     (*velocity_boundary).y += velocity_wall.y;
     (*velocity_boundary).z += velocity_wall.z;
-    PROFILE_HELPER_END;
 }

@@ -50,7 +50,8 @@ EXCLUDED = {
 #: stops the compiler inlining them, which cost 10-15% of particle step time (Grace, optimized
 #: PETSc, 6bd5b49 vs 151e81a). Rates are measured calls per step, the largest over a particle,
 #: an implicit-momentum flow and a Newton-Krylov run with every helper enabled. Their time
-#: appears in their callers' timers.
+#: appears in their callers' timers. Wall-model rates are per wall face per step, from 5-step
+#: werner, log_law and cabot channels (32^3 cells, 2 ranks) with every wall-model helper enabled.
 KERNELS = {
     "ApplyLESTestFilter": "29/cell per step",
     "ApplyLESTestFilterSymTensor": "4.0/cell per step",
@@ -96,6 +97,24 @@ KERNELS = {
     "TrilinearInterpolation_Vector": "2.0/particle per step",
     "UpdateParticleField": "0.9/particle per step",
     "WallNoSlipVelocity": "43/cell per step",
+    "E_coeff": "193/wall face per step",
+    "df_Cabot": "150/wall face per step",
+    "df_hydset": "225/wall face per step",
+    "f_Cabot": "451/wall face per step",
+    "f_hydset": "676/wall face per step",
+    "find_utau_Cabot": "38/wall face per step",
+    "find_utau_Werner": "32/wall face per step",
+    "find_utau_hydset": "32/wall face per step",
+    "integrate_1": "1203/wall face per step",
+    "noslip": "38/wall face per step",
+    "nu_t": "36096/wall face per step",
+    "taw": "564/wall face per step",
+    "u_Cabot": "38/wall face per step",
+    "u_Werner": "32/wall face per step",
+    "u_hydset_roughness": "32/wall face per step",
+    "wall_function": "32/wall face per step",
+    "wall_function_Cabot": "38/wall face per step",
+    "wall_function_loglaw": "32/wall face per step",
 }
 
 #: Whole files deliberately untimed: dependency-free leaf modules that include only petscsys.h.
