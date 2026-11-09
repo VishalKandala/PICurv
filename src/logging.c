@@ -1796,7 +1796,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
                          "mean_speed,spd_ref,spd_abs,spd_rel,mean_ke,ke_ref,ke_abs,ke_rel";
                 break;
         }
-        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, "solution_convergence.csv", header, PETSC_TRUE, &f));
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, "solution_convergence.csv", header, &f));
 
         switch (simCtx->solutionConvergenceMode) {
             case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
@@ -1882,7 +1882,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
         ierr = PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, "Continuity_Metrics.csv",
                                         "step,block,max_divergence,max_divergence_k,max_divergence_j,max_divergence_i,"
                                         "max_divergence_index,poisson_source_imbalance,flux_in,flux_out,net_flux,time,physical_time",
-                                        (PetscBool)(bi == 0), &f); CHKERRQ(ierr);
+                                        &f); CHKERRQ(ierr);
         ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time); CHKERRQ(ierr);
         fprintf(f, "%d,%d,%.10e,%d,%d,%d,%d,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n",
                 (int)ti, (int)bi, (double)simCtx->MaxDiv,
@@ -1937,7 +1937,6 @@ static PetscInt        g_profile_nselected = 0;
 static PetscLogDouble *g_profile_step_time  = NULL;   // Running totals at the last step boundary,
 static int            *g_profile_step_count = NULL;   // indexed by PETSc event
 static PetscInt        g_profile_step_capacity = 0;
-static PetscBool       g_profile_timestep_csv_started = PETSC_FALSE; // Profiling_Timestep_Summary.csv written this run
 
 /**
  * @brief Whether a name appears in a list of names.
@@ -2027,7 +2026,6 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
     g_profile_nhelpers    = simCtx->nProfilingHelpers;
     g_profile_all_helpers = simCtx->profilingAllHelpers;
     g_profile_any_helpers = (PetscBool)(g_profile_all_helpers || g_profile_nhelpers > 0);
-    g_profile_timestep_csv_started = PETSC_FALSE;
     // Helpers that ran before this (during setup) registered switched off; apply the list to them.
     PetscCall(PetscLogGetState(&state));
     PetscCall(PetscLogStateGetNumEvents(state, &nevents));
@@ -2154,8 +2152,7 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
         if (!f) {
             PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, "Profiling_Timestep_Summary.csv",
                                        "step,function,calls,step_time_s", PICURV_CSV_TRUNCATE_ON_FRESH,
-                                       (PetscBool)!g_profile_timestep_csv_started, PETSC_TRUE, &f));
-            g_profile_timestep_csv_started = PETSC_TRUE;
+                                       PETSC_TRUE, &f));
         }
         PetscFPrintf(PETSC_COMM_SELF, f, "%d,%s,%d,%.6f\n", (int)step, info.name, since_count, (double)since_time);
     }
@@ -2215,13 +2212,11 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
     simCtx->runtimeMemoryLogHasPrevious = PETSC_TRUE;
 
     if (simCtx->rank == 0) {
-        /* Never truncated: every run appends its samples. The run's first write, which carries
-           a continuation's marker, is its first sample, wherever that falls. */
+        /* Never truncated: every run appends its samples, a continuation's after its marker. */
         ierr = PicurvOpenRunCsv(simCtx, simCtx->log_dir, "Runtime_Memory.csv",
                                 "step,event,process_current_mb_max,process_peak_mb_max,petsc_allocated_mb_max,"
                                 "petsc_peak_allocated_mb_max,process_change_mb_max,reason,step_wall_s",
-                                PICURV_CSV_APPEND, (PetscBool)!simCtx->runtimeMemoryLogStarted, PETSC_TRUE, &f); CHKERRQ(ierr);
-        simCtx->runtimeMemoryLogStarted = PETSC_TRUE;
+                                PICURV_CSV_APPEND, PETSC_TRUE, &f); CHKERRQ(ierr);
 
         fprintf(f, "%" PetscInt_FMT ",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%s,",
                 step, event ? event : "-",
@@ -2423,7 +2418,7 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
         PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, filen,
                                    "section,function,max_time_s,max_rank,mean_time_s,min_time_s,min_rank,calls,avg_time_per_call_ms,"
                                    "min_calls_per_rank,min_calls_rank,max_calls_per_rank,max_calls_rank",
-                                   PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, PETSC_TRUE, &f));
+                                   PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, &f));
         fprintf(f, "# Total time per rank over %d rank(s). Section 'petsc' times are inclusive and run inside the "
                    "'picurv' functions, so the two sections must not be added together.\n", (int)simCtx->size);
     }
@@ -3064,11 +3059,9 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     /* --- CSV output (always, rank 0 only) --- */
     if (simCtx->rank == 0) {
         FILE *f = NULL;
-        /* Written at the output cadence, so a continuation is marked only when step
-           StartStep + 1 is an output step. */
         ierr = PicurvOpenRunCsv(simCtx, simCtx->analysis_dir, "interpolation_error.csv",
                                 "step,time,L2_error,Linf_error,L2_analytical,error_pct,physical_time", PICURV_CSV_APPEND,
-                                (PetscBool)(simCtx->step == simCtx->StartStep + 1), PETSC_FALSE, &f); CHKERRQ(ierr);
+                                PETSC_FALSE, &f); CHKERRQ(ierr);
         if (f) {
             /* ti is solver time, not a step count; physical_time is it in seconds. */
             PetscReal t = simCtx->ti;
@@ -3213,14 +3206,11 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
 
     if (simCtx->rank == 0) {
         FILE *f = NULL;
-        /* Written at the output cadence, so a continuation is marked only when step
-           StartStep + 1 is an output step. */
         ierr = PicurvOpenRunCsv(simCtx, simCtx->analysis_dir, "scatter_metrics.csv",
                                 "step,time,total_particles,total_cells,occupied_cells,occupancy_fraction,"
                                 "mean_particles_per_occupied_cell,particle_integral,grid_integral,"
                                 "conservation_error_abs,L1_error,L2_error,Linf_error,relative_L2_error,"
-                                "physical_time", PICURV_CSV_APPEND,
-                                (PetscBool)(simCtx->step == simCtx->StartStep + 1), PETSC_FALSE, &f); CHKERRQ(ierr);
+                                "physical_time", PICURV_CSV_APPEND, PETSC_FALSE, &f); CHKERRQ(ierr);
         if (f) {
             PetscReal physical_time = 0.0;
             ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time); CHKERRQ(ierr);
@@ -3406,7 +3396,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                                 "physical_time,lost_psi_sum,exited,exited_cumulative,exited_psi_sum,search_exited_count,"
                                 "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps,occupied_cells,"
                                 "particles_per_cell_min,particles_per_cell_mean,particles_per_cell_max",
-                                PICURV_CSV_APPEND, (PetscBool)(simCtx->step == simCtx->StartStep + 1), PETSC_FALSE, &f); CHKERRQ(ierr);
+                                PICURV_CSV_APPEND, PETSC_FALSE, &f); CHKERRQ(ierr);
         if (f) {
             fprintf(f,
                     "%d,%.6e,%d,%d,%lld,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e,"
@@ -3559,12 +3549,13 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
  *          `include/logging.h`.
  * @see PicurvOpenRunCsv()
  */
-PetscErrorCode PicurvOpenRunCsv(const SimCtx *simCtx, const char *dir, const char *filename, const char *header,
-                                PicurvCsvLifecycle lifecycle, PetscBool first_write, PetscBool required,
-                                FILE **file)
+PetscErrorCode PicurvOpenRunCsv(SimCtx *simCtx, const char *dir, const char *filename, const char *header,
+                                PicurvCsvLifecycle lifecycle, PetscBool required, FILE **file)
 {
-    char  path[PETSC_MAX_PATH_LEN + 128];
-    FILE *handle = NULL;
+    char      path[PETSC_MAX_PATH_LEN + 128];
+    FILE     *handle = NULL;
+    uint64_t  key = 0xCBF29CE484222325ULL; /* FNV-1a of the path */
+    PetscBool first_write = PETSC_TRUE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -3574,6 +3565,12 @@ PetscErrorCode PicurvOpenRunCsv(const SimCtx *simCtx, const char *dir, const cha
     *file = NULL;
 
     PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", dir, filename));
+    for (const char *c = path; *c; ++c) key = (key ^ (uint64_t)(unsigned char)*c) * 0x100000001B3ULL;
+    for (PetscInt n = 0; n < simCtx->runCsvWrittenCount && first_write; ++n) {
+        if (simCtx->runCsvWritten[n] == key) first_write = PETSC_FALSE;
+    }
+    PetscCheck(!first_write || simCtx->runCsvWrittenCount < PICURV_RUN_CSV_CAPACITY, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+               "A run writes more than %d CSV records; raise PICURV_RUN_CSV_CAPACITY.", PICURV_RUN_CSV_CAPACITY);
     handle = fopen(path, (lifecycle == PICURV_CSV_TRUNCATE_ON_FRESH && first_write && !simCtx->continueMode) ? "w" : "a");
     if (!handle) {
         PetscCheck(!required, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Unable to open diagnostics file '%s'.", path);
@@ -3581,6 +3578,7 @@ PetscErrorCode PicurvOpenRunCsv(const SimCtx *simCtx, const char *dir, const cha
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
+    if (first_write) simCtx->runCsvWritten[simCtx->runCsvWrittenCount++] = key;
 
     if (ftell(handle) == 0) fprintf(handle, "%s\n", header);
     /* Written once per continuation, so that a reader can tell a resumed run from a jump in

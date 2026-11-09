@@ -1093,7 +1093,7 @@ PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
         flow_rate = data->factor * global[0] + global[1];
         PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "inlet_flow.csv",
                                            "step,physical_time,face,area,flow_rate,mean_normal_speed,bulk_factor",
-                                           PETSC_TRUE, &file));
+                                           &file));
         fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.10e,%.10e\n", (int)simCtx->step, (double)physical_time,
                 BCFaceToString((BCFace)face), (double)global[2], (double)flow_rate,
                 (double)(global[2] > 0.0 ? flow_rate / global[2] : 0.0), (double)data->factor);

@@ -659,7 +659,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->walltimeGuardLatestStepSeconds = 0.0;
     simCtx->runtimeMemoryLogEnabled = PETSC_TRUE;
     simCtx->lastStepWallSeconds = 0.0;
-    simCtx->runtimeMemoryLogStarted = PETSC_FALSE;
+    simCtx->runCsvWrittenCount = 0;
     simCtx->runtimeMemoryLogHasPrevious = PETSC_FALSE;
     simCtx->runtimeMemoryLogPreviousProcessMB = 0.0;
     // --- Group 11: Post-Processing Information ---

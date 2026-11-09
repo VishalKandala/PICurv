@@ -71,6 +71,9 @@
 /** @brief Most rows one rank contributes to a particle console snapshot (`io.particle_log_interval` samples IDs). */
 #define PICURV_SNAPSHOT_ROWS_PER_RANK 32
 
+/** @brief Most distinct CSV records one run opens through PicurvOpenRunCsv(): about twenty, plus a few per block. */
+#define PICURV_RUN_CSV_CAPACITY 256
+
 #include <unistd.h>
 
 // --- C++ Specific Includes ---
@@ -1096,7 +1099,8 @@ typedef struct SimCtx {
     PetscReal walltimeGuardEWMASeconds;
     PetscReal walltimeGuardLatestStepSeconds;
     PetscBool runtimeMemoryLogEnabled;               /**< Enable the rank-reduced runtime memory log (log_dir/Runtime_Memory.csv). */
-    PetscBool runtimeMemoryLogStarted;               /**< Rank 0 only: true once this run has written its first sample (and, in a continuation, the marker before it). */
+    uint64_t  runCsvWritten[PICURV_RUN_CSV_CAPACITY]; /**< Rank 0 only: path hashes of the CSV records this run has opened (see PicurvOpenRunCsv()). */
+    PetscInt  runCsvWrittenCount;                    /**< Entries of runCsvWritten in use. */
     PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
     PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */
     PetscReal lastStepWallSeconds;                   /**< Slowest rank's wall time of the last completed step (0 before one). */

@@ -198,7 +198,7 @@ PetscErrorCode LogDrivenFlowDiagnostics(UserCtx *user)
     PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "driven_flow.csv",
                                        "step,time,direction,target_flux,measured_flux,cross_section_area,"
                                        "bulk_velocity,bulk_velocity_correction,driving_acceleration,physical_time",
-                                       PETSC_TRUE, &file));
+                                       &file));
     fprintf(file, "%d,%.6e,%c,%.10e,%.10e,%.10e,%.10e,%.6e,%.10e,%.6e\n",
             (int)simCtx->step, (double)simCtx->ti, direction,
             (double)simCtx->targetVolumetricFlux, (double)simCtx->drivenFluxMeasured, (double)area,

@@ -865,13 +865,13 @@ static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
 /**
  * @brief Prepares the convergence monitor for one solve and opens its log file on rank 0.
  *
- * The first step of a fresh run truncates the log; every other step appends, and the
- * first step of a continued run records where it resumed.
+ * A fresh run's first open, which may be the initial condition's projection at step 0,
+ * truncates the log; every later open appends, and a continued run's first open records
+ * where it resumed.
  */
 static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCtx, PetscInt bi)
 {
     DualMonitorCtx *monitor = NULL;
-    const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -891,7 +891,7 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
         /* true_norm and relative_norm are empty unless pic_true_residual asked for them. */
         PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, filename,
                                    "step,block,iter,unpreconditioned_norm,true_norm,relative_norm",
-                                   PICURV_CSV_TRUNCATE_ON_FRESH, first_step, PETSC_TRUE, &monitor->file_handle));
+                                   PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, &monitor->file_handle));
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

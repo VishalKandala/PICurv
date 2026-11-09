@@ -1103,7 +1103,7 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                                            "step,time,cs_effective,cs_mean,coefficient_mean,"
                                            "coefficient_rms,coefficient_min,coefficient_max,"
                                            "nu_t_mean,nu_t_max,nu_t_over_nu_mean,k_sgs_mean,"
-                                           "backscatter_fraction,limited_fraction,physical_time", PETSC_TRUE, &file));
+                                           "backscatter_fraction,limited_fraction,physical_time", &file));
         PetscReal physical_time = 0.0;
         PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
         fprintf(file,

@@ -144,8 +144,8 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
 
 /**
  * @brief Opens one of the block's Newton CSV records on rank 0, or returns NULL.
- * @details PicurvOpenRunCsv() owns the lifecycle: a fresh run's first step truncates the file,
- *          the header is written to an empty file, and a continued run's first step marks the
+ * @details PicurvOpenRunCsv() owns the lifecycle: a fresh run's first open truncates the file,
+ *          the header is written to an empty file, and a continued run's first open marks the
  *          seam. A failure only warns: these files are diagnostics, and must not change the
  *          solve's error behaviour.
  */
@@ -157,8 +157,7 @@ static FILE *MomentumNewtonKrylov_OpenCsv(const MomentumNewtonKrylovContext *ctx
     FILE *file = NULL;
 
     if (PetscSNPrintf(name, sizeof(name), "Momentum_Solver_Newton_Krylov_%s_Block_%d.csv", kind, (int)ctx->user->_this) ||
-        PicurvOpenRunCsv(simCtx, simCtx->log_dir, name, header, PICURV_CSV_TRUNCATE_ON_FRESH,
-                         (PetscBool)(simCtx->step == simCtx->StartStep + 1), PETSC_FALSE, &file)) {
+        PicurvOpenRunCsv(simCtx, simCtx->log_dir, name, header, PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_FALSE, &file)) {
         file = NULL;
     }
     PROFILE_HELPER_END;

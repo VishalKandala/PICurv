@@ -1153,25 +1153,24 @@ typedef enum {
  * directory (`simCtx->log_dir`). This owns the file's lifecycle; the caller owns the columns:
  * - `header` (starting `step,` or `section,`) is written whenever the file is empty, so it
  *   appears once, at the top;
- * - on the run's first write (`first_write`), a `PICURV_CSV_TRUNCATE_ON_FRESH` record is
- *   emptied first unless the run is a continuation (`simCtx->continueMode`), and a
+ * - on the run's first open of the file, whenever it falls, a `PICURV_CSV_TRUNCATE_ON_FRESH`
+ *   record is emptied first unless the run is a continuation (`simCtx->continueMode`), and a
  *   continuation writes `# Continuation from step <StartStep>`, so a reader can tell a resumed
  *   run from a discontinuity in the data. Every other call appends.
  *
- * The caller says which write is the run's first: for a record written every step from step
- * `StartStep + 1`, the first call in that step; for one written at other times, its own
- * started flag (Runtime_Memory.csv keeps `simCtx->runtimeMemoryLogStarted`). A file several
- * calls write in one step passes `first_write` only to the first of them.
+ * The run's first open is tracked here, by path, in `simCtx->runCsvWritten`, so a record
+ * written at the output cadence, from step 0, or by several calls in one step needs no flag
+ * of its own.
  *
  * Call on rank 0 only - the file is a serial artifact, and a collective write to it would
  * interleave. The caller closes the handle.
  *
- * @param[in]  simCtx      Simulation context supplying the continuation state and `StartStep`.
+ * @param[in,out] simCtx   Simulation context supplying the continuation state and `StartStep`, and
+ *                         recording the files the run has opened.
  * @param[in]  dir         Directory of the file.
  * @param[in]  filename    Basename of the CSV, including the extension.
  * @param[in]  header      Column header written to an empty file, without a trailing newline.
  * @param[in]  lifecycle   Whether a fresh run's first write empties the file.
- * @param[in]  first_write Whether this is the run's first write to the file.
  * @param[in]  required    PETSC_TRUE: a file that cannot be opened is an error. PETSC_FALSE: it
  *                         is a warning and `*file` is NULL, for a diagnostic whose loss must not
  *                         stop or change the run.
@@ -1179,30 +1178,25 @@ typedef enum {
  *                         `required` is false and the file could not be opened.
  * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if a required file cannot be opened.
  */
-PetscErrorCode PicurvOpenRunCsv(const SimCtx *simCtx, const char *dir, const char *filename, const char *header,
-                                PicurvCsvLifecycle lifecycle, PetscBool first_write, PetscBool required,
-                                FILE **file);
+PetscErrorCode PicurvOpenRunCsv(SimCtx *simCtx, const char *dir, const char *filename, const char *header,
+                                PicurvCsvLifecycle lifecycle, PetscBool required, FILE **file);
 
 /**
  * @brief Opens a per-step diagnostics CSV: PicurvOpenRunCsv() with the common settings.
  *
- * For a record written every step and kept across runs (`PICURV_CSV_APPEND`, required): the
- * run's first write is the call in step `StartStep + 1` that passes `mark_continuation`.
+ * For a record written every step and kept across runs: `PICURV_CSV_APPEND`, and a file that
+ * cannot be opened is an error.
  *
- * @param[in]  simCtx            Simulation context supplying the step and continuation state.
- * @param[in]  dir               Directory of the file (`simCtx->analysis_dir` or `simCtx->log_dir`).
- * @param[in]  filename          Basename of the CSV, including the extension.
- * @param[in]  header            Column header written to an empty file, without a trailing newline.
- * @param[in]  mark_continuation Whether this call may write the continuation marker; a file
- *                               several calls write in one step lets only the first of them.
- * @param[out] file              Open append handle, never NULL on success.
+ * @param[in,out] simCtx   Simulation context, as PicurvOpenRunCsv() takes it.
+ * @param[in]     dir      Directory of the file (`simCtx->analysis_dir` or `simCtx->log_dir`).
+ * @param[in]     filename Basename of the CSV, including the extension.
+ * @param[in]     header   Column header written to an empty file, without a trailing newline.
+ * @param[out]    file     Open append handle, never NULL on success.
  * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if the file cannot be opened.
  */
-static inline PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *dir, const char *filename,
-                                                      const char *header, PetscBool mark_continuation, FILE **file)
+static inline PetscErrorCode PicurvOpenDiagnosticsCsv(SimCtx *simCtx, const char *dir, const char *filename,
+                                                      const char *header, FILE **file)
 {
-    const PetscBool first_write =
-        (PetscBool)(simCtx && mark_continuation && simCtx->step == simCtx->StartStep + 1);
-    return PicurvOpenRunCsv(simCtx, dir, filename, header, PICURV_CSV_APPEND, first_write, PETSC_TRUE, file);
+    return PicurvOpenRunCsv(simCtx, dir, filename, header, PICURV_CSV_APPEND, PETSC_TRUE, file);
 }
 #endif // LOGGING_H

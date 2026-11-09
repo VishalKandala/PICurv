@@ -776,10 +776,6 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
                                               const PetscReal *trial_ratio, PetscReal smoothed_ratio,
                                               const char *status)
 {
-    /* A step's first row is its first trial's (pseudo_iter 1), so the run's first write is that
-       row in step StartStep + 1. */
-    const PetscBool first_row = (PetscBool)(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1);
-
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -789,7 +785,7 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
         PetscCall(PicurvOpenRunCsv(simCtx, simCtx->log_dir, name,
                                    "step,pseudo_iter,dtau,cfl_eff,delta_norm,delta_rel,residual_norm,residual_rel,"
                                    "trial_ratio,smoothed_ratio,status,dtau_after,cfl_eff_after",
-                                   PICURV_CSV_TRUNCATE_ON_FRESH, first_row, PETSC_TRUE, &f));
+                                   PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, &f));
         fprintf(f, "%d,%d,%.6e,%.4f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%s,%.6e,%.4f\n",
                 (int)simCtx->step, (int)pseudo_iter, (double)dtau, (double)(dtau * lambda_max),
                 (double)delta[bi], (double)delta_rel[bi], (double)resid[bi], (double)resid_rel[bi],

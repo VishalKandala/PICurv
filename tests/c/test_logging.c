@@ -1436,7 +1436,6 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
     PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
     simCtx.rank = 0;
     simCtx.runtimeMemoryLogEnabled = PETSC_TRUE;
-    simCtx.runtimeMemoryLogStarted = PETSC_FALSE;
     simCtx.runtimeMemoryLogHasPrevious = PETSC_FALSE;
     simCtx.continueMode = PETSC_FALSE;
     simCtx.StartStep = 0;
@@ -1460,6 +1459,45 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
     PetscCall(RuntimeMemoryLogSample(&simCtx, 2, "Step", "-"));
     PetscCall(PicurvAssertBool((PetscBool)(access(memory_path, F_OK) != 0),
                                "disabled runtime memory log should not create a file"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief The run's first open of a CSV record is found by path, whenever it falls: a step-0
+ *        write survives a later open on a fresh run, and a continuation is marked once, at its
+ *        first write, even when that is not in step StartStep + 1.
+ */
+static PetscErrorCode TestRunCsvFirstOpenIsTrackedPerRun(void)
+{
+    SimCtx *simCtx = NULL;
+    char    tmpdir[PETSC_MAX_PATH_LEN], path[PETSC_MAX_PATH_LEN];
+    FILE   *f = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/history.csv", tmpdir));
+
+    PetscCall(PetscCalloc1(1, &simCtx));
+    for (PetscInt step = 0; step < 2; ++step) {
+        PetscCall(PicurvOpenRunCsv(simCtx, tmpdir, "history.csv", "step,value", PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, &f));
+        fprintf(f, "%d,fresh\n", (int)step);
+        fclose(f);
+    }
+    PetscCall(AssertFileContains(path, "step,value\n0,fresh\n1,fresh\n", "a later open must not truncate the step-0 rows"));
+    PetscCall(PetscFree(simCtx));
+
+    PetscCall(PetscCalloc1(1, &simCtx));
+    simCtx->continueMode = PETSC_TRUE;
+    simCtx->StartStep    = 10;
+    for (PetscInt step = 15; step <= 20; step += 5) {
+        PetscCall(PicurvOpenRunCsv(simCtx, tmpdir, "history.csv", "step,value", PICURV_CSV_TRUNCATE_ON_FRESH, PETSC_TRUE, &f));
+        fprintf(f, "%d,continued\n", (int)step);
+        fclose(f);
+    }
+    PetscCall(AssertFileContains(path, "1,fresh\n# Continuation from step 10\n15,continued\n20,continued\n",
+                                 "a continuation is marked once, at its first write"));
+    PetscCall(PetscFree(simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
@@ -1870,6 +1908,7 @@ int main(int argc, char **argv)
         {"field-anatomy-logging", TestFieldAnatomyLogging},
         {"profiling-lifecycle-helpers", TestProfilingLifecycleHelpers},
         {"runtime-memory-log-helpers", TestRuntimeMemoryLogHelpers},
+        {"run-csv-first-open-is-tracked-per-run", TestRunCsvFirstOpenIsTrackedPerRun},
         {"solution-convergence-disabled", TestSolutionConvergenceDisabled},
         {"solution-convergence-steady-logging", TestSolutionConvergenceSteadyLogging},
         {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},

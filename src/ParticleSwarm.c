@@ -1379,7 +1379,7 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
         FILE *file = NULL;
 
         PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "particle_injection.csv",
-                                           "step,physical_time,face,flow_rate,expected,injected,psi", PETSC_TRUE, &file));
+                                           "step,physical_time,face,flow_rate,expected,injected,psi", &file));
         for (PetscInt n = 0; n < simCtx->particleInletCount; ++n) {
             fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.0f,%.10e\n", (int)simCtx->step, (double)event.physical_time,
                     BCFaceToString(simCtx->particleInlets[n].face), (double)global[n][0], (double)global[n][1],
