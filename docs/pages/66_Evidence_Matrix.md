@@ -78,8 +78,8 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  124 values cite `measurement:` records - 54 distinct ones, taken between 2026-09-18 and
-  2026-10-29 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  124 values cite `measurement:` records - 64 distinct ones, taken between 2026-09-18 and
+  2026-11-08 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, staged initial-condition fields, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
@@ -90,17 +90,22 @@ likely to matter:
   laminar curved duct and a wall-modelled turbulent one, and the storage compression
   levels, offload policies, and retention components against a Google Drive remote, the
   three study types run as Slurm arrays, the import of an external periodic velocity
-  field, and the LES models and options against the HOM02 benchmark.
-  Each record states what it does not establish, and none is gated in CI. Thirty-six
-  records are cited by no value. Ten are `not-met`: the Q-criterion output placement and
+  field, the LES models and options against the HOM02 benchmark, the `prescribed_velocity`
+  and `moving` handlers against exact duct, Womersley, Couette, Stokes second-problem and
+  lid-driven-cavity solutions, with recordings, keyed draws and synthetic inflow fluctuations
+  in a turbulent channel, and `particles_per_cell` seeding.
+  Each record states what it does not establish, and none is gated in CI. Thirty-nine
+  records are cited by no value. Eleven are `not-met`: the Q-criterion output placement and
   the generated inlet flux on `programmatic_c` grids, both since fixed and re-measured;
   asset reuse for identical inputs, fixed and since confirmed on the cluster by
   `asset-lifecycle-grace-2026-10-01`; `hom02-les-accuracy-2026-10-09`, cited in the LES
   entries' limitations; the `cabot` channel run and the second `werner` window, cited in
   those wall functions' entries; and four checks of the 2026-10-11 verification series
-  (`defense-t1-a6`, `-f4`, `-f4b`, `-v4`). One is the superseded `inconclusive` drift
-  measurement. The other twenty-five are `met` and verify behaviour no selector value
-  names: the rest of that verification series, the paired drift, scalar-scatter,
+  (`defense-t1-a6`, `-f4`, `-f4b`, `-v4`); and `iem-cell-reconstruction-2026-11-08`, the
+  IEM cell-mean diffusion excess. One is the superseded `inconclusive` drift
+  measurement. The other twenty-seven are `met` and verify behaviour no selector value
+  names: the rest of that verification series, particle inlet injection and particle field
+  sources, the paired drift, scalar-scatter,
   pending-job cancellation, and IEM variance-decay measurements, particle swarm removal,
   keyed Brownian continuation and weak scaling, decomposition-independent statistics
   ensembles, the 2D Newton--Krylov mixing layer, the 2026-09-22 wall-seed measurement

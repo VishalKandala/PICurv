@@ -100,6 +100,9 @@
               "measurement:womersley-order-2026-11-06",
               "measurement:prescribed-recording-2026-11-06",
               "measurement:keyed-source-draws-2026-11-06"
+            ],
+            "benchmark": [
+              "measurement:synthetic-inflow-channel-2026-11-08"
             ]
           }
         },

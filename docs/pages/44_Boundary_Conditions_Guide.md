@@ -493,14 +493,19 @@ face over 200 steps at dt = T/5 the state's variance is 0.99-1.00, its lag-1 tem
 reproduces the state and the inlet flux bitwise. On a 40 x 36 face spanning 2 pi by 2, eight ranks
 split 2 x 4, 4 x 2, 1 x 4 and 4 x 1 across it give bitwise-identical state; the applied inlet flux
 still differs between layouts at round-off when `bulk_velocity` or `flow_rate` rescales it, through
-that face sum.
+that face sum. Benchmark characterized - `synthetic-inflow-channel-2026-11-08`: a Re_tau 203 channel
+fed its own fitted mean and stresses through `fluctuations` receives them at the face within 1% in
+integral, and downstream recovers the reference skin friction within 5% from 15.1 channel half-heights
+and the Reynolds-shear-stress peak within 10% from 8.8, where the same inlet without fluctuations
+stays laminar; the inlet costs 0.04% of the step.
 
 **Limitations.** Drawn noise is white: uncorrelated between face cells and between steps, so it
 is not a model of an inflow's turbulence. Its effect depends on `dt` and the grid, since a smaller
-step averages more draws per unit time. `fluctuations` is experimental within this supported handler: its downstream
-recovery has not been validated. It imposes the stress and the correlation scales, not the
-spectrum or the phase structure of real turbulence, so the flow downstream of the inlet needs a
-development length before its statistics recover; that length has not been measured in PICurv.
+step averages more draws per unit time. `fluctuations` imposes the stress and the correlation
+scales, not the spectrum or the phase structure of real turbulence, so the flow downstream of the
+inlet needs a development length before its statistics recover: about 15 channel half-heights for
+skin friction in the one channel measured, at one set of `length_scales` and `time_scale`, which
+that length depends on.
 The fluctuation's normal component changes the face's instantaneous flux: `bulk_velocity` and
 `flow_rate` hold the mean part, and `inlet_flow.csv` reports that mean part, not the applied flux.
 The filter's cost per step grows with the half-widths 2L/h, and the stresses are steady. On a multi-block case the
