@@ -96,6 +96,7 @@ typedef struct {
     PetscInt64 *pid_hi;    /**< One past the last particle ID of each cell */
     PetscReal  *bound;     /**< Largest measure density in each cell (NULL when not built) */
     PetscInt    count;     /**< Particles this rank seeds */
+    PetscReal   total;     /**< Measure of every cell on every rank: the domain's volume or the face's area */
 } SeedingCellTable;
 
 /* A seeding point's logical coordinates stay at or below 1 - SEEDING_LOGIC_MARGIN, for
@@ -259,6 +260,15 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     PetscCheck(global_max > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                face < 0 ? "Volumetric particle seeding found no owned volume on any rank."
                         : "Surface particle seeding found no inlet area on any rank; it needs an INLET face.");
+    {
+        uint64_t local_total = 0;
+        for (PetscInt c = 0; c < n_cells; ++c) {
+            quanta[c] = (uint64_t)PetscMax(1.0, PetscFloorReal(ldexp((double)(measure[c] / global_max), (int)quantum_bits) + 0.5));
+            local_total += quanta[c];
+        }
+        PetscCallMPI(MPI_Allreduce(&local_total, &total, 1, MPI_UINT64_T, MPI_SUM, PETSC_COMM_WORLD));
+        table->total = (PetscReal)ldexp((double)total, -(int)quantum_bits) * global_max;
+    }
 
     if (numParticles == 0) {
         // Nothing to place (an inlet's table): every cell's range is empty. numParticles is the
@@ -276,11 +286,11 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     for (PetscInt c = 0; c < n_cells; ++c) {
         const PetscInt lj = (c / table->n[0]) % table->n[1], lk = c / (table->n[0] * table->n[1]);
         const PetscInt row = (table->origin[1] + lj - global_origin[1]) + global_cells[1] * (table->origin[2] + lk - global_origin[2]);
-        quanta[c] = (uint64_t)PetscMax(1.0, PetscFloorReal(ldexp((double)(measure[c] / global_max), (int)quantum_bits) + 0.5));
         rows[row] += quanta[c];
         segment[lj + table->n[1] * lk] += quanta[c];
     }
     PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, rows, (PetscMPIInt)n_rows, MPI_UINT64_T, MPI_SUM, PETSC_COMM_WORLD));
+    total = 0;
     for (PetscInt r = 0; r < n_rows; ++r) { row_before[r] = total; total += rows[r]; }
     // Ranks with the same j and k ranges share rows; their order along i is the order in the row.
     PetscCallMPI(MPI_Comm_split(PETSC_COMM_WORLD, n_cells > 0 ? (PetscMPIInt)(table->origin[1] + nodes[1] * table->origin[2]) : MPI_UNDEFINED,
@@ -1349,24 +1359,18 @@ PetscErrorCode InjectParticlesAtInlets(UserCtx *user)
                        "Face %s injects particles but is not an INLET.", BCFaceToString(inlet->face));
             PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
             PetscCall(BuildSeedingCellTable(user, coor, (PetscInt)inlet->face, 0, PETSC_TRUE, &inlet->table));
-            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
             if (!have_cells_per_volume) {
-                /* particles_per_cell is a mean over the grid: cells over volume makes it a density.
-                   The volume is the sum of the cells' 1/Aj, not the Jacobian integral the
-                   seeding table uses. table_built is the same on every rank, so all reduce. */
-                const DMDALocalInfo *info = &user->info;
-                const PetscReal   ***aj = NULL;
-                PetscReal            volume = 0.0;
-                PetscCall(DMDAVecGetArrayRead(user->da, user->Aj, (void *)&aj));
-                for (PetscInt k = PetscMax(info->zs, 1); k < PetscMin(info->zs + info->zm, info->mz - 1); ++k)
-                for (PetscInt j = PetscMax(info->ys, 1); j < PetscMin(info->ys + info->ym, info->my - 1); ++j)
-                for (PetscInt i = PetscMax(info->xs, 1); i < PetscMin(info->xs + info->xm, info->mx - 1); ++i)
-                    volume += 1.0 / aj[k][j][i];
-                PetscCall(DMDAVecRestoreArrayRead(user->da, user->Aj, (void *)&aj));
-                PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &volume, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
-                cells_per_volume = (PetscReal)(info->mx - 2) * (info->my - 2) * (info->mz - 2) / volume;
+                /* particles_per_cell is a mean over the grid: cells over volume makes it a density,
+                   with the volume Volume seeding measures. table_built is the same on every rank,
+                   so all reduce. */
+                SeedingCellTable volume;
+
+                PetscCall(BuildSeedingCellTable(user, coor, -1, 0, PETSC_FALSE, &volume));
+                cells_per_volume = (PetscReal)(user->info.mx - 2) * (user->info.my - 2) * (user->info.mz - 2) / volume.total;
+                PetscCall(FreeSeedingCellTable(&volume));
                 have_cells_per_volume = PETSC_TRUE;
             }
+            PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
             inlet->cells_per_volume = cells_per_volume;
             inlet->table_built = PETSC_TRUE;
         }
