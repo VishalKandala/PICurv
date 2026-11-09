@@ -1,0 +1,6 @@
+- Second round of review follow-ups, and synthetic inflow fluctuations promoted on a channel benchmark:
+  - CSV records find a run's first write to each file themselves: output-cadence records mark a continuation wherever their first row falls, the Poisson history keeps the initial condition's step-0 rows, and the Newton-Krylov and Poisson histories are no longer re-truncated within the first step;
+  - an inlet's `particles_per_cell` becomes a density through the volume `Volume` seeding measures, so the two agree on curved grids and at any rank layout;
+  - named sources that refer back to themselves are refused with a message, and a `sum` named under `sources:` is projected by default as an inline one is;
+  - the wall-model routines are untimed per-cell kernels, at their measured call rates;
+  - `fluctuations` on a `prescribed_velocity` inlet is no longer experimental: `synthetic-inflow-channel-2026-11-08` recovers a Re_tau 203 channel's skin friction within 5% from 15.1 half-heights, where a mean-only inlet stays laminar.
