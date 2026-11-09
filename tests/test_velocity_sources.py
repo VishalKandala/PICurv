@@ -269,6 +269,17 @@ def test_source_terms_add_and_project_is_optional():
     assert resolve_initial(plain)["source"]["project"] is True
     assert resolve_initial(load_configs(sources={"duct": DUCT},
                                         initial_conditions={"source": "duct"})[0])["source"]["project"] is False
+    named_sum, _, _ = load_configs(sources={"duct": DUCT, "mix": {"sum": ["duct", swirl]}},
+                                   initial_conditions={"source": "mix"})
+    assert resolve_initial(named_sum)["source"]["project"] is True
+
+
+def test_named_sources_that_refer_back_to_themselves_are_refused():
+    """! @brief A cycle through names and sums is reported, not followed until Python's recursion limit. """
+    case, _, _ = load_configs(sources={"a": {"sum": ["b", DUCT]}, "b": {"sum": ["a"]}},
+                              initial_conditions={"source": "a"})
+    with pytest.raises(ValueError, match="refer back to themselves: a -> b -> a"):
+        resolve_initial(case)
 
 
 @pytest.mark.parametrize("terms, message", [

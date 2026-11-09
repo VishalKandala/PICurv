@@ -111,7 +111,7 @@ number or an expression in `t`, means what it means on an inlet (@ref p44_cap_pr
 the source's expressions are rescaled, and anything staged is left as it is, so that the mean of the
 whole equals it. Here the mean is over the cells with volume weights, along the source's own
 direction at each cell; an inlet's is over its face with area weights, along the normal. It needs an
-expression to rescale. `project`, which defaults to true for a sum and false otherwise, makes it divergence-free before the first step
+expression to rescale. `project`, which defaults to true for a sum, written in place or named under `sources:`, and false otherwise, makes it divergence-free before the first step
 with the time step's own pressure projection: one Poisson solve for the initial `Ucont`, whose
 boundary fluxes are already set by the boundary conditions, and the correction of the interior
 faces. The potential is discarded, so pressure keeps its initial value, and the solve's

@@ -14305,6 +14305,49 @@ def _source_constants(spec: dict, case_cfg: dict, where: str, language) -> dict:
     return merged
 
 
+def _named_source_cycle(named: dict, name: str):
+    """!
+    @brief The first cycle of names reachable from one named source, through names and sums.
+    @param[in] named The case's `sources:` mapping.
+    @param[in] name Name to start from.
+    @return The names around the cycle, its first name repeated at the end, or None.
+    """
+    path, finished = [], set()
+
+    def references(spec):
+        """!
+        @brief The names one source definition refers to, through nested sums.
+        @param[in] spec Source definition.
+        @return Generator of names.
+        """
+        if isinstance(spec, str):
+            yield spec
+        elif isinstance(spec, dict) and isinstance(spec.get("sum"), list):
+            for term in spec["sum"]:
+                yield from references(term)
+
+    def visit(current):
+        """!
+        @brief Depth-first walk from one name.
+        @param[in] current Name being visited.
+        @return The cycle found below it, or None.
+        """
+        if current in path:
+            return path[path.index(current):] + [current]
+        if current in finished or current not in named:
+            return None
+        path.append(current)
+        for reference in references(named[current]):
+            cycle = visit(reference)
+            if cycle:
+                return cycle
+        path.pop()
+        finished.add(current)
+        return None
+
+    return visit(name)
+
+
 def expand_source(spec, case_cfg: dict, where: str, strict: bool = True, missing: str = ""):
     """!
     @brief Dereference a source named under the case's `sources:`, and expand its `sum`.
@@ -14314,9 +14357,10 @@ def expand_source(spec, case_cfg: dict, where: str, strict: bool = True, missing
     @param[in] spec Source as written: a name, a mapping, or anything else.
     @param[in] case_cfg Case configuration holding `sources:`.
     @param[in] where Configuration path of the source.
-    @param[in] strict Whether a `sources:` that is not a mapping, an unknown name, or a malformed
-               sum raises. When false they read as no sources, an unresolved name, and the
-               sum's list, if it is one.
+    @param[in] strict Whether a `sources:` that is not a mapping, an unknown name, a name whose
+               definition leads back to itself, or a malformed sum raises. When false they read
+               as no sources, an unresolved name (both of the latter), and the sum's list, if it
+               is one.
     @param[in] missing Text the unknown-name error ends with.
     @return `(where, spec, terms)`: the path and value after dereferencing, and the sum's
             `(path, term)` pairs, or None when the source is not a sum.
@@ -14328,7 +14372,10 @@ def expand_source(spec, case_cfg: dict, where: str, strict: bool = True, missing
             raise ValueError("sources must map names to source definitions.")
         named = {}
     if isinstance(spec, str):
-        if spec in named:
+        cycle = _named_source_cycle(named, spec) if spec in named else None
+        if cycle and strict:
+            raise ValueError(f"{where}: named sources refer back to themselves: {' -> '.join(cycle)}.")
+        if spec in named and not cycle:
             where, spec = f"sources.{spec}", named[spec]
         elif strict:
             raise ValueError(f"{where}: no source named '{spec}' under sources (defined: {sorted(named) or 'none'})."
@@ -14963,7 +15010,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         raise ValueError(f"properties.initial_conditions takes 'source' (and 'constraints') alone; remove {others}.")
     where = "properties.initial_conditions.source"
     spec = ic["source"]
-    project = isinstance(spec, dict) and "sum" in spec
+    # A sum is projected by default, whether written here or named under sources:.
+    project = expand_source(spec, case_cfg or {}, where, strict=False)[2] is not None
     spec, field_term, field_where = _split_initial_field_term(spec, where, case_cfg)
     field = None if field_term is None else _resolve_initial_field_term(
         field_term, field_where, prepared_blocks, scales, provider_context)
