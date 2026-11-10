@@ -1,0 +1,1 @@
+- Removed `freeslip()`, `u_loglaw()` and `find_utau_loglaw()` from the wall-model library. No selector reached them: the `free_slip` handler and the `loglaw` wall function use their own formulas, which are unchanged. The Werner–Wengle cell-integral pair remains as a documented alternative for cell-averaged input.
