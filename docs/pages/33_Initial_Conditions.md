@@ -223,7 +223,7 @@ Every Python provider ends in a `.dat` vector; what differs is who guarantees it
 | | `type: file` | `generator: resampled_velocity` |
 |---|---|---|
 | You supply | a vector already in PICurv's layout for this grid | a field from anywhere: another code, resolution, or layout |
-| PICurv does | reads it verbatim | resamples and filters it onto this grid, projects it, writes the vector |
+| PICurv does | reads it verbatim | resamples or interpolates it onto this grid, projects it, writes the vector |
 | Typical source | a field PICurv itself produced | a published DNS, an experiment, another code's snapshot |
 
 A `type: file` vector sized for another grid is refused when it is staged, with a pointer to
@@ -553,12 +553,21 @@ demonstration run.
 file IC runtime path; the Fourier resampling is `fourier_resample` in
 `picurv_cli/periodic_spectral.py`.
 
-**What it does.** Brings an external triply periodic velocity field onto this case's grid. It
-reads the source, re-evaluates it at the target points from its Fourier series - truncating
-when the grid is coarser, zero-padding when it is finer - optionally filters it, projects it to
-be divergence-free under PICurv's discrete operator, and writes solver units. With `field: Ucont`
-(the default) it samples face centres and stages volume fluxes, the representation PICurv evolves;
-with `field: Ucat` it stages cell-centre velocities like the synthetic providers.
+**What it does.** Brings an external velocity field onto this case's grid, by one of two paths.
+
+- `interpolation: fourier`, the default on a triply periodic uniform box, re-evaluates the source
+  at the target points from its Fourier series - truncating when the grid is coarser,
+  zero-padding when it is finer - optionally filters it, projects it to be divergence-free under
+  PICurv's discrete operator, and writes solver units. With `field: Ucont` (the default) it samples
+  face centres and stages volume fluxes, the representation PICurv evolves; with `field: Ucat` it
+  stages cell-centre velocities like the synthetic providers.
+- `interpolation: linear` (the default on any other grid) or `cubic` reads samples on rectilinear
+  source axes and interpolates them to the case's cell centres, each the mean of its eight nodes
+  as the runtime's own. The grid may be curvilinear and its faces any boundary type. The velocity
+  is staged as Cartesian `Ucat`; the runtime turns it into face fluxes with the grid's metrics,
+  applies the boundary conditions, and with `projection: picurv_discrete` makes it
+  divergence-free with the case's own pressure solve (the `project` constraint). This path is
+  experimental.
 
 **When to choose it.** When the starting field exists already: a published DNS or experiment
 field, a snapshot from another code, or a field at another resolution. `spectral_velocity`
@@ -567,23 +576,39 @@ initial spectrum is the variable. `mode: file` reads a vector already laid out f
 verbatim; see @ref p33_file_or_import_ssec.
 
 **Parameters it owns.** Required: `source_file` (a workspace input, normally a `reference-field`
-import), `format` (`raw`, `npy`, `npz`, or `hdf5`), and `box_length`, the source's three periods
-in physical length, which must equal the grid's. `cells` (samples along x, y, z) is required for
-`raw` and checked otherwise. `layout`: `fastest_axis` (`x`, default, or `z`) and `components`
+import) and `format` (`raw`, `npy`, `npz`, or `hdf5`). The source's sample positions come from one
+of two descriptions. A uniform box: `box_length`, its three lengths in physical units, and
+optionally `sample_offset` (fraction of the source spacing at which samples sit, 0 for nodes on
+the box origin and 0.5 for cell centres; default 0) and, off the Fourier path, `box_origin`, its
+lower corner (default 0). Or rectilinear axes: `layout.coordinates`, the names of three
+one-dimensional arrays in an `npz` or `hdf5` source, its positions along x, y, z in physical
+length, which may be unevenly spaced. `cells` (samples along x, y, z) is required for `raw` and
+checked otherwise. `layout`: `fastest_axis` (`x`, default, or `z`) and `components`
 (`interleaved`, default, or `separate`); for `raw` also `dtype` (`float32` or `float64`),
 `byte_order` (`little`, `big`, `native`) and `header_bytes`; for `npz` and `hdf5`, `datasets` (one
-array name, or three for u, v, w). Optional: `sample_offset` (fraction of the source spacing at
-which samples sit, 0 for nodes on the box origin and 0.5 for cell centres; default 0), `filter`
-(`none`; `sharp` with `cutoff`, a wavenumber; `gaussian` or `box` with `width`, a length),
-`projection` (`picurv_discrete`, default; `continuum`; `none`), `remove_mean` (default true), and
-`field`. The source values are physical velocities, divided by `velocity_ref`.
+array name, or three for u, v, w). Optional: `interpolation` (`fourier`, `linear`, `cubic`),
+`periodic` (off the Fourier path, the source axes to wrap mapped to their periods, e.g.
+`{z: 2.0}`), `filter` (Fourier only: `none`; `sharp` with `cutoff`, a wavenumber; `gaussian` or
+`box` with `width`, a length), `projection` (`picurv_discrete`, default; `continuum`, Fourier only;
+`none`), `remove_mean` (default true on the Fourier path, false off it), and `field` (`Ucat` only
+off the Fourier path). The source values are physical velocities, divided by `velocity_ref`, and
+its coordinates physical lengths, divided by `length_ref`.
 
-**Interactions.** Requires six geometric-periodic faces, one block, and a uniform Cartesian grid;
-wall-bounded sources are refused. Restart remains authoritative. The source file's checksum is part
-of the asset identity, so changing its bytes builds a new object. `hdf5` needs `h5py`, which PICurv
-does not install; without it the provider says how to add it.
+**Interactions.** One block. The Fourier path requires six geometric-periodic faces and a uniform
+axis-aligned Cartesian grid whose box equals `box_length`; the interpolation paths take any grid.
+Linear interpolation is exact for a linear field, cubic (the four-point Lagrange polynomial along
+each axis, linear where an end leaves fewer than two samples on a side) for a cubic one. A target
+cell centre past the samples of an axis not in `periodic` is extrapolated linearly from the end
+samples up to one end spacing, enough to reach a wall half a spacing beyond cell-centred samples,
+and refused beyond it. `constraints: {project: false}` contradicts `projection: picurv_discrete`
+and is refused. Restart remains authoritative. The source file's checksum is part of the asset
+identity, so changing its bytes builds a new object. `hdf5` needs `h5py`, which PICurv does not
+install; without it the provider says how to add it.
 
-**Diagnostics.** The IC summary reports the source, resampled, and projected kinetic energies, the
+**Diagnostics.** On the interpolation paths the IC summary reports the source's sample counts and
+extent, the target cells, how many cell centres were extrapolated and by how many spacings at most,
+the staged energy, and `measurement_state: staged_ucat_before_runtime_projection`; the startup log
+reports the projection. On the Fourier path it reports the source, resampled, and projected kinetic energies, the
 fraction the projection removed, the divergence before and after, and the energy, dissipation and
 `re_lambda` of the field the runtime will hold; for `Ucont` that is the velocity reconstructed from
 the staged fluxes (`measurement_state`). The shell spectrum is measured on that same field. A layout
@@ -596,8 +621,16 @@ refined to round-off (1e-14) at the target cell and face centres, every containe
 reading the same field, and the HOM02 DNS field (AGARD-AR-345) imported at 64-cubed with every shell
 below the cutoff equal to the source's to 7e-16 before projection; the solver's step-1 energy
 matched the provider's prediction within one step's decay, at divergence 3.5e-12.
+`resampled-velocity-rotated-channel-2026-11-10`: linear interpolation of a rectilinear source onto
+a stretched channel rotated 30 degrees, walls on two faces, converges to the analytic field at
+second order (rms 9.6e-4 to 2.8e-4 on halving the spacing); the runtime projection takes its
+divergence from 3.3e-4 to 4e-12, and 4 ranks match 1 to 5.7e-12.
 
-**Limitations.** Periodic boxes only. The projection changes the field near the grid cutoff: with
+**Limitations.** Sources on rectilinear axes only: a curvilinear source, such as a run on another
+curvilinear grid, cannot be read yet. Off the Fourier path there is no filter, the staged field
+carries the interpolation's second-order (linear) or fourth-order (cubic) error, and the projection
+removes whatever divergence that leaves. On the Fourier path the projection changes the field near
+the grid cutoff: with
 `Ucat` it removed 2.6% of HOM02's energy at 64-cubed (21% of the k = 32 shell), with `Ucont` 0.075%.
 The runtime then holds a second-order reconstruction of what was staged - 87% of the band's energy
 for `Ucont` and 78% for `Ucat` on that field - so compare spectra only well below the cutoff.

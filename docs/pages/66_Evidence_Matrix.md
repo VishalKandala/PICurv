@@ -78,7 +78,7 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  124 values cite `measurement:` records - 65 distinct ones, taken between 2026-09-18 and
+  124 values cite `measurement:` records - 66 distinct ones, taken between 2026-09-18 and
   2026-11-10 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, staged initial-condition fields, every
   particle seeding and restart mode, both interpolation methods, the post-processing
@@ -89,8 +89,8 @@ likely to matter:
   144-rank turbulent channel and, with the point-block preconditioner, on a three-grid
   laminar curved duct and a wall-modelled turbulent one, and the storage compression
   levels, offload policies, and retention components against a Google Drive remote, the
-  three study types run as Slurm arrays, the import of an external periodic velocity
-  field, the LES models and options against the HOM02 benchmark, the `prescribed_velocity`
+  three study types run as Slurm arrays, the import of an external velocity field
+  into a periodic box and onto a rotated walled channel, the LES models and options against the HOM02 benchmark, the `prescribed_velocity`
   and `moving` handlers against exact duct, Womersley, Couette, Stokes second-problem and
   lid-driven-cavity solutions, with recordings, keyed draws and synthetic inflow fluctuations
   in a turbulent channel, `particles_per_cell` seeding, and 2D mode converging to a spectral

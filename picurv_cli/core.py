@@ -408,8 +408,8 @@ RETIRED_SPECTRAL_IC_PROVIDERS = {"spectral_random_velocity": "[] (the default)",
 SPECTRAL_IC_PROVIDERS = ("spectral_velocity", "resampled_velocity", "stability_mode_velocity")
 #: Parameters `resampled_velocity` accepts.
 RESAMPLED_VELOCITY_PARAMS = frozenset(
-    {"field", "source_file", "format", "cells", "box_length", "sample_offset", "layout", "filter",
-     "projection", "remove_mean"}
+    {"field", "source_file", "format", "cells", "box_length", "box_origin", "sample_offset", "layout",
+     "filter", "projection", "remove_mean", "interpolation", "periodic"}
 )
 #: `resampled_velocity` layout and projection choices.
 RESAMPLED_VELOCITY_FASTEST_AXES = ("x", "z")
@@ -417,12 +417,15 @@ RESAMPLED_VELOCITY_COMPONENT_LAYOUTS = ("interleaved", "separate")
 RESAMPLED_VELOCITY_RAW_DTYPES = ("float32", "float64")
 RESAMPLED_VELOCITY_BYTE_ORDERS = ("little", "big", "native")
 RESAMPLED_VELOCITY_PROJECTIONS = ("picurv_discrete", "continuum", "none")
+#: How `resampled_velocity` reaches the target points: its Fourier series, or tensor-product
+#: interpolation of samples on rectilinear axes.
+RESAMPLED_VELOCITY_INTERPOLATIONS = ("fourier", "linear", "cubic")
 #: Source containers `resampled_velocity` reads, and the layout keys each accepts.
 RESAMPLED_VELOCITY_LAYOUT_KEYS = {
     "raw": {"fastest_axis", "components", "dtype", "byte_order", "header_bytes"},
     "npy": {"fastest_axis", "components"},
-    "npz": {"fastest_axis", "components", "datasets"},
-    "hdf5": {"fastest_axis", "components", "datasets"},
+    "npz": {"fastest_axis", "components", "datasets", "coordinates"},
+    "hdf5": {"fastest_axis", "components", "datasets", "coordinates"},
 }
 _FILE_BACKED_GRID_VALUES = {"file", "grid_gen"}
 _WORKSPACE_MANAGED_PATHS = {"assets", "inputs", "runs", "studies"}
@@ -9370,7 +9373,10 @@ IC_PARAM_QUANTITIES["resampled_velocity"] = {
     "sample_offset": NOT_A_QUANTITY, "projection": NOT_A_QUANTITY, "remove_mean": NOT_A_QUANTITY,
     # The source file holds physical velocities; the provider divides them by velocity_ref.
     "source_file": (VELOCITY, "provider"),
-    "box_length": (LENGTH, "cli"),
+    "box_length": (LENGTH, "cli"), "box_origin": (LENGTH, "cli"), "interpolation": NOT_A_QUANTITY,
+    "periodic.x": (LENGTH, "cli"), "periodic.y": (LENGTH, "cli"), "periodic.z": (LENGTH, "cli"),
+    # The coordinate arrays are physical lengths; the provider divides them by length_ref.
+    "layout.coordinates": (LENGTH, "provider"),
     "layout.fastest_axis": NOT_A_QUANTITY, "layout.components": NOT_A_QUANTITY,
     "layout.dtype": NOT_A_QUANTITY, "layout.byte_order": NOT_A_QUANTITY,
     "layout.header_bytes": NOT_A_QUANTITY, "layout.datasets": NOT_A_QUANTITY,
@@ -14182,10 +14188,12 @@ def ic_has_shell_spectrum(resolved_ic: dict) -> bool:
     """!
     @brief Whether a provider's field is triply periodic, so its initial spectrum is shell-averaged.
     @param[in] resolved_ic Normalized file-backed IC provider.
-    @return True for `resampled_velocity` and a `spectral_velocity` with no walls.
+    @return True for a Fourier-resampled `resampled_velocity` and a `spectral_velocity` with no walls.
     """
     kind = resolved_ic.get("kind")
-    return kind == "resampled_velocity" or (kind == "spectral_velocity" and not resolved_ic["params"]["wall_axes"])
+    if kind == "resampled_velocity":
+        return resolved_ic["params"].get("interpolation", "fourier") == "fourier"
+    return kind == "spectral_velocity" and not resolved_ic["params"]["wall_axes"]
 
 
 def is_generated_ic_provider(resolved_ic: dict) -> bool:
@@ -14822,9 +14830,14 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
                                       provider_context=None) -> dict:
     """!
     @brief Validate `resampled_velocity` parameters and convert them to the provider contract.
-    @details The provider brings an external triply periodic velocity field onto the case's
-             grid. Its box must be the case's box; the source's container, layout, and sample
-             positions are declared because no standard format records them all.
+    @details The provider brings an external velocity field onto the case's grid. On a triply
+             periodic uniform box it resamples the field's Fourier series (`interpolation:
+             fourier`, the default there) and the source box must be the case's box. On any other
+             single-block grid, curvilinear or wall-bounded included, it interpolates samples on
+             rectilinear source axes to the case's cell centres (`linear`, the default there, or
+             `cubic`) and the runtime projects the staged velocity with the case's own Poisson
+             solve. The source's container, layout, and sample positions are declared because no
+             standard format records them all.
     @param[in] params Raw provider parameters, physical units.
     @param[in] where Configuration path of `params`.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
@@ -14836,18 +14849,37 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
     name = "resampled_velocity"
     if prepared_blocks and len(prepared_blocks) != 1:
         raise ValueError(f"{name} requires exactly one grid block.")
-    if not prepared_blocks or len(prepared_blocks[0]) != 6 or any(
-        bc.get("type") != "PERIODIC" or bc.get("handler") != "geometric" for bc in prepared_blocks[0]
-    ):
-        raise ValueError(f"{name} requires PERIODIC/geometric boundaries on all six faces; "
-                         "wall-bounded sources are not supported yet.")
+    periodic_box = bool(prepared_blocks) and len(prepared_blocks[0]) == 6 and all(
+        bc.get("type") == "PERIODIC" and bc.get("handler") == "geometric" for bc in prepared_blocks[0])
     unknown = sorted(set(params) - RESAMPLED_VELOCITY_PARAMS)
     if unknown:
         raise ValueError(f"{name} has unsupported params: {unknown}.")
-    # Ucont is the default: face-centre samples projected with PICurv's face-difference
-    # operator keep the most energy through the runtime's reconstruction and need the
-    # smallest projection; Ucat stages cell centres like the synthetic providers do.
-    field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucont"))
+    layout = params.get("layout", {})
+    if not isinstance(layout, dict):
+        raise ValueError(f"{name} params.layout must be a mapping.")
+    rectilinear = "coordinates" in layout
+    interpolation = str(params.get("interpolation",
+                                   "fourier" if periodic_box and not rectilinear else "linear")).lower()
+    if interpolation not in RESAMPLED_VELOCITY_INTERPOLATIONS:
+        raise ValueError(f"{name} params.interpolation must be one of {list(RESAMPLED_VELOCITY_INTERPOLATIONS)}.")
+    fourier = interpolation == "fourier"
+    if fourier and not periodic_box:
+        raise ValueError(f"{name} interpolation: fourier needs PERIODIC/geometric boundaries on all six faces; "
+                         "use linear or cubic on any other grid.")
+    if fourier and rectilinear:
+        raise ValueError(f"{name} interpolation: fourier resamples a uniform periodic box; "
+                         "layout.coordinates needs linear or cubic.")
+    for key in (("periodic", "box_origin") if fourier else ()) + (("box_origin", "sample_offset", "cells")
+                                                                   if rectilinear else ()):
+        if key in params:
+            raise ValueError(f"{name} params.{key} does not apply with "
+                             f"{'interpolation: fourier' if fourier else 'layout.coordinates'}.")
+    # Fourier: Ucont is the default, face-centre samples projected with PICurv's face-difference
+    # operator keeping the most energy through the runtime's reconstruction. Interpolated fields
+    # are staged as cell-centre Ucat, which the runtime turns into fluxes with the grid's metrics.
+    field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucont" if fourier else "Ucat"))
+    if not fourier and field_code == 1:
+        raise ValueError(f"{name} interpolation: {interpolation} stages Ucat; Ucont needs interpolation: fourier.")
     source_file = params.get("source_file")
     if not isinstance(source_file, str) or not source_file.strip():
         raise ValueError(f"{name} requires params.source_file, the field to import.")
@@ -14863,13 +14895,27 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
     elif fmt == "raw":
         raise ValueError(f"{name} with format: raw requires params.cells, the sample counts along x, y, z.")
     box = params.get("box_length")
-    if not isinstance(box, list) or len(box) != 3:
-        raise ValueError(f"{name} requires params.box_length: the source's periods along x, y, z, "
-                         "in physical length.")
-    box = [_to_finite_float(value, f"{where}.box_length[{index}]")
-           for index, value in enumerate(box)]
-    if any(value <= 0 for value in box):
-        raise ValueError(f"{name} params.box_length values must be positive.")
+    if rectilinear:
+        if box is not None:
+            raise ValueError(f"{name} params.box_length does not apply with layout.coordinates; "
+                             "the coordinates give the samples, and params.periodic the periods.")
+    else:
+        if not isinstance(box, list) or len(box) != 3:
+            raise ValueError(f"{name} requires params.box_length: the source box's lengths along x, y, z, "
+                             "in physical length.")
+        box = [_to_finite_float(value, f"{where}.box_length[{index}]")
+               for index, value in enumerate(box)]
+        if any(value <= 0 for value in box):
+            raise ValueError(f"{name} params.box_length values must be positive.")
+    origin = params.get("box_origin", [0.0, 0.0, 0.0])
+    if not isinstance(origin, list) or len(origin) != 3:
+        raise ValueError(f"{name} params.box_origin is the source box's lower corner: three numbers.")
+    origin = [_to_finite_float(value, f"{where}.box_origin[{index}]") for index, value in enumerate(origin)]
+    periodic = params.get("periodic", {})
+    if not isinstance(periodic, dict) or set(periodic) - {"x", "y", "z"}:
+        raise ValueError(f"{name} params.periodic maps the source axes it wraps (x, y, z) to their periods.")
+    periodic = {axis: _to_finite_float(value, f"{where}.periodic.{axis}", positive=True, strict=True)
+                for axis, value in sorted(periodic.items())}
     offset = params.get("sample_offset", 0.0)
     offset = offset if isinstance(offset, list) else [offset, offset, offset]
     if len(offset) != 3:
@@ -14879,9 +14925,6 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
     if any(value < 0.0 or value >= 1.0 for value in offset):
         raise ValueError(f"{name} params.sample_offset is a fraction of the source spacing in [0, 1): "
                          "0 for samples on the box origin, 0.5 for cell centres.")
-    layout = params.get("layout", {})
-    if not isinstance(layout, dict):
-        raise ValueError(f"{name} params.layout must be a mapping.")
     extra = sorted(set(layout) - RESAMPLED_VELOCITY_LAYOUT_KEYS[fmt])
     if extra:
         raise ValueError(f"{name} layout keys {extra} do not apply to format: {fmt}; "
@@ -14911,6 +14954,12 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
             raise ValueError(f"{name} format: {fmt} requires layout.datasets: one array name, "
                              "or three for u, v, w.")
         normalized_layout["datasets"] = list(datasets)
+        if rectilinear:
+            names = layout["coordinates"]
+            if not isinstance(names, list) or len(names) != 3 or any(not isinstance(n, str) or not n for n in names):
+                raise ValueError(f"{name} layout.coordinates names the three one-dimensional arrays of "
+                                 "sample positions along x, y, z.")
+            normalized_layout["coordinates"] = list(names)
     filter_cfg = params.get("filter", {"type": "none"})
     if not isinstance(filter_cfg, dict):
         raise ValueError(f"{name} params.filter must be a mapping.")
@@ -14921,6 +14970,8 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
     if set(filter_cfg) - {"type"} != expected[filter_type]:
         raise ValueError(f"{name} filter.type: {filter_type} takes exactly "
                          f"{sorted(expected[filter_type]) or 'no parameters'}.")
+    if filter_type != "none" and not fourier:
+        raise ValueError(f"{name} filter applies to interpolation: fourier only.")
     normalized_filter = {"type": filter_type}
     for key in expected[filter_type]:
         value = _to_finite_float(filter_cfg[key], f"{where}.filter.{key}")
@@ -14930,20 +14981,31 @@ def resolve_resampled_velocity_params(params: dict, where: str, prepared_blocks,
     projection = str(params.get("projection", "picurv_discrete")).lower()
     if projection not in RESAMPLED_VELOCITY_PROJECTIONS:
         raise ValueError(f"{name} params.projection must be picurv_discrete, continuum, or none.")
-    remove_mean = params.get("remove_mean", True)
+    if projection == "continuum" and not fourier:
+        raise ValueError(f"{name} projection: continuum projects a Fourier series; interpolation: "
+                         f"{interpolation} takes picurv_discrete (the runtime's projection) or none.")
+    # A periodic box's mean is the frame's velocity; a wall-bounded field's is its flow.
+    remove_mean = params.get("remove_mean", fourier)
     if not isinstance(remove_mean, bool):
         raise ValueError(f"{name} params.remove_mean must be boolean.")
     normalized = {"field": "Ucont" if field_code == 1 else "Ucat", "source_file": source_file,
-                  "format": fmt, "box_length": box,
-                  "sample_offset": offset, "layout": normalized_layout, "filter": normalized_filter,
-                  "projection": projection, "remove_mean": remove_mean}
+                  "format": fmt, "interpolation": interpolation, "layout": normalized_layout,
+                  "filter": normalized_filter, "projection": projection, "remove_mean": remove_mean,
+                  "periodic": periodic}
+    if not rectilinear:
+        normalized.update({"box_length": box, "sample_offset": offset})
+        if not fourier:
+            normalized["box_origin"] = origin
     if cells is not None:
         normalized["cells"] = list(cells)
     resolved = ic_provider_params_to_solver_units(name, normalized, scales, where)
     resolved["velocity_divisor"] = float(scales["velocity_ref"])
+    resolved["length_divisor"] = float(scales["length_ref"])
     return {"kind": name, "label": name,
             "field_name": field_name, "field_code": field_code,
-            "provider_context": dict(provider_context or {}), "params": resolved}
+            "provider_context": dict(provider_context or {}), "params": resolved,
+            # An interpolated field is made divergence-free by the runtime's own projection.
+            "runtime_projection": not fourier and projection == "picurv_discrete"}
 
 
 def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
@@ -15019,10 +15081,14 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         resolve_velocity_source(spec, case_cfg or {}, where, allow_normal=False)
     constraints = dict(ic.get("constraints") or {}) if isinstance(ic.get("constraints"), dict) \
         else ic.get("constraints")
+    project = project or bool(field and field.get("runtime_projection"))
     if isinstance(constraints, dict) and "project" in constraints:
         project = constraints.pop("project")
         if not isinstance(project, bool):
             raise ValueError("properties.initial_conditions.constraints.project must be true or false.")
+        if not project and field and field.get("runtime_projection"):
+            raise ValueError("properties.initial_conditions.constraints.project: false contradicts the field's "
+                             "projection: picurv_discrete; set the field's projection: none instead.")
     source = apply_source_constraints(source, constraints, "properties.initial_conditions.constraints",
                                       allowed={"scale", "bulk_velocity"})
     source["project"] = project

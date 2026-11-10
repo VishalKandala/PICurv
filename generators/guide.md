@@ -17,7 +17,8 @@ configuration.
   spectral random field in a periodic box, or with `wall_axes` a discrete-curl
   wall-compatible perturbation for a channel or duct; `generator: stability_mode_velocity`
   seeds a linear-stability mode. `generator: resampled_velocity`
-  imports an external periodic field onto the grid.
+  imports an external field onto the grid: by its Fourier series in a periodic box, or by
+  interpolating rectilinear samples onto any single-block grid.
 - Every file here is a runnable `.gen` script. The code they share is in `picurv_cli/`:
   `periodic_spectral.py` (Fourier machinery for uniform periodic axes),
   `petsc_binary.py` (the PETSc binary Vec reader and writer, at the PetscInt width

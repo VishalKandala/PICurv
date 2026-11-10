@@ -59,7 +59,7 @@ Each physical input is converted at one site, recorded beside its dimension:
 | `cli` | the launcher divides the value while writing the control file | `dt_physical`, BC velocities and fluxes, `_physical` IC values, point source, roughness height, `uniform_flow`, verification profiles, window times, spectral provider parameters |
 | `c` | the runtime divides it, because the input reaches C with no staging step | `programmatic_settings` domain bounds (`ReadGridGenerationInputs()` in `src/io.c`) |
 | `staging` | a file payload is divided as it is staged under `<run.inputs>` | `.picgrid` grids, `grid.gen` output, inlet-profile PICSLICEs, a `mode: file` initial condition |
-| `provider` | a generator is handed the reference scales and writes solver units | an `ic_gen` script (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) |
+| `provider` | a generator is handed the reference scales and writes solver units | an `ic_gen` script (`--length-ref`, `--velocity-ref`), the `resampled_velocity` source field (divided by `velocity_ref`) and its coordinate arrays (divided by `length_ref`) |
 | `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values, velocity sources (a data source on an inlet is staged instead) |
 | `reference` | the input defines a scale | `length_ref`, `velocity_ref`, `density`, `viscosity`, the provenance scales of a file payload |
 | `passthrough` | raw solver flags, in solver units by definition | `solver_parameters`, `petsc_passthrough_options` |
@@ -101,12 +101,17 @@ particle `fields`.
 | `case.yml: grid.source_file` | LENGTH | staging | L |
 | `case.yml: initial_conditions.params.base_profile (stability_mode_velocity)` | VELOCITY | provider | U |
 | `case.yml: initial_conditions.params.box_length (resampled_velocity)` | LENGTH | cli | L |
+| `case.yml: initial_conditions.params.box_origin (resampled_velocity)` | LENGTH | cli | L |
 | `case.yml: initial_conditions.params.config_file (ic_gen)` | PAYLOAD | provider | by payload field |
 | `case.yml: initial_conditions.params.filter.cutoff (resampled_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.filter.width (resampled_velocity)` | LENGTH | cli | L |
+| `case.yml: initial_conditions.params.layout.coordinates (resampled_velocity)` | LENGTH | provider | L |
 | `case.yml: initial_conditions.params.noise.spectrum.k0 (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.noise.spectrum.k_cut (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.normalization.target (spectral_velocity)` | VELOCITY | cli | U |
+| `case.yml: initial_conditions.params.periodic.x (resampled_velocity)` | LENGTH | cli | L |
+| `case.yml: initial_conditions.params.periodic.y (resampled_velocity)` | LENGTH | cli | L |
+| `case.yml: initial_conditions.params.periodic.z (resampled_velocity)` | LENGTH | cli | L |
 | `case.yml: initial_conditions.params.random.mean (spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.source_file (resampled_velocity)` | VELOCITY | provider | U |
 | `case.yml: initial_conditions.params.spectrum.k0 (spectral_velocity)` | WAVENUMBER | cli | 1/L |

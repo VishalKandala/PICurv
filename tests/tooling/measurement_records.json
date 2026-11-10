@@ -1571,6 +1571,21 @@
       },
       "limitations": "One Reynolds number, one initial field, one box; LES off and no noise. The reference solver is sandbox code outside the repository. The 1x run used a debug build. The paper's forcing is unknown, so neither forcing reproduces its DNS through the pairing; the comparison with Fig. 13 is delta_v only, digitised to about 0.1.",
       "artifacts": []
+    },
+    {
+      "id": "resampled-velocity-rotated-channel-2026-11-10",
+      "question": "Does resampled_velocity with linear interpolation bring a rectilinear source onto a curvilinear, wall-bounded grid, and does the runtime's initial projection make the staged field divergence-free without moving it off the source, independent of the rank layout?",
+      "date": "2026-11-10",
+      "commit": "9da4c6c4 plus the uncommitted resampled-velocity-rectilinear working tree of 2026-11-10 (the provider and conductor changes this record supports)",
+      "environment": "Local WSL2 workstation, PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec; 1 rank, and 4 ranks (auto 1 x 2 x 2)",
+      "configuration": "A plane channel rotated 30 degrees about z (grid.gen box, rotate:axis=z,deg=30,about=origin), wall-normal stretch_j 1.5, 16 x 24 x 16 and 32 x 48 x 32 cells; -Eta/+Eta noslip walls, i and k geometric-periodic. Source: an npz of 155 x 148 x 64 samples on rectilinear global axes (x and y stretched past the rotated box, z periodic with period 2, layout.coordinates) of an exactly divergence-free field: plane Poiseuille 6 eta(1-eta) plus the streamfunction perturbation psi = 0.5 sin(pi z) eta^2 (1-eta)^2, eta the wall-normal coordinate. resampled_velocity defaults on this grid: interpolation linear, Ucat staged, projection picurv_discrete (the runtime's ProjectInitialVelocity). The step-0 checkpoint compared with the analytic field at the cell centres; divergence from the stored Ucont.",
+      "result": {
+        "measured": "No cell centre needed extrapolation. 16 x 24 x 16: max |Ucat - exact| 3.31e-3, rms 9.58e-4; with projection: none the divergence is 3.26e-4 of the largest flux and with the projection 3.97e-12. 32 x 48 x 32: max 1.07e-3, rms 2.82e-4 (3.1 and 3.4 times smaller), divergence 1.37e-12. 4 ranks against 1: Ucat within 5.7e-12, divergence 5.7e-13.",
+        "threshold": "Second-order convergence to the analytic field under refinement; divergence at the pressure solve's tolerance after projection; rank layouts agreeing to that tolerance.",
+        "verdict": "met"
+      },
+      "limitations": "One geometry, one field, two grids; a debug build on one workstation. The source is fine enough that its own interpolation error is below the grid's; a coarse source would add its h^2. Linear interpolation only; cubic is unit-tested for exactness, not measured at runtime. No inlet or outlet faces. The field is analytic, not an external DNS.",
+      "artifacts": []
     }
   ]
 }

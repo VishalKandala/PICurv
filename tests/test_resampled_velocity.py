@@ -251,7 +251,7 @@ def test_conductor_converts_units_and_the_provider_writes_solver_units(source):
 
 def test_conductor_defaults_to_ucont_and_refuses_invalid_contracts(source):
     """!
-    @brief Ucont is the default; walls, unknown keys, wrong-format layout keys, and bad values are refused.
+    @brief Ucont is the default; Fourier on walls, unknown keys, wrong-format layout keys, and bad values are refused.
     @param[in] source Analytic source fixture.
     @return None.
     """
@@ -267,7 +267,7 @@ def test_conductor_defaults_to_ucont_and_refuses_invalid_contracts(source):
     walled = [dict(face) for face in PERIODIC]
     walled[2] = {"type": "WALL", "handler": "noslip"}
     cases = [
-        (dict(good), "PERIODIC", [walled]),
+        (dict(good, interpolation="fourier"), "PERIODIC", [walled]),
         (dict(good, seed=1), "unsupported params", None),
         (dict(good, layout={"dtype": "float32"}), "do not apply to format: npy", None),
         (dict(good, format="raw", layout={"dtype": "float32"}), "requires params.cells", None),
@@ -329,3 +329,184 @@ def test_generator_command_line_writes_vector_and_summary(source, tmp_path):
     assert code == 0
     assert struct.unpack(">ii", output.read_bytes()[:8])[1] == 10*10*10*3
     assert json.loads(summary_path.read_text(encoding="utf-8"))["field"] == "Ucont"
+
+
+def curved_nodes(cells, lengths=(1.0, 2.0, 1.5)):
+    """!
+    @brief A stretched, sheared and rotated single-block grid: curvilinear, not axis-aligned.
+    @param[in] cells Cells along i, j, k.
+    @param[in] lengths Logical extents.
+    @return Nodes `[k, j, i, 3]`.
+    """
+    s = [np.linspace(0.0, 1.0, n + 1) for n in cells]
+    s[1] = 0.5 * (1.0 - np.cos(np.pi * s[1]))
+    k, j, i = np.meshgrid(s[2], s[1], s[0], indexing="ij")
+    x, y, z = lengths[0] * i + 0.2 * j * j, lengths[1] * j + 0.1 * np.sin(np.pi * i), lengths[2] * k
+    c, d = np.cos(0.3), np.sin(0.3)
+    return np.stack((0.4 + c * x - d * y, 0.3 + d * x + c * y, 0.2 + z), axis=-1)
+
+
+def rectilinear_source(tmp_path, field, axes):
+    """!
+    @brief Save `field` sampled on tensor-product `axes` as an npz with coordinate arrays.
+    @param[in] tmp_path Temporary path. @param[in] field Callable of (x, y, z) to `[..., 3]`.
+    @param[in] axes Sample positions along x, y, z.
+    @return Path.
+    """
+    z, y, x = np.meshgrid(axes[2], axes[1], axes[0], indexing="ij")
+    path = tmp_path / "rectilinear.npz"
+    np.savez(path, u=field(x, y, z), x=axes[0], y=axes[1], z=axes[2])
+    return path
+
+
+def rectilinear_params(path, **overrides):
+    """! @brief Generator-side parameters for an npz source with coordinates. @param[in] path Source. @param[in] overrides Replacements. @return Mapping. """
+    params = {"field": "Ucat", "source_file": str(path), "format": "npz", "interpolation": "linear",
+              "layout": {"fastest_axis": "x", "components": "interleaved", "datasets": ["u"],
+                         "coordinates": ["x", "y", "z"]},
+              "filter": {"type": "none"}, "projection": "picurv_discrete", "remove_mean": False,
+              "periodic": {}, "velocity_divisor": 1.0, "length_divisor": 1.0}
+    params.update(overrides)
+    return params
+
+
+def centres(grid):
+    """! @brief Cell centres as the mean of eight nodes. @param[in] grid Nodes. @return `[k, j, i, 3]`. """
+    return 0.125 * sum(grid[dk:grid.shape[0] - 1 + dk, dj:grid.shape[1] - 1 + dj, di:grid.shape[2] - 1 + di]
+                       for dk in (0, 1) for dj in (0, 1) for di in (0, 1))
+
+
+def linear_field(x, y, z):
+    """! @brief A linear velocity. @param[in] x Coordinates. @param[in] y Coordinates. @param[in] z Coordinates. @return `[..., 3]`. """
+    return np.stack((1.0 + 2.0 * x - y + 0.5 * z, -0.3 + x + 3.0 * z, 0.7 * y - 2.0 * x), axis=-1)
+
+
+def cubic_field(x, y, z):
+    """! @brief A velocity cubic in each coordinate. @param[in] x Coordinates. @param[in] y Coordinates. @param[in] z Coordinates. @return `[..., 3]`. """
+    return np.stack((x**3 - 2.0 * y**2 * z, y**3 + x * z**2, 0.5 * z**3 - x * y), axis=-1)
+
+
+def stretched_axes(counts, lower=(-0.5, -0.5, -0.5), upper=(2.5, 3.0, 2.5)):
+    """! @brief Nonuniform sample positions, clustered toward each end. @param[in] counts Samples along x, y, z. @param[in] lower Ends. @param[in] upper Ends. @return Axes. """
+    return [lower[a] + (upper[a] - lower[a]) * 0.5 * (1.0 - np.cos(np.pi * np.linspace(0.0, 1.0, counts[a])))
+            for a in range(3)]
+
+
+def test_linear_interpolation_reproduces_a_linear_field_on_a_curvilinear_grid(tmp_path):
+    """!
+    @brief From stretched rectilinear samples, a curvilinear target's cell centres read a linear
+           field exactly, and the summary records the source and the staging state.
+    @param[in] tmp_path Temporary path.
+    """
+    path = rectilinear_source(tmp_path, linear_field, stretched_axes((9, 11, 7)))
+    grid = curved_nodes((6, 10, 8))
+    full, summary = IC.generate_resampled_velocity(grid, rectilinear_params(path))
+    c = centres(grid)
+    assert np.abs(full[1:-1, 1:-1, 1:-1] - linear_field(c[..., 0], c[..., 1], c[..., 2])).max() < 1e-12
+    assert summary["interpolation"] == "linear" and summary["extrapolated_cell_centres"] == 0
+    assert summary["measurement_state"] == "staged_ucat_before_runtime_projection"
+
+
+def test_cubic_interpolation_reproduces_a_cubic_field_away_from_the_ends(tmp_path):
+    """!
+    @brief The cubic stencil is exact for a tensor cubic wherever two samples lie on each side.
+    @param[in] tmp_path Temporary path.
+    """
+    axes = stretched_axes((14, 16, 12), lower=(-1.0, -1.0, -1.0), upper=(3.0, 4.0, 3.0))
+    path = rectilinear_source(tmp_path, cubic_field, axes)
+    grid = curved_nodes((5, 8, 6))
+    full, _ = IC.generate_resampled_velocity(grid, rectilinear_params(path, interpolation="cubic"))
+    c = centres(grid)
+    assert np.abs(full[1:-1, 1:-1, 1:-1] - cubic_field(c[..., 0], c[..., 1], c[..., 2])).max() < 1e-10
+
+
+def test_a_periodic_axis_wraps_and_an_open_axis_extrapolates_one_spacing_at_most(tmp_path):
+    """!
+    @brief Points past the last x sample interpolate toward the first one period on; a linear field
+           is extrapolated exactly within one end spacing of an open axis, and refused beyond it.
+    @param[in] tmp_path Temporary path.
+    """
+    period = 2.0
+    xs = (np.arange(8) + 0.5) * period / 8
+    ys = np.linspace(0.0, 1.0, 6)
+    zs = np.linspace(0.0, 1.0, 5)
+    wave = lambda x, y, z: np.stack((np.cos(np.pi * x) + 0 * y, y + 0 * x, z + 0 * x), axis=-1)
+    path = rectilinear_source(tmp_path, wave, [xs, ys, zs])
+    grid = nodes((8, 5, 4), lengths=(period, 1.0, 1.0))
+    full, _ = IC.generate_resampled_velocity(grid, rectilinear_params(path, periodic={"x": period}))
+    u = full[1:-1, 1:-1, 1:-1, 0]
+    # The target centres coincide with the source's x samples, so the wrap leaves them exact.
+    assert np.abs(u - np.cos(np.pi * xs)[None, None, :]).max() < 1e-12
+    shifted = nodes((8, 5, 4), lengths=(period, 1.0, 1.0)) + np.array([0.125, 0.0, 0.0])
+    full, _ = IC.generate_resampled_velocity(shifted, rectilinear_params(path, periodic={"x": period}))
+    seam = 0.5 * (np.cos(np.pi * xs[-1]) + np.cos(np.pi * xs[0]))
+    assert full[1, 1, -2, 0] == pytest.approx(seam, abs=1e-12)
+    # y samples span [0, 1] with spacing 0.2: centres at y = -0.05 .. 1.05 extrapolate the linear v exactly.
+    wide = nodes((8, 11, 4), lengths=(period, 1.2, 1.0)) - np.array([0.0, 0.1, 0.0])
+    full, summary = IC.generate_resampled_velocity(wide, rectilinear_params(path, periodic={"x": period}))
+    assert summary["extrapolated_cell_centres"] > 0 and summary["max_extrapolation_spacings"] <= 1.0
+    assert np.abs(full[1:-1, 1:-1, 1:-1, 1] - centres(wide)[..., 1]).max() < 1e-12
+    too_wide = nodes((8, 5, 4), lengths=(period, 2.0, 1.0)) - np.array([0.0, 0.5, 0.0])
+    with pytest.raises(ValueError, match="past the source's samples"):
+        IC.generate_resampled_velocity(too_wide, rectilinear_params(path, periodic={"x": period}))
+
+
+def test_a_uniform_box_source_is_placed_by_its_origin_and_offset(source):
+    """!
+    @brief Without coordinates, samples sit at box_origin + (n + sample_offset) spacing, so a
+           target whose centres are the source's nodes reads the source verbatim.
+    @param[in] source Node-sampled analytic source fixture (32 cubed over LENGTHS).
+    """
+    spacing = np.array(LENGTHS) / 32
+    grid = nodes((31, 31, 31), lengths=tuple(np.array(LENGTHS) - spacing)) + 0.5 * spacing
+    params = provider_params(source, interpolation="linear", box_origin=[0.0, 0.0, 0.0], periodic={},
+                             projection="picurv_discrete", length_divisor=1.0)
+    full, _ = IC.generate_resampled_velocity(grid, params)
+    # The target's centres are the source's samples 1..31 along each axis.
+    assert np.abs(full[1:-1, 1:-1, 1:-1] - samples((32, 32, 32), 0.0)[1:, 1:, 1:]).max() < 1e-12
+
+
+def test_conductor_routes_interpolated_imports_to_the_runtime_projection(tmp_path, source):
+    """!
+    @brief On a walled grid the default is linear interpolation staged as Ucat and projected by the
+           runtime; lengths reach solver units, and contradictory or Fourier-only settings are refused.
+    @param[in] tmp_path Temporary path.
+    @param[in] source Analytic source fixture.
+    @return None.
+    """
+    walled = [dict(face) for face in PERIODIC]
+    walled[2] = walled[3] = {"type": "WALL", "handler": "noslip"}
+    scales = {"length_ref": 2.0, "velocity_ref": 1.0}
+
+    def resolve(params, constraints=None):
+        """! @brief Resolve on the walled block. @param[in] params Provider parameters. @param[in] constraints IC constraints. @return Contract. """
+        ic = {"source": {"generator": "resampled_velocity", "params": params}}
+        if constraints is not None:
+            ic["constraints"] = constraints
+        return CORE.resolve_initial_condition_config(ic, [walled], scales)
+
+    good = {"source_file": str(source), "format": "npy", "box_length": [4.0, 4.0, 4.0], "periodic": {"x": 4.0}}
+    resolved = resolve(dict(good))
+    assert resolved["field_name"] == "ufield" and resolved["params"]["interpolation"] == "linear"
+    assert resolved["source"]["project"] is True and resolved["params"]["remove_mean"] is False
+    assert resolved["params"]["periodic"] == {"x": pytest.approx(2.0)}
+    assert resolved["params"]["box_origin"] == [0.0, 0.0, 0.0] and resolved["params"]["length_divisor"] == 2.0
+    assert not CORE.ic_has_shell_spectrum(resolved)
+    assert resolve(dict(good, projection="none"))["source"]["project"] is False
+    npz = {"source_file": str(source), "format": "npz",
+           "layout": {"datasets": ["u"], "coordinates": ["x", "y", "z"]}}
+    assert resolve(dict(npz))["params"]["layout"]["coordinates"] == ["x", "y", "z"]
+    cases = [
+        (dict(good, field="Ucont"), "stages Ucat"),
+        (dict(good, filter={"type": "box", "width": 1.0}), "fourier only"),
+        (dict(good, projection="continuum"), "picurv_discrete"),
+        (dict(npz, interpolation="fourier"), "PERIODIC"),
+        (dict(npz, box_length=[1.0, 1.0, 1.0]), "does not apply with layout.coordinates"),
+        (dict(good, periodic={"r": 1.0}), "params.periodic"),
+        (dict(good, interpolation="spline"), "interpolation must be one of"),
+    ]
+    for params, message in cases:
+        with pytest.raises(ValueError, match=message):
+            resolve(params)
+    with pytest.raises(ValueError, match="contradicts"):
+        resolve(dict(good), constraints={"project": False})

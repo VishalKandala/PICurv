@@ -2405,7 +2405,8 @@
               "make:test-python"
             ],
             "analytical": [
-              "measurement:resampled-velocity-hom02-2026-10-03"
+              "measurement:resampled-velocity-hom02-2026-10-03",
+              "measurement:resampled-velocity-rotated-channel-2026-11-10"
             ]
           }
         },
