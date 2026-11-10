@@ -226,7 +226,7 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     if (build_bound) PetscCall(PetscMalloc1(n_cells, &table->bound));
     for (PetscInt c = 0; c < n_cells; ++c) {
         PetscInt  origin[3];
-        PetscReal density;
+        PetscReal density = 0.0;
         SeedingCellOrigin(table, c, origin);
         const PetscInt i = origin[0], j = origin[1], k = origin[2];
         measure[c] = 0.0;

@@ -219,8 +219,8 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     if (user->SearchCellSize) PetscFunctionReturn(0);
     PROFILE_FUNCTION_BEGIN;
     for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
-        DM  dm;
-        Vec *global, *local;
+        DM  dm = NULL;
+        Vec *global = NULL, *local = NULL;
         PetscCall(FacePlaneFieldSlots(user, kFacePlaneFields[f], &dm, &global, &local));
         PetscCall(DMCreateGlobalVector(dm, global));
         PetscCall(DMCreateLocalVector(dm, local));
@@ -357,8 +357,8 @@ PetscErrorCode MetricDestroyFacePlanes(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
-        DM  dm;
-        Vec *global, *local;
+        DM  dm = NULL;
+        Vec *global = NULL, *local = NULL;
         PetscCall(FacePlaneFieldSlots(user, kFacePlaneFields[f], &dm, &global, &local));
         PetscCall(VecDestroy(global));
         PetscCall(VecDestroy(local));
