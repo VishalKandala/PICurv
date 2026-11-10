@@ -1,0 +1,4 @@
+- `resampled_velocity` imports onto any single-block grid (experimental):
+  - `interpolation: linear` (the default off a periodic box) or `cubic` reads samples on rectilinear source axes, from `layout.coordinates` or a uniform `box_origin` + `box_length`, and interpolates them to the case's cell centres, on curvilinear, rotated, stretched and wall-bounded grids; `periodic` names the source axes to wrap;
+  - the field is staged as `Ucat` and the runtime makes it divergence-free with the case's own pressure solve (`projection: picurv_discrete`);
+  - the Fourier path for triply periodic boxes is unchanged.
