@@ -21,11 +21,12 @@ properties:
         cross_axis: j
         # U = tanh(y/delta), delta = delta_v0/2, between streams at -1 and +1.
         base_profile: "tanh(y/1.415)"
-        # The most unstable mode (two wavelengths in the box) and its subharmonic, each
-        # peaking at 1% of the velocity difference, so the two vortices roll up and pair.
+        # The most unstable mode (two wavelengths in the box) at 3% of the velocity
+        # difference and its subharmonic at 4%, a quarter period ahead (phase pi/2) so the
+        # two vortices roll up and pair. The paper does not give its forcing; these are fitted.
         modes:
-          - {harmonic: 2, amplitude: 0.01}
-          - {harmonic: 1, amplitude: 0.01}
+          - {harmonic: 2, amplitude: 0.03}
+          - {harmonic: 1, amplitude: 0.04, phase: 1.5707963267948966}
         noise: {rms: 0.02, seed: 1, planar: true, spectrum: {type: white}, wall_modes: 8}
 
 grid:
@@ -55,9 +56,10 @@ models:
       les:
         enabled: true
         model: constant_smagorinsky
-        # The paper's Cs = 0.014 on Delta_G = 2 Delta with |S| = sqrt(S_ij S_ij), in
-        # PICurv's nu_t = C Delta^2 sqrt(2 S_ij S_ij): 0.014 * 4 / sqrt(2) = 0.0396.
-        constant_cs: 0.0396
+        # The paper's nu_t = Cs Delta_G^2 sqrt(S_ij S_ij), Cs = 0.014 on Delta_G = 2 Delta, is
+        # 0.0396 Delta^2 sqrt(2 S_ij S_ij). PICurv's nu_t = constant_cs^2 Delta^2 sqrt(2 S_ij S_ij)
+        # squares the constant: constant_cs = sqrt(0.0396) = 0.199.
+        constant_cs: 0.199
       wall_function: {enabled: false}
       # Sc_t = 0.7 (Colucci et al.): the subgrid scalar diffusivity is nu_t / 0.7.
       turbulent_schmidt_number: 0.7

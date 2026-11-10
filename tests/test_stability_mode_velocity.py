@@ -104,7 +104,7 @@ LAYER_LENGTH = 2.0 * 2.0 * np.pi / 0.4449
 def test_field_is_divergence_free_planar_and_normalized(stretch):
     """!
     @brief The field is discretely divergence-free, has no normal velocity or normal variation,
-           and each mode's streamwise fluctuation peaks at amplitude * dU.
+           and each mode's gridded streamwise peak is the summary's, under amplitude * dU.
     @param[in] stretch Whether the cross-stream axis is stretched.
     """
     nodes = box_nodes((4, 64, 96), (0.4, 30.0, LAYER_LENGTH), (0.0, -15.0, 0.0), stretch)
@@ -117,10 +117,44 @@ def test_field_is_divergence_free_planar_and_normalized(stretch):
     assert summary["velocity_difference"] == pytest.approx(1.0, rel=1e-9)
     assert summary["fastest_growing_harmonic"]["harmonic"] == 2
     assert summary["modes"][0]["growth_rate"] == pytest.approx(0.0949, rel=0.01)
-    single, _ = IC.generate_stability_mode_velocity(nodes, layer_params(modes=[{"harmonic": 2, "amplitude": 0.03}]))
+    single, single_summary = IC.generate_stability_mode_velocity(nodes, layer_params(modes=[{"harmonic": 2, "amplitude": 0.03}]))
     fluctuation = single[1:-1, 1:-1, 1:-1, 2] - single[1:-1, 1:-1, 1:-1, 2].mean(axis=0, keepdims=True)
     peak = np.max(np.sqrt(2.0 * np.mean(fluctuation ** 2, axis=(0, 2))))
-    assert peak == pytest.approx(0.03, rel=1e-9)
+    # The grid holds the mode as well as it resolves it: at about two cells per layer thickness
+    # its centred differences fall short of the requested peak by up to a quarter.
+    assert peak == pytest.approx(single_summary["modes"][0]["gridded_peak_over_dU"], rel=1e-9)
+    assert 0.7 * 0.03 < peak < 0.03
+
+
+def cross_stream_mode_norm(full, nodes, harmonic):
+    """!
+    @brief sqrt(int |v_hat_n(y)|^2 dy) of the cross-stream velocity's streamwise harmonic n.
+    @param[in] full Generated Ucat with dummies, k/j/i/component order.
+    @param[in] nodes The grid's nodes.
+    @param[in] harmonic Streamwise harmonic n.
+    @return The norm.
+    """
+    v = full[1:-1, 1:-1, 1:-1, 1].mean(axis=2)
+    v_hat = np.fft.rfft(v, axis=0)[harmonic] / v.shape[0] * 2.0
+    return np.sqrt(np.sum(np.abs(v_hat) ** 2 * np.diff(nodes[0, :, 0, 1])))
+
+
+def test_mode_amplitude_does_not_depend_on_the_cross_stream_grid():
+    """!
+    @brief A coarse and a fine cross-stream grid hold the same physical mode, and the fine
+           grid's streamwise peak approaches the requested amplitude.
+    """
+    params = layer_params(modes=[{"harmonic": 2, "amplitude": 0.03}, {"harmonic": 1, "amplitude": 0.02}])
+    norms, peaks = [], []
+    for cross_cells in (24, 192):
+        nodes = box_nodes((4, cross_cells, 96), (0.4, 30.0, LAYER_LENGTH), (0.0, -15.0, 0.0))
+        full, summary = IC.generate_stability_mode_velocity(nodes, params)
+        norms.append([cross_stream_mode_norm(full, nodes, n) for n in (2, 1)])
+        peaks.append(summary["modes"][0]["gridded_peak_over_dU"])
+    assert norms[0] == pytest.approx(norms[1], rel=0.01)
+    # The gridded peak falls short by the centred differences' second-order error.
+    assert peaks[0] < 0.7 * 0.03
+    assert 0.95 * 0.03 < peaks[1] < 0.03
 
 
 def test_profile_is_physical_and_scaled_by_reference_velocity():

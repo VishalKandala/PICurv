@@ -78,8 +78,8 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  124 values cite `measurement:` records - 64 distinct ones, taken between 2026-09-18 and
-  2026-11-08 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  124 values cite `measurement:` records - 65 distinct ones, taken between 2026-09-18 and
+  2026-11-10 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, staged initial-condition fields, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
@@ -93,7 +93,8 @@ likely to matter:
   field, the LES models and options against the HOM02 benchmark, the `prescribed_velocity`
   and `moving` handlers against exact duct, Womersley, Couette, Stokes second-problem and
   lid-driven-cavity solutions, with recordings, keyed draws and synthetic inflow fluctuations
-  in a turbulent channel, and `particles_per_cell` seeding.
+  in a turbulent channel, `particles_per_cell` seeding, and 2D mode converging to a spectral
+  DNS of a mixing layer's roll-up and pairing.
   Each record states what it does not establish, and none is gated in CI. Thirty-nine
   records are cited by no value. Eleven are `not-met`: the Q-criterion output placement and
   the generated inlet flux on `programmatic_c` grids, both since fixed and re-measured;

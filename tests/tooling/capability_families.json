@@ -1156,7 +1156,8 @@
               "file:tests/c/test_solver_kernels.c"
             ],
             "analytical": [
-              "measurement:eulerian-source-domain-modes-2026-09-21"
+              "measurement:eulerian-source-domain-modes-2026-09-21",
+              "measurement:tml-spectral-reference-2026-11-10"
             ]
           }
         }

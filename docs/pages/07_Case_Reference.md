@@ -340,7 +340,10 @@ line for it.
 `tests/c/test_solver_kernels.c`, run by `make unit-solver`. Analytically verified -
 `eulerian-source-domain-modes-2026-09-21`: a Taylor-Green vortex in the j-k plane with a
 frozen i velocity ran 20 steps in 2D and in 3D; the i component moved by at most 3.1e-16
-and the j and k components matched the 3D run to 2.8e-15. Integration verified -
+and the j and k components matched the 3D run to 2.8e-15. `tml-spectral-reference-2026-11-10`: a
+2D tanh mixing layer at Re 500 converges to an independent spectral DNS from the same initial
+field through roll-up and pairing, its growth-rate and momentum-thickness errors falling 3.4 to
+4.2 times per halving of the grid. Integration verified -
 `make smoke` (TwoD under Newton Krylov): on a planar channel periodic in i, Newton Krylov
 and Picard agree to solver tolerance, laminar and constant-Smagorinsky LES, and the i
 component stays at the pressure-solve tolerance.

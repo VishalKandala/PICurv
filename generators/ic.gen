@@ -969,10 +969,11 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
     """!
     @brief Parallel base flow plus most-unstable inviscid eigenmodes and optional broadband noise.
     @details u = U(y) e_s + sum_m Re[curl(psi_m e_n)] + noise, with psi_m the Rayleigh
-             eigenfunction at alpha_m = 2 pi n_m / L_s, each scaled so its streamwise
-             fluctuation peaks at amplitude_m * dU. The curl is PICurv's discrete one, so the
-             field is discretely divergence-free; the noise is the wall-seed perturbation with
-             the cross-stream ends as its walls.
+             eigenfunction at alpha_m = 2 pi n_m / L_s, each scaled on the eigen grid so its
+             streamwise fluctuation peaks at amplitude_m * dU. The scale does not depend on the
+             target grid, which holds that mode as well as it resolves it. The curl is PICurv's
+             discrete one, so the field is discretely divergence-free; the noise is the
+             wall-seed perturbation with the cross-stream ends as its walls.
     @param[in] nodes Nondimensional PICGRID coordinates in k/j/i/component order.
     @param[in] raw_params Raw provider parameters, dimensional values already in solver units
                except the base-profile expression.
@@ -1026,21 +1027,24 @@ def generate_stability_mode_velocity(nodes, raw_params, context=None):
         c, phi = rayleigh_unstable_mode(y_eig, u_eig, alpha)
         if c is None:
             raise ValueError(f"base_profile has no unstable Rayleigh mode at harmonic {n} (alpha = {alpha:.6g}).")
+        # The mode's streamwise fluctuation is phi' e^{i alpha s}, so it peaks at max |phi'|. It is
+        # scaled on the eigen grid, not on this grid, so every grid holds the same physical mode.
+        phi = phi*mode["amplitude"]*delta_u/np.max(np.abs(np.gradient(phi, y_eig)))
         phi_cells = (np.interp(centers[cross], y_eig, phi.real)
                      + 1j*np.interp(centers[cross], y_eig, phi.imag)).reshape(shape)
         potential = np.zeros((*cells, 3))
         potential[..., normal] = np.real(phi_cells*np.exp(1j*(alpha*s + mode["phase"])))
         field = discrete_curl(potential, widths, periodic)
         # The streamwise fluctuation of one sinusoid peaks at sqrt(2) times its rms along s.
-        peak = np.max(np.sqrt(2.0*np.mean(field[..., stream]**2, axis=(2-stream, 2-normal))))
-        field *= mode["amplitude"]*delta_u/peak
+        gridded_peak = np.max(np.sqrt(2.0*np.mean(field[..., stream]**2, axis=(2-stream, 2-normal))))
         velocity += field
         end_amplitude = max(float(np.max(np.abs(np.take(field[..., stream], 0, axis=2-cross)))),
                             float(np.max(np.abs(np.take(field[..., stream], -1, axis=2-cross)))))
         mode_summaries.append({"harmonic": n, "alpha": float(alpha),
             "alpha_physical": float(alpha/length_ref), "phase_speed": [float(c.real), float(c.imag)],
             "growth_rate": float(alpha*c.imag), "growth_rate_physical": float(alpha*c.imag*velocity_ref/length_ref),
-            "amplitude": mode["amplitude"], "cross_end_streamwise_amplitude_over_dU": end_amplitude/delta_u})
+            "amplitude": mode["amplitude"], "gridded_peak_over_dU": float(gridded_peak/delta_u),
+            "cross_end_streamwise_amplitude_over_dU": end_amplitude/delta_u})
 
     noise_rms = None
     if "noise" in params:

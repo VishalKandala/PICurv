@@ -34,19 +34,23 @@ interpolation are half of it.
 | x periodic, 2 most-unstable wavelengths | k periodic, `Lx = 39.97` (`<repo>/config/grids/temporal_mixing_layer_2d.cfg`) |
 | mirror symmetry at the top and bottom | `-Eta`/`+Eta` `WALL` `free_slip`; particles reflect |
 | LES grid 37 x 49, equal spacing | 36 x 48 cells, `Delta = 1.110`, plus 4 periodic cells in i for 2D |
-| Smagorinsky `Cs = 0.014`, `Delta_G = 2 Delta` | `constant_smagorinsky`, `constant_cs: 0.0396` |
+| Smagorinsky `Cs = 0.014`, `Delta_G = 2 Delta` | `constant_smagorinsky`, `constant_cs: 0.199` (PICurv squares it) |
 | Sc = 1, Sc_t = 0.7 | `schmidt_number`, `turbulent_schmidt_number` |
 | IEM `C_Omega = 3` | `iem_constant: 0.75` |
 | ensemble domain `Delta_E = Delta` | one cell |
-| NPG = 50 | `count: 345600` (50 per cubic cell) |
+| NPG = 50 | `particles_per_cell: 50` (345,600 particles) |
 | CFL 0.5 | `dt_physical: 0.5` (0.45) |
-| tanh layer + most unstable mode + subharmonic | `stability_mode_velocity`, harmonics 2 and 1 at 1% |
+| tanh layer + most unstable mode + subharmonic | `stability_mode_velocity`, harmonic 2 at 3%, harmonic 1 at 4% and phase pi/2 |
 
 The initial-condition summary's growth-rate scan confirms the box: harmonic 2 grows
 fastest (0.133). The scalar starts as an error function with the velocity layer's
 thickness. Initial details the paper takes from Metcalfe et al. (1988) are not in the
-paper itself: the 1% mode amplitudes, the 2% planar noise and the scalar thickness are
-choices here, not the paper's values.
+paper itself: the mode amplitudes and phase, the 2% planar noise and the scalar thickness are
+choices here, not the paper's values. The amplitudes and phase are fitted to the onset of the
+paper's DNS vorticity thickness (Fig. 13). An independent spectral DNS of this initial field
+reaches the DNS's `delta_v` at t = 29.3 about five time units late and over-shoots its
+pairing peak; with 1% modes at phase 0 it is about thirty units late and does not pair by
+t = 60 (`tml-spectral-reference-2026-11-10`).
 
 ## Outputs and the paper's figures
 
@@ -80,3 +84,7 @@ the repository.
 - The paper re-enters a particle that leaves through the top at the bottom with A and B
   swapped; here it reflects. The two agree while the free streams stay unmixed.
 - The paper's solver is compressible at M = 0.3; PICurv's is incompressible.
+- The paper's LES grid puts about 1.3 cells across the layer's half-thickness. There, PICurv's
+  second-order scheme grows the most unstable mode about 25% slower than the converged
+  solution, so the roll-up comes later than on a finer grid; twice the resolution brings the
+  growth rate within 7% (`tml-spectral-reference-2026-11-10`, LES off).

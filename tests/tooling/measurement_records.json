@@ -1556,6 +1556,21 @@
       },
       "limitations": "One Reynolds number, one grid, one seed and one set of correlation scales; the recovery length depends on length_scales and time_scale, which were not varied. The reference is PICurv's own Re_tau 203 periodic channel, not a DNS database. The outlet is conservation, not convective, so x > 18 was excluded. A 10-time-unit window gives the downstream statistics their noise; Cf in the t = 20-40 window never stays within 5%. A white-noise inlet (the case between (a) and (c)) was not run. The long runs predate the layout fix (945fdcd6); the fix changes the realization at round-off and was rechecked at 82b24963 for layout and restart only, not for the recovery itself.",
       "artifacts": []
+    },
+    {
+      "id": "tml-spectral-reference-2026-11-10",
+      "question": "Does a 2D-mode PICurv solve of the temporal mixing layer converge to an independent spectral DNS from the same initial field through roll-up and pairing, and does an exact solver started from the 1% phase-0 forcing reproduce the timing of Colucci et al.'s DNS?",
+      "date": "2026-11-10",
+      "commit": "aacecb2e for every PICurv run; the reference is a NumPy pseudo-spectral solver kept in the session sandbox, not in the repository",
+      "environment": "1x: local WSL2 workstation, PETSc 3.20.3 debug build, 4 ranks. 2x and 4x: Grace (TAMU HPRC), PETSc 3.20.3 optimized, one exclusive node, 48 ranks, automatic decomposition. Reference: vorticity-streamfunction form, z Fourier, free-slip walls by odd extension in y, integrating-factor RK4, 2/3-rule dealiasing, 256 x 383 and 384 x 575 interior points, dt 0.05 and 0.0333.",
+      "configuration": "examples/temporal_mixing_layer's box (Lz = 39.971, walls at y = -26.092 and 27.202, two most-unstable wavelengths), nu = 0.01132 (Re 500), U = tanh(y/1.415), LES off, no noise, stability_mode_velocity modes harmonic 2 at 3% and harmonic 1 at 4% with phase pi/2, to t = 60. PICurv on 4 x 48 x 36, 4 x 96 x 72 and 4 x 192 x 144 cells (dt 0.5, 0.25, 0.125), Newton-Krylov. At aacecb2e the generator scaled each mode on the target grid, so each grid's requested amplitudes were set to give the same cross-stream-integrated norm of each harmonic of v as the reference's field (matched to 7 digits); every run therefore starts from the same physical field. The reference's initial field is ic.gen's on a box whose cell centres are its collocation points, rebuilt from v alone. A second reference run starts from the shipped 1%, phase-0 forcing; its delta_v with the paper's 2 Delta top-hat slope is compared with the digitised DNS of Colucci et al. (1998) Fig. 13.",
+      "result": {
+        "measured": "Reference: the two resolutions agree to 0.1% (theta 2.2327 and 2.2348 at t = 40). Early growth rate of harmonic 2 at the layer centre, t = 2 to 12: 0.0901, 0.1106, 0.1168 on 1x, 2x, 4x against 0.1190; errors 0.0289, 0.0084, 0.0022, falling 3.4 and 3.8 times per halving. Momentum thickness error 0.180, 0.052, 0.012 at t = 24 (3.5, 4.2) and 0.159, 0.026, 0.0075 at t = 52 after the pairing (6.1, 3.5); on 4x theta is within 0.3% of the reference at t = 24 and 0.2% at t = 52. Every Newton-Krylov step on 2x (240) and 4x (480) converged and was committed. From the 1% phase-0 forcing the reference reaches the DNS's delta_v of 8.24 (t = 29.3) only at t = 59 and has not paired by t = 60; from the 3%/4% phase-pi/2 forcing it reaches it at t = 34 and peaks at 17.0 at t = 50 against the DNS's 11.8 at t = 36.7.",
+        "threshold": "Errors against the reference falling at about second order under refinement, through roll-up and pairing.",
+        "verdict": "met"
+      },
+      "limitations": "One Reynolds number, one initial field, one box; LES off and no noise. The reference solver is sandbox code outside the repository. The 1x run used a debug build. The paper's forcing is unknown, so neither forcing reproduces its DNS through the pairing; the comparison with Fig. 13 is delta_v only, digitised to about 0.1.",
+      "artifacts": []
     }
   ]
 }
