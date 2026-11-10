@@ -1,0 +1,5 @@
+- `stability_mode_velocity` initial conditions no longer depend on the grid they are written to:
+  - each mode is scaled on the eigen-grid points, so its streamwise fluctuation peaks at `amplitude * velocity_difference` on every grid; previously the case grid's own peak was matched, which inflated modes on grids that under-resolve the layer (+46% on `temporal_mixing_layer`'s grid); the summary reports the peak the case grid holds as `gridded_peak_over_dU`;
+  - `examples/temporal_mixing_layer` uses `constant_cs: 0.199` (the paper's Cs through PICurv's squared constant; 0.0396 was the unsquared value) and forcing at 3% and 4% with the subharmonic at phase pi/2;
+  - `tml-spectral-reference-2026-11-10` records 2D mode converging to an independent spectral DNS of that layer through roll-up and pairing;
+  - six maybe-uninitialized warnings from optimised builds are gone.
