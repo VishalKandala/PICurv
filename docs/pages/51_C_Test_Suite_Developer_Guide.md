@@ -184,7 +184,7 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `update-all-particle-positions-moves-swarm-entries`
   - `locate-all-particles-in-grid-prior-cell-fast-path`
   - `locate-all-particles-in-grid-guess-path-resolves-local-particle`
-  - `wall-noslip-and-freeslip-helpers`
+  - `wall-noslip-helper`
   - `wall-model-scalar-helpers`
   - `wall-model-velocity-helpers`
   - `wall-function-vector-wrappers`

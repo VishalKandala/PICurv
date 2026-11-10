@@ -62,39 +62,6 @@ void noslip(UserCtx *user,
             double normal_x, double normal_y, double normal_z);
 
 /**
- * @brief Applies free-slip wall boundary condition
- *
- * Free-slip conditions allow tangential flow but enforce zero normal velocity.
- * This is appropriate for inviscid walls or symmetry planes where there is
- * no shear stress but flow cannot penetrate the boundary.
- *
- * DECOMPOSITION:
- *   Velocity is decomposed into normal and tangential components:
- *     U = U_n * n + U_t
- *   where U_n = U · n (normal component)
- *         U_t = U - U_n * n (tangential component)
- *
- * BOUNDARY CONDITIONS:
- *   - Normal component: Interpolated from interior (∂U_n/∂n ≠ 0)
- *   - Tangential component: Extrapolated from interior (∂U_t/∂n = 0)
- *
- * @param[in]  user              Simulation context
- * @param[in]  distance_reference Wall-normal distance to reference point
- * @param[in]  distance_boundary  Wall-normal distance to boundary point
- * @param[in]  velocity_wall      Velocity at the wall
- * @param[in]  velocity_reference Velocity at reference point
- * @param[out] velocity_boundary  Computed velocity at boundary point
- * @param[in]  normal_x           X-component of wall normal vector
- * @param[in]  normal_y           Y-component of wall normal vector
- * @param[in]  normal_z           Z-component of wall normal vector
- */
-void freeslip(UserCtx *user,
-              double distance_reference, double distance_boundary,
-              Cmpnts velocity_wall, Cmpnts velocity_reference,
-              Cmpnts *velocity_boundary,
-              double normal_x, double normal_y, double normal_z);
-			  
-/**
  * @brief Computes roughness-modified log-law coefficient E
  *
  * The coefficient E accounts for wall roughness effects on the log-law:
@@ -435,34 +402,6 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
  */
 double find_utau_Werner(double kinematic_viscosity, double velocity,
                         double wall_distance, double initial_guess);
-						
-/**
- * @brief Computes velocity using simple log-law (smooth wall with roughness offset)
- *
- * Simple logarithmic profile:
- *   u = (u_τ / κ) * ln((y + y0) / y0)
- * where y0 is a roughness length scale.
- *
- * @param[in] wall_distance     Distance from wall
- * @param[in] friction_velocity Friction velocity
- * @param[in] roughness_length  Roughness length scale y0
- * @return    Velocity
- *
- * @note This is a simplified model; use u_hydset_roughness for better accuracy
- */
-double u_loglaw(double wall_distance, double friction_velocity, double roughness_length);
-
-/**
- * @brief Solves for friction velocity using simple log-law (explicit formula)
- *
- * Explicit inversion: u_τ = κ * u / ln((y + y0) / y0)
- *
- * @param[in] velocity         Known velocity
- * @param[in] wall_distance    Distance from wall
- * @param[in] roughness_length Roughness length scale
- * @return    Friction velocity
- */
-double find_utau_loglaw(double velocity, double wall_distance, double roughness_length);
 
 /**
  * @brief Applies standard wall function with Werner-Wengle model

@@ -94,43 +94,6 @@ void noslip(UserCtx *user,
     (*velocity_boundary).z += velocity_wall.z;
 }
 
-/**
- * @brief Implementation of \ref freeslip().
- * @see freeslip()
- */
-void freeslip(UserCtx *user,
-              double distance_reference, double distance_boundary,
-              Cmpnts velocity_wall, Cmpnts velocity_reference,
-              Cmpnts *velocity_boundary,
-              double normal_x, double normal_y, double normal_z)
-{
-    PROFILE_HELPER_BEGIN;
-    (void)user;
-    // Extract normal components of velocities
-    double wall_normal_velocity = velocity_wall.x * normal_x + 
-                                   velocity_wall.y * normal_y + 
-                                   velocity_wall.z * normal_z;
-    
-    double reference_normal_velocity = velocity_reference.x * normal_x + 
-                                        velocity_reference.y * normal_y + 
-                                        velocity_reference.z * normal_z;
-    
-    // Interpolate normal velocity component
-    double boundary_normal_velocity = wall_normal_velocity + 
-        (reference_normal_velocity - wall_normal_velocity) * (distance_boundary / distance_reference);
-    
-    // Extract tangential velocity components (extrapolated from reference point)
-    double tangential_u = velocity_reference.x - reference_normal_velocity * normal_x;
-    double tangential_v = velocity_reference.y - reference_normal_velocity * normal_y;
-    double tangential_w = velocity_reference.z - reference_normal_velocity * normal_z;
-    
-    // Reconstruct total velocity: U = U_t + U_n * n
-    (*velocity_boundary).x = tangential_u + boundary_normal_velocity * normal_x;
-    (*velocity_boundary).y = tangential_v + boundary_normal_velocity * normal_y;
-    (*velocity_boundary).z = tangential_w + boundary_normal_velocity * normal_z;
-    PROFILE_HELPER_END;
-}
-
 // ============================================================================
 //              ROUGHNESS-CORRECTED LOG-LAW FUNCTIONS
 // ============================================================================
@@ -621,36 +584,6 @@ double find_utau_Werner(double kinematic_viscosity, double velocity,
         return sqrt(speed / y_over_nu);                           /* U = u_tau^2 y / nu */
     }
     return pow(speed / (A * pow(y_over_nu, B)), 1.0 / (1.0 + B)); /* U = A u_tau^(1+B) (y/nu)^B */
-}
-
-// ============================================================================
-//              SIMPLE LOG-LAW WALL FUNCTION (NO ROUGHNESS)
-// ============================================================================
-
-/**
- * @brief Implementation of \ref u_loglaw().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/wallfunction.h`.
- * @see u_loglaw()
- */
-double u_loglaw(double wall_distance, double friction_velocity, double roughness_length)
-{
-    PROFILE_HELPER_BEGIN;
-    const double velocity = friction_velocity * (1.0 / KAPPA) * log((roughness_length + wall_distance) / roughness_length);
-    PROFILE_HELPER_END;
-    return velocity;
-}
-
-/**
- * @brief Implementation of \ref find_utau_loglaw().
- * @see find_utau_loglaw()
- */
-double find_utau_loglaw(double velocity, double wall_distance, double roughness_length)
-{
-    PROFILE_HELPER_BEGIN;
-    const double friction_velocity = KAPPA * velocity / log((wall_distance + roughness_length) / roughness_length);
-    PROFILE_HELPER_END;
-    return friction_velocity;
 }
 
 // ============================================================================

@@ -1270,26 +1270,20 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests no-slip and free-slip wall helper kernels.
+ * @brief Tests the no-slip wall helper kernel.
  */
 
-static PetscErrorCode TestWallNoSlipAndFreeSlipHelpers(void)
+static PetscErrorCode TestWallNoSlipHelper(void)
 {
     Cmpnts wall_velocity = {0.0, 0.0, 0.0};
     Cmpnts reference_velocity = {2.0, 4.0, 6.0};
     Cmpnts boundary_velocity = {0.0, 0.0, 0.0};
-    Cmpnts free_slip_reference = {2.0, 3.0, 4.0};
 
     PetscFunctionBeginUser;
     noslip(NULL, 2.0, 1.0, wall_velocity, reference_velocity, &boundary_velocity, 1.0, 0.0, 0.0);
     PetscCall(PicurvAssertRealNear(1.0, boundary_velocity.x, 1.0e-12, "no-slip interpolated x"));
     PetscCall(PicurvAssertRealNear(2.0, boundary_velocity.y, 1.0e-12, "no-slip interpolated y"));
     PetscCall(PicurvAssertRealNear(3.0, boundary_velocity.z, 1.0e-12, "no-slip interpolated z"));
-
-    freeslip(NULL, 2.0, 1.0, wall_velocity, free_slip_reference, &boundary_velocity, 1.0, 0.0, 0.0);
-    PetscCall(PicurvAssertRealNear(1.0, boundary_velocity.x, 1.0e-12, "free-slip interpolated normal component"));
-    PetscCall(PicurvAssertRealNear(3.0, boundary_velocity.y, 1.0e-12, "free-slip tangential y preserved"));
-    PetscCall(PicurvAssertRealNear(4.0, boundary_velocity.z, 1.0e-12, "free-slip tangential z preserved"));
     PetscFunctionReturn(0);
 }
 /**
@@ -1325,18 +1319,12 @@ static PetscErrorCode TestWallModelVelocityHelpers(void)
     const PetscReal kinematic_viscosity = 1.0e-3;
     const PetscReal wall_distance = 2.0e-2;
     const PetscReal target_velocity = 1.0;
-    const PetscReal roughness_length = 1.0e-4;
-    PetscReal utau_loglaw = 0.0;
     PetscReal utau_werner = 0.0;
     PetscReal utau_cabot = 0.0;
     PetscReal wall_shear_velocity = 0.0;
     PetscReal wall_shear_normal = 0.0;
 
     PetscFunctionBeginUser;
-    utau_loglaw = find_utau_loglaw(target_velocity, wall_distance, roughness_length);
-    PetscCall(PicurvAssertRealNear(target_velocity, u_loglaw(wall_distance, utau_loglaw, roughness_length), 1.0e-12,
-                                   "simple log-law inversion should reconstruct the target velocity"));
-
     utau_werner = find_utau_Werner(kinematic_viscosity, target_velocity, wall_distance, 0.1);
     PetscCall(PicurvAssertBool((PetscBool)(utau_werner > 0.0), "Werner-Wengle friction velocity should remain positive"));
     PetscCall(PicurvAssertRealNear(target_velocity, u_Werner(kinematic_viscosity, wall_distance, utau_werner), 1.0e-12,
@@ -1746,7 +1734,7 @@ int main(int argc, char **argv)
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},
-        {"wall-noslip-and-freeslip-helpers", TestWallNoSlipAndFreeSlipHelpers},
+        {"wall-noslip-helper", TestWallNoSlipHelper},
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
         {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},
         {"wall-function-vector-wrappers", TestWallFunctionVectorWrappers},
