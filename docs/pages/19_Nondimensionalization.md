@@ -236,8 +236,11 @@ Without the setting, every one of these is in solver units, including the collec
 times, which then match the frames they index.
 
 Runtime diagnostics written during a solve (`les_coefficient.csv`, `wall_model.csv`,
-`interpolation_error.csv`, `scatter_metrics.csv`, `search_metrics.csv`) are in solver
-units, with a `physical_time` column beside `time` for plotting in seconds. Checkpoints
+`interpolation_error.csv`, `scatter_metrics.csv`, `search_metrics.csv`, `driven_flow.csv`)
+are in solver units, with a `physical_time` column beside `time` for plotting in seconds. The
+boundary records `inlet_flow.csv` and `boundary_pressure.csv` are dimensional instead: their
+flow rates are the solver values times `velocity_ref * length_ref^2`, their areas times
+`length_ref^2`, and `mean_pressure` times `rho_ref * velocity_ref^2`. Checkpoints
 are never dimensionalized: they are restart state, and a restart must reproduce the
 solver's own units exactly.
 

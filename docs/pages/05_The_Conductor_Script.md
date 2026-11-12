@@ -477,7 +477,8 @@ Behavior:
   records take `:<block>`, such as `poisson:1`. The names are `continuity`, `convergence`,
   `memory`, `picard`, `newton`, `newton-history`, `newton-linear`, `poisson`, `profiling`,
   `profiling-post`, `profiling-steps`, `search`, `scatter`, `interpolation-error`, `les`,
-  `wall-model`, `driven-flow` and `particle-initial-fields`,
+  `wall-model`, `driven-flow`, `inlet-flow`, `boundary-pressure`, `particle-initial-fields` and
+  `particle-injection`,
 - plotting requires `matplotlib`, which bootstrap installs in the managed PICurv environment by default,
 - continued runs write `# Continuation from step <N>` separators into append-only logs,
 - plots use the latest continuation segment by default; `--last <n>` keeps its last N chronological records per line,

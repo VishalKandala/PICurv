@@ -25238,6 +25238,8 @@ SUMMARY_TABLES = {
     "les": ("metrics_dir", "les_coefficient.csv"),
     "wall-model": ("metrics_dir", "wall_model.csv"),
     "driven-flow": ("metrics_dir", "driven_flow.csv"),
+    "inlet-flow": ("metrics_dir", "inlet_flow.csv"),
+    "boundary-pressure": ("metrics_dir", "boundary_pressure.csv"),
     "particle-initial-fields": ("metrics_dir", "particle_initial_fields.csv"),
     "particle-injection": ("metrics_dir", "particle_injection.csv"),
 }
