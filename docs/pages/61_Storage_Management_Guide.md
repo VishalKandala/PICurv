@@ -55,6 +55,11 @@ retains configuration, scheduler metadata, logs, and the storage marker;
 `--keep-latest-checkpoint` can add the newest checkpoint to another policy. Whole-study
 offload applies the same component classification inside each numbered member.
 
+The policy, `--retain`, and `--drop` choose only what stays local; they never change
+what is uploaded. A run or study archive always holds the whole artifact, checkpoints
+included, and `restore` can later fetch selected checkpoints from it. Only a workspace
+archive leaves anything out: its runs and studies, and `inputs/` unless asked for.
+
 The local state shown by `status` and `summarize` is:
 
 - `LOCAL`: no PICurv archive marker exists;
