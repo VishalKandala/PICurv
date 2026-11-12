@@ -887,10 +887,11 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
 
 /**
  * @brief This rank's area-weighted sums over the face, physical: the source's normal speed, the
- *        staged data's when expressions add to it, and the area. Slots blanked by an immersed
- *        body are excluded, as in Apply.
+ *        staged data's when expressions add to it, the area, and the synthetic fluctuations'
+ *        inflow (zero without them). Slots blanked by an immersed body are excluded, as in Apply.
+ *        The first three are what the bulk rescaling reads; the fluctuations are added after it.
  */
-static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id, PetscReal local[3])
+static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id, PetscReal local[4])
 {
     const PicurvSourceFaceSlots *slots = &data->slots;
     const PetscInt normal = slots->normal, a = slots->a, b = slots->b;
@@ -900,7 +901,7 @@ static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    local[0] = local[1] = local[2] = 0.0;
+    local[0] = local[1] = local[2] = local[3] = 0.0;
     if (slots->n[0] * slots->n[1] > 0) {
         const PetscInt slot = slots->layer;
         const PetscInt cell = negative ? slot + 1 : slot;
@@ -927,6 +928,11 @@ static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data
                                         ? staged.x * area : sign * (staged.x * m.x + staged.y * m.y + staged.z * m.z));
             }
             local[2] += L_ref * L_ref * area;
+            /* Fluctuations are Cartesian in every frame (Apply adds them to the velocity). */
+            if (data->fluct) {
+                const Cmpnts f = data->fluct[p + slots->n[0] * q];
+                local[3] += physical * sign * (f.x * m.x + f.y * m.y + f.z * m.z);
+            }
         }
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, metric_vec, &metric_arr));
@@ -941,7 +947,7 @@ static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data
 static PetscErrorCode PrescribedBulkFactor(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id,
                                            PetscReal physical_time, PetscReal *factor)
 {
-    PetscReal local[3];
+    PetscReal local[4];
     char      where[32];
 
     PetscFunctionBeginUser;
@@ -1080,23 +1086,28 @@ PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
     PROFILE_HELPER_BEGIN;
     for (PetscInt face = 0; face < 6; ++face) {
         const BoundaryCondition *handler = user->boundary_faces[face].handler;
-        PetscReal local[3], global[3], physical_time, flow_rate;
+        PetscReal local[4], global[4], physical_time, flow_rate;
         FILE *file = NULL;
 
         if (!handler || user->boundary_faces[face].handler_type != BC_HANDLER_INLET_PRESCRIBED_VELOCITY) continue;
         const InletPrescribedVelocityData *data = (const InletPrescribedVelocityData*)handler->data;
         if (!data->built) continue;
         PetscCall(PrescribedFaceSums(data, user, (BCFace)face, local));
-        PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCallMPI(MPI_Allreduce(local, global, 4, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
         if (simCtx->rank != 0 || user->_this != 0) continue;
         PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
         flow_rate = data->factor * global[0] + global[1];
         PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "inlet_flow.csv",
-                                           "step,physical_time,face,area,flow_rate,mean_normal_speed,bulk_factor",
+                                           "step,physical_time,face,area,flow_rate,mean_normal_speed,bulk_factor,"
+                                           "fluctuation_flow_rate,applied_flow_rate",
                                            &file));
-        fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.10e,%.10e\n", (int)simCtx->step, (double)physical_time,
+        /* flow_rate is the rescaled profile's, the one a bulk target controls; the synthetic
+           fluctuations are added after the rescaling, so the flux the face actually admits is
+           their sum. */
+        fprintf(file, "%d,%.10e,%s,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n", (int)simCtx->step, (double)physical_time,
                 BCFaceToString((BCFace)face), (double)global[2], (double)flow_rate,
-                (double)(global[2] > 0.0 ? flow_rate / global[2] : 0.0), (double)data->factor);
+                (double)(global[2] > 0.0 ? flow_rate / global[2] : 0.0), (double)data->factor,
+                (double)global[3], (double)(flow_rate + global[3]));
         PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Unable to close the inlet-flow diagnostics file.");
     }
     PROFILE_HELPER_END;

@@ -688,7 +688,12 @@ second on a login node at any production rank count. A refusal names the window 
 changed property, such as `mask changed`, and nothing is queued; staging is undone, so a
 refused branch leaves no run directory and a refused `--continue` leaves the run's
 configuration, manifest and locks as they were. `--continue` runs the same check, since it
-carries windows by default. Any restart also compares its grid inputs with the source run's
+carries windows by default. The check is given 120 seconds; one still running then is
+treated as stuck rather than slow, staging is undone in the same way, and the refusal names
+MPI initialisation on the submit host as the likely cause. A one-rank launch on a cluster
+login node can hang there probing a network transport the node cannot open; a
+shared-memory-only transport in that shell avoids it (for Open MPI,
+`OMPI_MCA_pml=ob1 OMPI_MCA_btl=self,vader OMPI_MCA_mtl=^ofi`). Any restart also compares its grid inputs with the source run's
 (a staged grid file by content, otherwise the grid section without the rank layout and the
 length scale, and the periodic faces) and warns when they differ, because the solver's
 geometry comparison needs the built grid and so refuses only after the job starts. The geometry comparison and the
@@ -701,8 +706,8 @@ fields, and then failed at start-up looking for the accumulators.
 choice and generated run control surface. Integration verified - `make smoke` (field
 statistics): an unchanged carried window passes the staging check and a changed weighting
 is refused at staging with the property named and nothing launched;
-`tests/test_cli_smoke.py` checks the check runs on one rank and reports the simulator's own
-reason. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
+`tests/test_cli_smoke.py` checks the check runs on one rank, reports the simulator's own
+reason, and reports a launch that exceeds the limit as a refusal. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
 restarted at step 10 with `carry` reproduced the continuous run's windows to 1.1e-16 at
 step 20.
 

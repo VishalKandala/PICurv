@@ -10396,14 +10396,18 @@ def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reas
     monkeypatch.delenv("PICURV_MPI_LAUNCHER", raising=False)
     monkeypatch.setenv("MPI_LAUNCHER", "mpiexec -n 8")
 
-    def run(command, run_dir):
+    def run(command, run_dir, timeout=None):
         """!
         @brief Record the command and answer as the simulator would.
         @param[in] command Launched command.
         @param[in] run_dir Working directory.
+        @param[in] timeout Limit staging passes; a hung launch raises as subprocess.run would.
         @return Simulated completed process.
         """
         commands.append((command, run_dir))
+        assert timeout == picurv.RESTART_CHECK_TIMEOUT_SECONDS
+        if outcome.get("hang"):
+            raise subprocess.TimeoutExpired(command, timeout)
         return subprocess.CompletedProcess(command, outcome["returncode"], "", outcome["stderr"])
 
     monkeypatch.setattr(picurv, "_run_captured_command", run)
@@ -10419,6 +10423,13 @@ def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reas
         "[0]PETSC ERROR: Statistics window 'w' was defined differently in the checkpoint: mask changed.\n"))
     assert picurv.check_restart_continuation("simulator", [], str(tmp_path)) == (
         "Statistics window 'w' was defined differently in the checkpoint: mask changed.")
+
+    # A launch that never returns (MPI initialisation stuck on a login node) is reported
+    # as a refusal naming the limit, so staging undoes itself instead of waiting forever.
+    outcome.update(hang=True)
+    refusal = picurv.check_restart_continuation("simulator", [], str(tmp_path))
+    assert f"did not finish within {picurv.RESTART_CHECK_TIMEOUT_SECONDS} s" in refusal
+    assert "shared-memory-only transport" in refusal
 
 
 def test_refused_continuation_staging_is_undone(tmp_path):

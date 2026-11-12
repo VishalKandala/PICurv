@@ -108,6 +108,22 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     } else if (simCtx->mom_solver_type == MOMENTUM_SOLVER_NEWTON_KRYLOV) {
         ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL); CHKERRQ(ierr);
     }
+
+    /* A solver that commits an unconverged step keeps the run going, which is right for an
+       occasional step and wrong for a solve that has stopped advancing: such a run spends
+       its walltime on a frozen field. The streak is consecutive, so one converged step
+       clears it, and the limit is opt-in because some configurations meet their iteration
+       cap on every step by design. */
+    simCtx->mom_unconverged_streak = simCtx->mom_last_converged ? 0 : simCtx->mom_unconverged_streak + 1;
+    PetscCheck(simCtx->mom_max_unconverged_steps <= 0 ||
+               simCtx->mom_unconverged_streak < simCtx->mom_max_unconverged_steps,
+               PETSC_COMM_WORLD, PETSC_ERR_NOT_CONVERGED,
+               "The momentum solve (%s) has committed %" PetscInt_FMT " consecutive unconverged steps, "
+               "through step %" PetscInt_FMT ", reaching tolerances.max_consecutive_unconverged_steps "
+               "(%" PetscInt_FMT "). Stopping rather than advancing a field the solver no longer "
+               "converges; the solver's per-step summary names the failure reasons.",
+               MomentumSolverTypeToString(simCtx->mom_solver_type), simCtx->mom_unconverged_streak,
+               simCtx->step, simCtx->mom_max_unconverged_steps);
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
 // ========================================================================
@@ -166,6 +182,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         /* The force a driven-periodic controller applied this step. A no-op without one. */
         ierr = LogDrivenFlowDiagnostics(&user[bi]); CHKERRQ(ierr);
         ierr = LogPrescribedFlowDiagnostics(&user[bi]); CHKERRQ(ierr);
+        ierr = LogBoundaryPressureDiagnostics(&user[bi]); CHKERRQ(ierr);
         /*
         // --- Immersed Boundary Interpolation (Post-Correction) ---
         // This step would update the velocity values AT the IB nodes to match the

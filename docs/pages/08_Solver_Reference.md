@@ -557,6 +557,7 @@ tolerances:
   relative_tol: 1.0e-4
   residual_absolute_tol: 1.0e-8   # dimensionless (see below)
   residual_relative_tol: 1.0e-3
+  max_consecutive_unconverged_steps: 0   # 0: never stop (default)
 ```
 
 Mappings:
@@ -564,6 +565,15 @@ Mappings:
 - `relative_tol` -> `-mom_rtol`
 - `residual_absolute_tol` -> `-mom_resid_atol`
 - `residual_relative_tol` -> `-mom_resid_rtol`
+- `max_consecutive_unconverged_steps` -> `-mom_max_unconverged_steps`
+
+`max_consecutive_unconverged_steps` stops the run once that many consecutive momentum steps
+have been committed without meeting their convergence test, under either iterative momentum
+solver (@ref p31_nonconvergence_sec). A converged step resets the count. It must be a
+non-negative integer; the default 0 never stops, because some configurations meet their
+iteration cap on every step by design. Set it on production runs, where a solve that has
+stopped converging otherwise spends the remaining walltime on a field that no longer
+advances.
 
 `absolute_tol` -> `-mom_atol` is **deprecated** and no longer appears in the shipped
 configs. It is still accepted, but the CLI warns that it takes no part in convergence while

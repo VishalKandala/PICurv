@@ -8929,7 +8929,7 @@ _SOLVER_SCHEMA = {
     ("strategy",): {"momentum_solver", "central_diff"},
     ("tolerances",): {
         "max_iterations", "absolute_tol", "relative_tol", "step_tol",
-        "residual_absolute_tol", "residual_relative_tol",
+        "residual_absolute_tol", "residual_relative_tol", "max_consecutive_unconverged_steps",
     },
     ("momentum_solver",): {
         "type", "dual_time_picard_jameson_rk", "dual_time_picard_rk4", "newton_krylov",
@@ -10540,6 +10540,11 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                         float(tolerances_cfg[key])
                     except (TypeError, ValueError):
                         errors.append(f"  {solver_path}: tolerances.{key} must be numeric.")
+            if "max_consecutive_unconverged_steps" in tolerances_cfg:
+                limit = tolerances_cfg["max_consecutive_unconverged_steps"]
+                if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+                    errors.append(f"  {solver_path}: tolerances.max_consecutive_unconverged_steps must be "
+                                  "a non-negative integer (0 never stops the run).")
 
         ms_cfg = solver_cfg.get('momentum_solver', {})
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
@@ -12031,6 +12036,10 @@ def warn_on_restart_grid_change(source_inputs: dict, branch_inputs: dict):
     return changed
 
 
+#: Seconds the one-rank restart check may run before staging treats it as hung.
+RESTART_CHECK_TIMEOUT_SECONDS = 120
+
+
 def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
                                config_search_anchor: str = None):
     """!
@@ -12044,14 +12053,27 @@ def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
     @param[in] solver_args Simulator arguments the run will launch with.
     @param[in] run_dir Staged run directory, the simulator's working directory.
     @param[in] config_search_anchor Path from which the local launcher configuration is found.
-    @return None when the windows can continue, else the simulator's own reason.
+    @return None when the windows can continue, else the simulator's own reason, or the
+            reason the check could not run when it exceeds `RESTART_CHECK_TIMEOUT_SECONDS`.
     """
     command = build_local_launch_command(
         solver_exe, solver_args + ["-restart_check_only", "true"], 1,
         config_search_anchor=config_search_anchor,
         allow_single_rank_launcher_override=True, force_num_procs=1,
     )
-    result = _run_captured_command(command, run_dir)
+    try:
+        result = _run_captured_command(command, run_dir, timeout=RESTART_CHECK_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        # The check builds no grid and normally finishes in about a second, so a launch
+        # still running after the limit is stuck, not slow. On a cluster submit host the
+        # usual cause is MPI initialisation probing a network transport the login node
+        # cannot open; a shared-memory-only transport in the launcher environment avoids it.
+        return (f"the restart check did not finish within {RESTART_CHECK_TIMEOUT_SECONDS} s "
+                f"('{' '.join(command)}'). It normally takes about a second, so MPI "
+                "initialisation on this host is the likely cause; on a cluster login node, "
+                "select a shared-memory-only transport for this one-rank launch "
+                "(for Open MPI: OMPI_MCA_pml=ob1 OMPI_MCA_btl=self,vader OMPI_MCA_mtl=^ofi) "
+                "and stage again")
     if result.returncode == 0:
         print("[INFO] Statistics continuation check passed.")
         return None
@@ -16669,7 +16691,8 @@ def parse_solver_config(solver_cfg: dict, scales: dict = None, case_cfg: dict = 
             'relative_tol': '-mom_rtol',
             'residual_absolute_tol': '-mom_resid_atol',
             'residual_relative_tol': '-mom_resid_rtol',
-            'step_tol': '-imp_stol'
+            'step_tol': '-imp_stol',
+            'max_consecutive_unconverged_steps': '-mom_max_unconverged_steps',
         }
         for key, flag in tol_map.items():
             if key in t:
@@ -17540,11 +17563,12 @@ class PlotDependencyError(RuntimeError):
     """
 
 
-def _run_captured_command(command: list, run_dir: str) -> subprocess.CompletedProcess:
+def _run_captured_command(command: list, run_dir: str, timeout: float = None) -> subprocess.CompletedProcess:
     """!
     @brief Run a command and capture combined stdout/stderr details for later inspection.
     @param[in] command Argument passed to `_run_captured_command()`.
     @param[in] run_dir Argument passed to `_run_captured_command()`.
+    @param[in] timeout Seconds to wait before `subprocess.TimeoutExpired` is raised; None waits indefinitely.
     @return Value returned by `_run_captured_command()`.
     """
     try:
@@ -17556,6 +17580,7 @@ def _run_captured_command(command: list, run_dir: str) -> subprocess.CompletedPr
             check=False,
             encoding="utf-8",
             errors="replace",
+            timeout=timeout,
         )
     except FileNotFoundError as exc:
         raise CommandExecutionError(command, 1, f"Command not found or is not executable: '{command[0]}'") from exc

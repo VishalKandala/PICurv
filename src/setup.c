@@ -522,6 +522,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->no_pseudo_cfl_backtrack = PETSC_FALSE;
     simCtx->mom_ratio_ema_alpha = 0.3;   /* moderate smoothing; set to 1.0 to recover original raw-ratio behavior */
     simCtx->mom_last_converged  = PETSC_TRUE;
+    simCtx->mom_max_unconverged_steps = 0; /* off: unconverged steps never stop a run unless asked */
+    simCtx->mom_unconverged_streak = 0;
     simCtx->mom_last_lambda_max = 0.0;   /* populated after first momentum solve */
     simCtx->mom_nk_monitor_history = PETSC_FALSE;
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
@@ -882,6 +884,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscBool solution_convergence_mode_flg = PETSC_FALSE;
     ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", mom_solver_type_char, sizeof(mom_solver_type_char), &mom_solver_type_flg); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_pseudo_steps", &simCtx->mom_max_pseudo_steps, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_unconverged_steps", &simCtx->mom_max_unconverged_steps, NULL); CHKERRQ(ierr);
+    PetscCheck(simCtx->mom_max_unconverged_steps >= 0, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+               "-mom_max_unconverged_steps must be 0 (never stop) or a positive step count; received %" PetscInt_FMT ".",
+               simCtx->mom_max_unconverged_steps);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_atol", &simCtx->mom_atol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_rtol", &simCtx->mom_rtol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_resid_atol", &simCtx->mom_resid_atol, NULL); CHKERRQ(ierr);

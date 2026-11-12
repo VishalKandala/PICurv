@@ -129,7 +129,12 @@ stops the run, where Picard--Jameson continues from the entry state, because a g
 Newton residual means the line search accepted no decrease and nothing in the step can be
 trusted.
 
-A run of consecutive unconverged steps is the signal to act on. An isolated one at a steady
+A run of consecutive unconverged steps is the signal to act on, and
+`tolerances.max_consecutive_unconverged_steps` (@ref p08_tol_sec) turns it into a stop:
+once that many consecutive steps are committed unconverged, the run ends with
+`PETSC_ERR_NOT_CONVERGED`, naming the count and the last step. It is off by default. A
+Newton--Krylov solve that has broken down can otherwise commit every step with no Newton
+update while the pressure projection keeps converging, so nothing else ends the run. An isolated one at a steady
 or slowly varying state usually means the residual has reached the round-off floor of its
 own evaluation, which on fine or strongly non-orthogonal grids can lie above the configured
 dimensionless tolerance. See @ref p24_convergence_sec and @ref p55_reasons_sec for each

@@ -457,7 +457,9 @@ Cartesian, and it is added after `bulk_velocity` or `flow_rate`, which rescale o
 **Diagnostics.** The startup banner names the face's `-face_source_<id>` options, or
 its staged `source_file`. A data source logs its file, dimensions and speed range when
 first applied. `inlet_flow.csv` under `<run.analysis.metrics>` records each inlet's area,
-flow rate, mean normal speed and rescaling factor every step. With debug logging the handler
+flow rate, mean normal speed and rescaling factor every step, then `fluctuation_flow_rate`, the flux of this step's
+`fluctuations`, and `applied_flow_rate`, the flux the face actually admitted: their sum, which
+equals `flow_rate` on an inlet without fluctuations. With debug logging the handler
 logs the target, the source mean and the factor each time it rescales. The applied flux is the
 inlet's entry in `Continuity_Metrics.csv` (`flux_in`). A value that is not finite stops the run naming the
 position and time; a source whose mean normal speed is zero cannot be rescaled and is
@@ -507,7 +509,9 @@ inlet needs a development length before its statistics recover: about 15 channel
 skin friction in the one channel measured, at one set of `length_scales` and `time_scale`, which
 that length depends on.
 The fluctuation's normal component changes the face's instantaneous flux: `bulk_velocity` and
-`flow_rate` hold the mean part, and `inlet_flow.csv` reports that mean part, not the applied flux.
+`flow_rate` hold the mean part, which `inlet_flow.csv` reports as `flow_rate`; the applied flux is
+`applied_flow_rate`, and in an inflow-outflow domain its swings move the bulk velocity of the whole
+domain, enforced by a pressure transient (`boundary_pressure.csv`).
 The filter's cost per step grows with the half-widths 2L/h, and the stresses are steady. On a multi-block case the
 fractions run from 0 to 1 within each block. A data source is steady; only its
 `bulk_velocity` and any expressions added to it may vary in time.

@@ -85,6 +85,9 @@ For each run, `picurv` generates:
 - `verification.sources.diffusivity` -> `-verification_diffusivity_expr`
 - `verification.sources.scalar` -> `-verification_scalar_expr`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
+- `tolerances.max_consecutive_unconverged_steps` -> `-mom_max_unconverged_steps` (default 0,
+  never stop; a non-negative integer): stops the run once that many consecutive momentum steps
+  are committed unconverged, under either iterative momentum solver.
 - Solver-specific block support includes `momentum_solver.dual_time_picard_jameson_rk`
   and `momentum_solver.newton_krylov`.
 - Deprecated `dual_time_picard_rk4` and `rk4_residual_noise_allowance_factor`

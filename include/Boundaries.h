@@ -511,6 +511,26 @@ PetscErrorCode ApplyWallFunction(UserCtx *user);
 PetscErrorCode LogWallModelDiagnostics(UserCtx *user);
 
 /**
+ * @brief Records each INLET and OUTLET face's area-weighted mean pressure this step.
+ *
+ * Appends one row per such face to `<analysis_dir>/boundary_pressure.csv`: the step, the
+ * physical time, the face, its type, its open area, and the mean of the pressure in the
+ * first interior cells beside it, weighted by their face areas, in physical units. Edge and
+ * corner cells and cells blanked by an immersed body are left out, as in the outlet's flux
+ * sum. Pressure carries an arbitrary constant, so the difference between two faces' rows is
+ * the meaningful quantity: the pressure drop across the domain, the observable for a duct's
+ * friction factor and for the transient that enforces a change in an inflow-outflow
+ * domain's flow rate. A no-op when the block has no INLET or OUTLET face; in a multi-block
+ * run only the first block's faces are recorded, as in `inlet_flow.csv`.
+ *
+ * Collective on PETSC_COMM_WORLD; call it on every rank, once per step, after the projection.
+ *
+ * @param[in] user Block context whose pressure is current for this step.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LogBoundaryPressureDiagnostics(UserCtx *user);
+
+/**
  * @brief Finalizes cell-centered fields after the projection step.
  *
  * This function completes the cell-centered state derived from the final,

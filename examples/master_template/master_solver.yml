@@ -69,6 +69,9 @@ tolerances:
   residual_relative_tol: 1.0e-3 # Use 1.0e-2 for looser exploratory LES
   # step_tol: 0.0       # DEPRECATED -> -imp_stol. Accepted but unused by every
   #                     # momentum solver.
+  # max_consecutive_unconverged_steps: 20  # [Integer] -> -mom_max_unconverged_steps.
+  #                     # Stop the run once this many consecutive momentum steps are
+  #                     # committed unconverged (any momentum solver). 0 (default) never stops.
 
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).

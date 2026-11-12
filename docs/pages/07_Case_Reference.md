@@ -1083,8 +1083,8 @@ velocity rather than disagreeing within one timestep.
 **Diagnostics.** The startup banner reports whether wall functions are enabled and the
 configured roughness height. Every timestep appends one row to
 `<run.analysis.metrics>/wall_model.csv` - the wall-face mean, spread, minimum and maximum
-of the friction velocity, the mean and maximum first-cell y+, the mean wall distance, and
-`nu_wall_over_nu_mean` - and logs the mean friction velocity and y+ to the console.
+of the friction velocity, the mean and maximum first-cell y+, the mean wall distance,
+`nu_wall_over_nu_mean`, and the wall face and cell at which each maximum occurs - and logs the mean friction velocity and y+ to the console.
 
 The same row is checked against the range the selected law supports: mean first-cell y+
 from 30 to 300 for `log_law`, at most 300 for `werner`, and at most 1000 for `cabot`.

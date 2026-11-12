@@ -694,6 +694,8 @@ typedef struct WallModelDiagnosticsState {
     PetscReal wall_distance_sum;      ///< Sum of the first-cell wall distance.
     PetscReal y_plus_sum;             ///< Sum of `u_tau * y / nu` over corrected cells.
     PetscReal y_plus_max;             ///< Largest first-cell `y+` this rank corrected.
+    PetscInt  friction_velocity_max_at[4]; ///< Wall face (`BCFace`) and global cell i, j, k of `friction_velocity_max`.
+    PetscInt  y_plus_max_at[4];       ///< Wall face (`BCFace`) and global cell i, j, k of `y_plus_max`.
     PetscReal wall_viscosity_sum;     ///< Sum of the effective wall eddy viscosity.
     PetscInt  cells;                  ///< Number of cells this rank corrected.
 } WallModelDiagnosticsState;
@@ -949,6 +951,8 @@ typedef struct SimCtx {
     PetscBool no_pseudo_cfl_backtrack; /* Diagnostic: commit all finite RK trials, skip ratio-based rollback */
     PetscReal mom_ratio_ema_alpha;    /* EMA smoothing coefficient for trial-ratio rejection (0=no smooth, 1=raw) */
     PetscBool mom_last_converged;     /* Set after each momentum solve: true if pseudo-time converged */
+    PetscInt  mom_max_unconverged_steps; /* Stop after this many consecutive unconverged momentum steps; 0 never stops. */
+    PetscInt  mom_unconverged_streak; /* Consecutive momentum steps committed unconverged, up to the current one. */
     PetscReal mom_last_lambda_max;   /* Global spectral radius [1/s] from the last momentum solve; for diagnostics */
     PetscBool mom_nk_monitor_history; /* Write PICurv's structured per-Newton-iteration residual history. */
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
