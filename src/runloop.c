@@ -705,7 +705,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
             if (simCtx->wallfunction) {
                 ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_U_TAU, "PostFlowSolver"); CHKERRQ(ierr);
-                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_NU_WALL, "PostFlowSolver"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_WALL_STRESS, "PostFlowSolver"); CHKERRQ(ierr);
             }
         }
 

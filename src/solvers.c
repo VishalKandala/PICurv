@@ -62,18 +62,9 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
             ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
             ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
 
-            // Contra2Cart rebuilds the Cartesian field from the contravariant one and so
-            // discards any near-wall correction the previous momentum solve applied. The
-            // wall model is re-applied here, before the strain rates are formed, so the
-            // closure and the momentum equation agree about the near-wall velocity. On
-            // the coarse grids a wall model exists to serve, the uncorrected strain is
-            // under-predicted, and the eddy viscosity with it. Mirrors the order the
-            // boundary pass itself uses: reconstruct, exchange, correct, exchange.
-            if (simCtx->wallfunction) {
-                ierr = ApplyWallFunction(&user[bi]); CHKERRQ(ierr);
-                ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
-                ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
-            }
+            // The strain rates come from the resolved velocity. A wall model acts through
+            // the wall stress alone (ApplyWallFunction) and leaves this field as it is, so
+            // the closure and the momentum equation read the same near-wall velocity.
 
             // Only the dynamic model has a coefficient to recompute, and it honours
             // its own cadence. The constant model's coefficient never changes.

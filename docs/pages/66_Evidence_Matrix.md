@@ -100,8 +100,8 @@ likely to matter:
   the generated inlet flux on `programmatic_c` grids, both since fixed and re-measured;
   asset reuse for identical inputs, fixed and since confirmed on the cluster by
   `asset-lifecycle-grace-2026-10-01`; `hom02-les-accuracy-2026-10-09`, cited in the LES
-  entries' limitations; the `cabot` channel run and the second `werner` window, cited in
-  those wall functions' entries; and four checks of the 2026-10-11 verification series
+  entries' limitations; the `cabot` channel run, cited in its entry, and the second `werner`
+  window, taken with the formulation before the stress boundary condition; and four checks of the 2026-10-11 verification series
   (`defense-t1-a6`, `-f4`, `-f4b`, `-v4`); and `iem-cell-reconstruction-2026-11-08`, the
   IEM cell-mean diffusion excess. One is the superseded `inconclusive` drift
   measurement. The other twenty-seven are `met` and verify behaviour no selector value
@@ -115,9 +115,10 @@ likely to matter:
   expression source of `prescribed_velocity` and has not been re-measured through it.
   The three `reference` records are all the wall-modelled Re_tau = 1000 channel against
   Lee & Moser (2015), judged against criteria fixed before the runs, on one grid:
-  `wmles-channel-retau1000-werner-2026-10-09` backs `werner` and the dynamic-Smagorinsky
-  path, `wmles-channel-retau1000-loglaw-2026-10-09` backs `log_law`, and
-  `wmles-channel-retau1000-simpson-2026-10-09` backs `simpson_ik`. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
+  `wmles-channel-retau1000-werner-2026-10-09` backs the dynamic-Smagorinsky path,
+  `wmles-channel-retau1000-simpson-2026-10-09` backs `simpson_ik`, and
+  `wmles-channel-retau1000-loglaw-2026-10-09` is cited on the `log_law` entry as the record
+  of the formulation before the stress boundary condition. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
   retains an 11.4% friction-Reynolds-number discrepancy and 29.3% excess skin friction;
   its `met` verdict concerns converged production execution, so it contributes a
   `production` facet rather than a `reference` facet. See @ref p55_channel_evidence_sub.
@@ -141,9 +142,12 @@ likely to matter:
   shows it equal to `cube_root_volume` on orthogonal cells, the only cells run.
   `simpson_ik` rests on `hom02-simpson-ik-2026-10-09` and the channel record below; both
   showed its former weighting under-dissipative, and its validation is of the corrected one.
-- **The wall functions rest on one channel.** `werner` and `log_law` are validated on the
-  wall-modelled Re_tau ~ 1000 channel (`wmles-channel-retau1000-werner-2026-10-09`,
-  `wmles-channel-retau1000-loglaw-2026-10-09`), and `werner` also runs a production bend.
+- **The wall functions have no reference evidence in their current form.** `werner` and
+  `log_law` were validated on the wall-modelled Re_tau ~ 1000 channel
+  (`wmles-channel-retau1000-werner-2026-10-09`, `wmles-channel-retau1000-loglaw-2026-10-09`),
+  and `werner` ran a production bend, while the model overwrote the first cell's velocity;
+  since 2026-11-12 it is a stress boundary condition, and both are experimental until those
+  comparisons are retaken.
   A second window of `werner` (`wmles-channel-retau1000-werner-window2-2026-10-09`, not met)
   put its friction velocity 3.2% high against the 3% bound, so its bias straddles the
   criterion. `cabot` failed the same channel (`wmles-channel-retau1000-cabot-2026-10-09`) and

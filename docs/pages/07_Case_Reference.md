@@ -1034,23 +1034,24 @@ A wall model on a laminar case is refused for the same reason from the other dir
 these laws describe a turbulent boundary layer, and below transition there is no inertial
 region for them to represent.
 
-Where the model's stress actually enters is worth stating, because it is not obvious. The
-correction sets the near-wall velocity, and the momentum equation reaches the wall through
-a viscosity times a velocity gradient - so the modelled stress arrives only if that
-viscosity is the one which reproduces it, `nu_eff = tau_w y / u`. Molecular viscosity
-alone delivers a fraction `u+/y+` of the stress, which at `y+ = 267` is about a
-fourteenth of it. The wall model therefore installs its own effective eddy viscosity at
-its wall face, in place of the subgrid value, which is zero there in a wall-resolved run.
-`nu_wall_over_nu_mean` in `<run.analysis.metrics>/wall_model.csv` reports it.
+**How the model acts.** Every model here is a stress boundary condition. On each wall-face
+element the law is evaluated from the resolved velocity of the reference cell - the second
+cell from the wall - relative to the wall, at that cell's wall distance, and gives the
+friction velocity `u_tau`. The wall face then carries the kinematic shear stress
+`u_tau^2`, directed against the reference cell's wall-parallel motion, in place of the
+gradient flux across the first cell; the wall stays impermeable. The resolved velocity is
+never modified, so the momentum equation, the subgrid closure, the dummy cells and every
+other boundary condition read the same near-wall field. A cell along an edge of the domain,
+beside two walls, has one element on each, with its own reference cell and stress. A rank
+must own at least three nodes normal to each wall it serves, so the reference cell is in its
+block; a layout that does not is refused at the first wall pass.
 
 @anchor p07_wall_restart
 
 **Across a restart.** A wall model keeps no history. Its friction velocity is written to
-every checkpoint as `Utau`, for scoring and post-processing; the wall-face viscosity is
-derived state and is not. On restart the first boundary pass recomputes both from the
-restored velocity, so a restarted run continues with the same law without any carried
-state. The Re_tau ~ 1000 channel record cited under @ref p07_cap_wall_werner "werner" is
-a restart of this kind, from a checkpoint of a run built with the previous relation.
+every checkpoint as `Utau`, for scoring and post-processing; the wall stress is derived
+state and is not. On restart the first boundary pass recomputes both from the restored
+velocity, so a restarted run continues with the same law without any carried state.
 
 @subsection p07_cap_wall_log_law_sub log_law
 
@@ -1060,8 +1061,11 @@ a restart of this kind, from a checkpoint of a run built with the previous relat
 spelling: `loglaw`. It is also the default when `wall_function.enabled` is true and no
 model is named.
 
-**What it does.** Applies a logarithmic law-of-the-wall boundary treatment instead of
-resolving the viscous sublayer.
+**What it does.** Imposes the wall stress of the law of the wall, `u+ = y+` in the viscous
+sublayer and `u+ = ln(E y+)/kappa` above it, with `kappa = 0.41` and `E = exp(kappa (B -
+dB))`, `B = 5.5` and `dB` the roughness shift. The two branches switch where they meet, near
+`y+ = 11.5` for a smooth wall, so the profile is continuous and each reference speed has a
+single friction velocity, found by Newton iteration kept on the positive root.
 
 **When to choose it.** When the near-wall grid is too coarse to resolve the sublayer and
 you accept a modelled wall stress rather than a computed one.
@@ -1070,47 +1074,43 @@ you accept a modelled wall stress rather than a computed one.
 
 **Interactions.** Configured independently of the LES closure - enabling a turbulence model
 does not imply a wall function, and vice versa. The wall handler itself remains
-@ref p44_cap_noslip "noslip"; the wall function changes how the stress is imposed, not the
-BC selection. A @ref p44_cap_free_slip "free_slip" wall exerts no stress, so the wall
-function is not applied there.
-
-The correction also reaches the LES closure. `Contra2Cart` rebuilds the Cartesian field
-from the contravariant one at the top of each timestep and so discards the previous
-solve's near-wall correction; the wall model is re-applied before the subgrid strain
-rates are formed, so the closure and the momentum equation agree about the near-wall
-velocity rather than disagreeing within one timestep.
+@ref p44_cap_noslip "noslip" (or a moving wall, whose velocity the law's relative velocity is
+taken against); the wall function changes how the stress is imposed, not the BC selection. A
+@ref p44_cap_free_slip "free_slip" wall exerts no stress, so the wall function is not
+applied there. The dynamic subgrid procedure leaves the first cells beside a modelled wall
+out of its averages (@ref 72_LES_Turbulence_Closure).
 
 **Diagnostics.** The startup banner reports whether wall functions are enabled and the
 configured roughness height. Every timestep appends one row to
 `<run.analysis.metrics>/wall_model.csv` - the wall-face mean, spread, minimum and maximum
-of the friction velocity, the mean and maximum first-cell y+, the mean wall distance,
-`nu_wall_over_nu_mean`, and the wall face and cell at which each maximum occurs - and logs the mean friction velocity and y+ to the console.
+of the friction velocity over the wall-face elements, the mean and maximum first-cell y+,
+the mean wall distance, `nu_wall_over_nu_mean`, and the wall face and cell at which each
+maximum occurs - and logs the mean friction velocity and y+ to the console.
 
 The same row is checked against the range the selected law supports: mean first-cell y+
 from 30 to 300 for `log_law`, at most 300 for `werner`, and at most 1000 for `cabot`.
 Each step outside it logs a warning, and ten consecutive steps outside it stop the run;
 a step back in range resets the count, so a startup transient survives where a
-mis-sized first cell does not.
+mis-sized first cell does not. A maximum y+ above the range is reported once, with its
+location, without stopping the run.
 
-**Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
-`make unit-boundaries`. `tests/c/test_runtime_kernels.c` covers the velocity laws and
-their friction-velocity root-finds, each checked to invert its own law;
-`tests/c/test_boundaries.c` covers the integration, checking that the corrected first
-interior velocity is the modelled profile at that cell's wall distance, for the friction
-velocity the integration itself stored. Externally validated -
-`wmles-channel-retau1000-loglaw-2026-10-09`: on the wall-modelled Re_tau ~ 1000 channel
-(`driven_channel/les_wallmodel_retau1000`, restarted from the werner run), u_tau over the
-statistics window is 0.3% below Lee & Moser (2015), the driving-force balance agrees to
-0.2%, U+ stays within 0.08 of the reference over y+ 100-500, and the outer-layer resolved
-Reynolds shear stress is 0.92-0.97 of it - every criterion the werner model was held to,
-with the widest margins of the three wall functions.
+**Evidence.** Unit verified - `make unit-runtime`, `make unit-boundaries`,
+`make unit-poisson-rhs`. `tests/c/test_runtime_kernels.c` covers the law and its root-find,
+checked to invert itself, to be continuous and increasing across the sublayer edge
+(`wall-law-branches-are-continuous`), and to stay positive on rough walls
+(`log-law-friction-velocity-stays-positive-on-rough-walls`). `tests/c/test_boundaries.c`
+checks that the integration stores a friction velocity that inverts the law at the
+reference cell's distance, stores `u_tau^2` along the flow in the face's dummy cell, leaves
+the resolved velocity untouched, and gives an edge cell one independent stress per wall;
+`tests/c/test_poisson_rhs.c` checks that the viscous operator applies that stress on the
+wall face. The Re_tau ~ 1000 channel record `wmles-channel-retau1000-loglaw-2026-10-09` was
+taken when the model acted by overwriting the first cell's velocity, so it does not
+describe this formulation; the reference comparison is owed again.
 
 **Limitations.** Validity depends on the first cell falling in the logarithmic region.
-Only the wall-face mean y+ is checked, so individual cells outside the region, near a
-corner or a separation for instance, pass unremarked while the mean stays in range. The
-validation is one smooth-wall channel on one grid; `roughness_height` is not exercised, and
-the run adapted for 200 time units from a werner-developed state rather than developing
-under this law from rest.
+Only the wall-face mean y+ stops a run; a local maximum outside the region is reported once
+but not stopped. Above `y+ = 300` the law is extrapolated for the friction velocity.
+`roughness_height` has no reference-flow evidence.
 
 @subsection p07_cap_wall_werner_sub werner
 
@@ -1119,13 +1119,12 @@ under this law from rest.
 **Identity.** `turbulence.wall_function.model: werner` -> `-wallfunction 2`. Accepted
 spelling: `werner_wengle`.
 
-**What it does.** Applies the Werner-Wengle power-law wall model. The two-layer profile
-- linear below `y+ = 11.81`, `u+ = 8.3 (y+)^(1/7)` above - is evaluated pointwise. The
-wall stress comes from inverting it at the reference point, the centre of the second cell
-from the wall, where the resolved speed is a point value; the boundary cell's speed comes
-from the same profile at its own centre. Both directions are closed form, with no
-root-find in either region, and because one monotone profile is used both ways a cell
-nearer the wall is always assigned the slower speed.
+**What it does.** Imposes the wall stress of the Werner-Wengle power-law profile: linear
+below the sublayer edge, `u+ = 8.3 (y+)^(1/7)` above it, the edge being where the two meet,
+`8.3^(7/6) = 11.8148` (the commonly quoted 11.81 rounded). The stress comes from inverting
+the profile at the reference point, the centre of the second cell from the wall, where the
+resolved speed is a point value; the inverse is closed form in both branches, with no
+root-find.
 
 **When to choose it.** When the first cell may fall inside or near the viscous sublayer,
 where a pure log law has no valid branch. Its explicit form also avoids the inner
@@ -1141,27 +1140,21 @@ this model.
 **Diagnostics.** As for @ref p07_cap_wall_log_law "log_law"; the banner reports the
 selected model by name.
 
-**Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
-`make unit-boundaries`. In `tests/c/test_runtime_kernels.c`, `find_utau_Werner` inverts `u_Werner` exactly at y+ from 2 to 500, across the switch, and
-the wall function given a reference speed taken from the profile returns that profile's
-friction velocity and places the boundary cell on it. The integration that dispatches to
-it is covered in `tests/c/test_boundaries.c`. Externally validated - `wmles-channel-retau1000-werner-2026-10-09`: the
-cell-integrated relation it replaced read the point reference speed as a first-cell
-average and put u_tau 14.5% above Lee & Moser (2015) on the wall-modelled Re_tau ~ 1000
-channel (`driven_channel/les_wallmodel_retau1000`); rerun with the pointwise relation,
-u_tau over the statistics window is 2.9% above, and the outer-layer resolved Reynolds
-shear stress falls from 1.27 to 0.91-1.02 of the reference. Production exercised -
-`humphrey-turbulent-bend-wmles-2026-10-09`: a turbulent 90-degree duct bend at Re_D = 40,000, where the low-shear inner wall
-takes individual cells into the linear branch while the run continues.
+**Evidence.** Unit verified - `make unit-runtime`, `make unit-boundaries`,
+`make unit-poisson-rhs`. In `tests/c/test_runtime_kernels.c`, `find_utau_Werner` inverts
+`u_Werner` exactly at y+ from 2 to 500, across the switch, and the profile is continuous and
+increasing there (`wall-law-branches-are-continuous`). The integration and the wall-face
+stress are covered as for @ref p07_cap_wall_log_law "log_law", in `tests/c/test_boundaries.c`
+and `tests/c/test_poisson_rhs.c`. The Re_tau ~ 1000 channel
+record `wmles-channel-retau1000-werner-2026-10-09` and the duct-bend record
+`humphrey-turbulent-bend-wmles-2026-10-09` were taken when the model acted by overwriting
+the first cell's velocity, so they do not describe this formulation; both comparisons are
+owed again.
 
 **Limitations.** No roughness. The power-law constants are fixed, and the model carries
 no pressure-gradient term, so it describes an equilibrium layer only; no implemented
-model handles a non-equilibrium layer correctly (see `cabot`). The validation is one grid of
-one channel, and its friction velocity is biased about +3%: a later window of the same
-flow, `wmles-channel-retau1000-werner-window2-2026-10-09`, gave +3.2% and so missed the 3%
-criterion by 0.2 points while passing every other one. The driving force, now logged,
-agrees with the wall model's stress to 0.2%, so the 2% gap an outer-layer stress fit once
-suggested came from that fit's single-snapshot subgrid estimate, not from the model.
+model handles a non-equilibrium layer correctly (see `cabot`). No reference-flow evidence
+for the current formulation yet.
 
 
 @subsection p07_cap_wall_cabot_sub cabot
@@ -1203,9 +1196,12 @@ channel from a state werner held at u_tau 0.0514, it gave 0.039 from the first s
 **Limitations.** Not usable as implemented. The pressure-gradient term integrates the
 instantaneous resolved gradient across the layer up to the reference cell, without the
 convective terms that balance it in the full boundary-layer equations; on the channel it
-was +-38% of the reference velocity, gave a negative stress in a third of wall cells, and
-the friction-velocity solve takes the magnitude of that stress. Evaluated offline on the
-same state, the relation without its pressure term gives -2.6%. No roughness formulation,
+was +-38% of the reference velocity and gave a negative stress in a third of wall cells.
+That sign is now kept - the stress then acts along the reference flow - but the term itself
+is unchanged, and under a moderate adverse gradient the friction-velocity iteration loses
+its upper root and falls to a small one. Evaluated offline on the same channel state, the
+relation without its pressure term gives -2.6%. The wall-layer integrals use a mapped
+Simpson rule, clustered toward the wall, accurate to 0.2% up to y+ = 1000. No roughness formulation,
 so `roughness_height` is rejected rather than accepted and ignored. The mixing-length
 constant is fixed.
 

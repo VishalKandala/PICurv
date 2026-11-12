@@ -188,19 +188,17 @@ cell, and nothing damps it toward the wall. `wale` falls toward a wall by constr
 see @ref p72_coefficient_free_ssec.
 
 A wall function is configured separately at
-@ref p07_cap_wall_log_law "turbulence.wall_function", and it does reach this closure.
-`Contra2Cart` rebuilds the Cartesian field from the contravariant one at the top of each
-timestep, discarding the previous solve's near-wall correction, so the wall model is
-re-applied before the strain rates are formed. Without that the eddy viscosity would be
-built from the uncorrected near-wall field while the momentum equation used the corrected
-one, and on the coarse grids that motivate a wall model the uncorrected strain is
-under-predicted.
+@ref p07_cap_wall_log_law "turbulence.wall_function". It acts only through the stress on
+the wall face and leaves the resolved velocity as it is, so the strain rates, and the eddy
+viscosity built from them, come from the same near-wall field the momentum equation
+advances. On a wall-modelled face the subgrid flux is not used at all: the face carries the
+modelled stress in its place.
 
-The correction is an imposed analytic profile, so the Germano identity evaluated at the
-cell it overwrites would measure that profile rather than resolved turbulence. Those
-cells are therefore excluded from both contraction sums whenever a wall model is active.
-The exclusion is not a preference: the data there is not a measurement, and averaging it
-in biases whatever set it belongs to. Which set depends on the mode - the whole domain
+The first cell beside a modelled wall sits inside the wall layer the grid does not resolve,
+and its wall flux comes from the model, so the Germano identity evaluated there measures an
+under-resolved layer rather than the inertial-range motions the procedure assumes. Those
+cells are therefore excluded from both contraction sums whenever a wall model is active;
+averaging them in biases whatever set they belong to. Which set depends on the mode - the whole domain
 under `global`, the wall plane under `homogeneous` retaining the wall-normal direction,
 and that cell alone under `local` - so no mode escapes it. A cell left with no data takes
 a zero coefficient, which is the right answer where the wall model is already supplying

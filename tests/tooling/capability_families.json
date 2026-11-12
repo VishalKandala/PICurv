@@ -944,17 +944,16 @@
       "coverage_enforced": true,
       "value_metadata": {
         "log_law": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-runtime",
               "file:tests/c/test_runtime_kernels.c",
               "make:unit-boundaries",
-              "file:tests/c/test_boundaries.c"
-            ],
-            "reference": [
-              "measurement:wmles-channel-retau1000-loglaw-2026-10-09"
+              "file:tests/c/test_boundaries.c",
+              "make:unit-poisson-rhs",
+              "file:tests/c/test_poisson_rhs.c"
             ]
           }
         },
@@ -963,20 +962,16 @@
           "spelling_of": "log_law"
         },
         "werner": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-runtime",
               "file:tests/c/test_runtime_kernels.c",
               "make:unit-boundaries",
-              "file:tests/c/test_boundaries.c"
-            ],
-            "reference": [
-              "measurement:wmles-channel-retau1000-werner-2026-10-09"
-            ],
-            "production": [
-              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+              "file:tests/c/test_boundaries.c",
+              "make:unit-poisson-rhs",
+              "file:tests/c/test_poisson_rhs.c"
             ]
           }
         },

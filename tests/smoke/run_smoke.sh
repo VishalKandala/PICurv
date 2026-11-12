@@ -1935,6 +1935,81 @@ PY
   done
 }
 
+# A wall-modelled duct: four walls meeting at edges, a prescribed inlet and the conservation
+# outlet, the combination whose outlet corners ran away while the wall model overwrote the
+# first cell. Ghost-update verification runs throughout. The run must finish with a positive,
+# finite friction velocity and every per-step boundary record written; the stress-boundary
+# integration is checked against the law in the C unit suites, so this checks the wiring
+# through a real solve. A second run with one pseudo-iteration per step and the unconverged
+# limit at 2 must stop with that limit's message rather than run on.
+prepare_wall_model_case() {
+  local case_dir="$1" variant="$2"
+  python3 - "${case_dir}" "${variant}" <<'PY'
+import sys
+import yaml
+case_dir, variant = sys.argv[1], sys.argv[2]
+paths = {name: f"{case_dir}/config/{name}.yml" for name in ("case", "solver", "monitor")}
+case, solver, monitor = (yaml.safe_load(open(paths[name], encoding="utf-8")) for name in ("case", "solver", "monitor"))
+case["run_control"].update({"start_step": 0, "total_steps": 4, "dt_physical": 0.01})
+case["grid"]["programmatic_settings"].update({"im": 10, "jm": 10, "km": 24})
+case["properties"]["fluid"].update({"density": 1.0, "viscosity": 2.5e-5})   # Re = 40000
+case["models"]["physics"]["particles"] = {}
+case["models"]["physics"]["turbulence"] = {
+    "les": {"enabled": True, "model": "constant_smagorinsky", "constant_cs": 0.1},
+    "wall_function": {"enabled": True, "model": "werner"}}
+solver.setdefault("tolerances", {})["max_consecutive_unconverged_steps"] = 2 if variant == "stop" else 10
+if variant == "stop":
+    solver["tolerances"].update({"max_iterations": 1, "relative_tol": 1e-14,
+                                 "residual_absolute_tol": 1e-14, "residual_relative_tol": 1e-14})
+solver.setdefault("petsc_passthrough_options", {})["-picurv_verify_ghost_updates"] = True
+monitor.setdefault("io", {})["data_output_frequency"] = 100
+for name, cfg in zip(("case", "solver", "monitor"), (case, solver, monitor)):
+    yaml.safe_dump(cfg, open(paths[name], "w", encoding="utf-8"), sort_keys=False)
+PY
+}
+
+run_wall_model_smoke() {
+  local case_dir="${tmp_root}/wall-model-duct"
+  local stop_dir="${tmp_root}/wall-model-stop"
+  local stop_log="${tmp_root}/wall-model-stop.log"
+  "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+  prepare_wall_model_case "${case_dir}" run
+  run_case_workflow "${case_dir}" "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" "wall_model_duct"
+  python3 - "${LAST_RUN_DIR}" <<'PY' || die "wall-modelled duct records are missing or wrong"
+import csv, glob, math, sys
+run = sys.argv[1]
+def rows(name):
+    path = glob.glob(f"{run}/output/analysis/metrics/{name}")[0]
+    with open(path, encoding="utf-8") as handle:
+        return list(csv.DictReader(line for line in handle if not line.startswith("#")))
+wall = rows("wall_model.csv")
+assert len(wall) == 4, f"wall_model.csv has {len(wall)} rows, expected 4"
+for row in wall:
+    u_tau = float(row["u_tau_mean"])
+    assert math.isfinite(u_tau) and u_tau > 0.0, row
+    assert row["u_tau_max_face"] and int(row["u_tau_max_k"]) >= 1, row
+pressure = rows("boundary_pressure.csv")
+assert {row["type"] for row in pressure} == {"INLET", "OUTLET"} and len(pressure) == 8, pressure
+inlet = rows("inlet_flow.csv")
+for row in inlet:   # no fluctuations: the applied flux is the mean profile's
+    assert abs(float(row["applied_flow_rate"]) - float(row["flow_rate"])) <= 1e-12 * abs(float(row["flow_rate"])), row
+    assert float(row["fluctuation_flow_rate"]) == 0.0, row
+control = open(glob.glob(f"{run}/config/*.control")[0], encoding="utf-8").read()
+assert "-mom_max_unconverged_steps 10" in control, "the unconverged limit did not reach the control file"
+print(f"wall-modelled duct: u_tau_mean {float(wall[-1]['u_tau_mean']):.4e}, {len(pressure)} pressure rows")
+PY
+
+  "${picurv_exe}" init flat_channel --dest "${stop_dir}" >/dev/null
+  prepare_wall_model_case "${stop_dir}" stop
+  if (cd "${stop_dir}" && "${picurv_exe}" run --solve -n "${nprocs}" --case config/case.yml \
+        --solver config/solver.yml --monitor config/monitor.yml >"${stop_log}" 2>&1); then
+    die "a run whose every step is unconverged must stop at max_consecutive_unconverged_steps"
+  fi
+  grep -rq "consecutive unconverged steps" "${stop_dir}/runs" "${stop_log}" \
+    || die "the unconverged-step stop did not report its limit"
+}
+
 # A Brownian increment is keyed on (seed, particle ID, step), so a run split by a
 # load-mode restart, or run on another rank count, must draw what the uninterrupted
 # run drew. Zero flow leaves the increments as the only motion, so positions must
@@ -3397,6 +3472,9 @@ run_units_equivalence_smoke
 
 echo "==> PICurv smoke: Brownian increments survive a restart and a rank change"
 run_brownian_continuation_smoke
+
+echo "==> PICurv smoke: wall-modelled duct, boundary records and the unconverged-step stop"
+run_wall_model_smoke
 
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"

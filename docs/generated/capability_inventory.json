@@ -500,21 +500,21 @@
       },
       "log_law": {
         "maps_to": 1,
-        "status": "supported"
+        "status": "experimental"
       },
       "loglaw": {
         "maps_to": 1,
         "spelling_of": "log_law",
-        "status": "supported"
+        "status": "experimental"
       },
       "werner": {
         "maps_to": 2,
-        "status": "supported"
+        "status": "experimental"
       },
       "werner_wengle": {
         "maps_to": 2,
         "spelling_of": "werner",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.wall_function.model",

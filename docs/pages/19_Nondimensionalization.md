@@ -43,7 +43,7 @@ same triples, so input and output conversion share one vocabulary:
 | `VOLUME_FLUX` | (2, 1, 0) | `U L^2` | `Ucont`, `target_flux` |
 | `DIFFUSIVITY` | (1, 1, 0) | `U L` | `Nu_t`, `Diffusivity` |
 | `PRESSURE` | (0, 2, 1) | `rho U^2` | `P`, `Phi` |
-| `VELOCITY_SQUARED` | (0, 2, 0) | `U^2` | an inlet's `reynolds_stress` |
+| `VELOCITY_SQUARED` | (0, 2, 0) | `U^2` | an inlet's `reynolds_stress`, the wall model's `WallStress` |
 | `INVERSE_TIME_SQUARED` | (-2, 2, 0) | `U^2/L^2` | Q-criterion |
 | `DIMENSIONLESS` | (0, 0, 0) | 1 | `Psi`, `CS`, `Nvert`, model constants |
 
@@ -181,7 +181,6 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `KEta` | Eulerian | `AREA` | L^2 |
 | `KZet` | Eulerian | `AREA` | L^2 |
 | `Nu_t` | Eulerian | `DIFFUSIVITY` | U L |
-| `NuWall` | Eulerian | `DIFFUSIVITY` | U L |
 | `Nvert` | Eulerian | `DIMENSIONLESS` | 1 |
 | `Nvert_o` | Eulerian | `DIMENSIONLESS` | 1 |
 | `P` | Eulerian | `PRESSURE` | rho U^2 |
@@ -203,6 +202,7 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `Ucont_o` | Eulerian | `VOLUME_FLUX` | U L^2 |
 | `Ucont_rm1` | Eulerian | `VOLUME_FLUX` | U L^2 |
 | `Utau` | Eulerian | `VELOCITY` | U |
+| `WallStress` | Eulerian | `VELOCITY_SQUARED` | U^2 |
 | `Zet` | Eulerian | `AREA` | L^2 |
 | `Diffusivity` | particle | `DIFFUSIVITY` | U L |
 | `DiffusivityGradient` | particle | `VELOCITY` | U |

@@ -216,6 +216,65 @@ static PetscErrorCode TestViscousUniformField(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that a wall-modelled face carries the stored wall stress and no gradient flux.
+ *
+ * The wall model acts only through this face, so the check is the one that matters: with a
+ * resolved velocity whose gradient flux would vanish everywhere, the first cell's viscous term
+ * must be exactly minus the stored stress times the face area, and it must vanish again once
+ * the wall model is off, when the face reverts to its gradient flux.
+ */
+static PetscErrorCode TestViscousWallModelledFaceCarriesTheStoredStress(void)
+{
+    SimCtx   *simCtx = NULL;
+    UserCtx  *user = NULL;
+    Vec       visc = NULL;
+    Cmpnts ***stress = NULL, ***v = NULL;
+    const PetscReal tau = 0.37;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(VecDuplicate(user->lUcont, &visc));
+    PetscCall(VecSet(user->Ucat, 1.0));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_WALL_NOSLIP;
+
+    PetscCall(DMCreateGlobalVector(user->fda, &user->Wall_Stress));
+    PetscCall(DMCreateLocalVector(user->fda, &user->lWall_Stress));
+    PetscCall(VecSet(user->Wall_Stress, 0.0));
+    PetscCall(DMDAVecGetArray(user->fda, user->Wall_Stress, &stress));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+    for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+        if (user->info.xs == 0) stress[k][j][0].y = tau;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Wall_Stress, &stress));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Wall_Stress, INSERT_VALUES, user->lWall_Stress));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Wall_Stress, INSERT_VALUES, user->lWall_Stress));
+
+    simCtx->wallfunction = WALL_FUNCTION_WERNER;
+    PetscCall(ComputeViscous(user, user->lUcat, visc));
+    PetscCall(DMDAVecGetArrayRead(user->fda, visc, &v));
+    PetscCall(PicurvAssertRealNear(-tau, v[2][2][1].y, 1.0e-12,
+                                   "the first cell must receive minus the stored stress times the unit face area"));
+    PetscCall(PicurvAssertRealNear(0.0, v[2][2][2].y, 1.0e-12,
+                                   "a cell away from the wall must not see the wall stress"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, visc, &v));
+
+    simCtx->wallfunction = 0;
+    PetscCall(ComputeViscous(user, user->lUcat, visc));
+    PetscCall(DMDAVecGetArrayRead(user->fda, visc, &v));
+    PetscCall(PicurvAssertRealNear(0.0, v[2][2][1].y, 1.0e-12,
+                                   "without a wall model the face must carry its gradient flux, zero here"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, visc, &v));
+
+    PetscCall(VecDestroy(&user->lWall_Stress));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&visc));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Rescales the minimal fixture's unit metrics to cubic cells of edge h.
  */
 static PetscErrorCode ScaleMinimalMetricsToSpacing(UserCtx *user, PetscReal h)
@@ -1012,6 +1071,7 @@ int main(int argc, char **argv)
         {"viscous-uniform-field", TestViscousUniformField},
         {"clark-gradient-model-scales-with-filter-width-squared", TestClarkGradientModelScalesWithFilterWidthSquared},
         {"compute-rhs-zero-field-no-forcing", TestComputeRHSZeroFieldNoForcing},
+        {"viscous-wall-modelled-face-carries-the-stored-stress", TestViscousWallModelledFaceCarriesTheStoredStress},
         {"compute-eulerian-diffusivity-gradient-constant-field", TestComputeEulerianDiffusivityGradientConstantField},
         {"compute-eulerian-diffusivity-verification-linear-x", TestComputeEulerianDiffusivityVerificationLinearX},
         {"diffusivity-gradient-fills-periodic-dummy-cells", TestDiffusivityGradientFillsPeriodicDummyCells},

@@ -2242,10 +2242,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = VecSet(user->Friction_Velocity, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lFriction_Velocity); CHKERRQ(ierr);
                 ierr = VecSet(user->lFriction_Velocity, 0.0); CHKERRQ(ierr);
-                ierr = DMCreateGlobalVector(user->da, &user->Nu_Wall); CHKERRQ(ierr);
-                ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
-                ierr = DMCreateLocalVector(user->da, &user->lNu_Wall); CHKERRQ(ierr);
-                ierr = VecSet(user->lNu_Wall, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateGlobalVector(user->fda, &user->Wall_Stress); CHKERRQ(ierr);
+                ierr = VecSet(user->Wall_Stress, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->fda, &user->lWall_Stress); CHKERRQ(ierr);
+                ierr = VecSet(user->lWall_Stress, 0.0); CHKERRQ(ierr);
             }
             /* Inlet fluctuation filter state: its inlets write and read the global vector; the
                local one exists because every catalogued field has both. */
@@ -3979,8 +3979,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
     if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
     if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
-    if (user->Nu_Wall) { ierr = VecDestroy(&user->Nu_Wall); CHKERRQ(ierr); }
-    if (user->lNu_Wall) { ierr = VecDestroy(&user->lNu_Wall); CHKERRQ(ierr); }
+    if (user->Wall_Stress) { ierr = VecDestroy(&user->Wall_Stress); CHKERRQ(ierr); }
+    if (user->lWall_Stress) { ierr = VecDestroy(&user->lWall_Stress); CHKERRQ(ierr); }
     if (user->InflowFluctuation) { ierr = VecDestroy(&user->InflowFluctuation); CHKERRQ(ierr); }
     if (user->lInflowFluctuation) { ierr = VecDestroy(&user->lInflowFluctuation); CHKERRQ(ierr); }
     if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }

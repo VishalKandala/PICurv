@@ -1187,10 +1187,10 @@ typedef struct UserCtx {
        it alongside the global Ucat it corrects - and the local view is its ghosted
        image, refreshed through the field catalog like every other cell field. */
     Vec       Friction_Velocity, lFriction_Velocity;
-    /* Eddy viscosity the wall model needs at its wall face for the discrete viscous
-       flux to deliver the stress the model computed. Derived, rebuilt by every wall
-       pass, and never restored from a checkpoint. */
-    Vec       Nu_Wall, lNu_Wall;
+    /* Kinematic wall shear stress per wall-face element, in that face's dummy cell, oriented
+       as the face's viscous flux per unit area. Derived, rebuilt by every wall pass, and
+       never restored from a checkpoint. */
+    Vec       Wall_Stress, lWall_Stress;
     Vec       InflowFluctuation, lInflowFluctuation; ///< Inlet fluctuation filter state in the inlet faces' dummy planes.
 
     // --- Primary Flow Fields (Global & Local Views) ---
@@ -1260,6 +1260,7 @@ typedef struct UserCtx {
   LESDiagnosticsState les_diagnostics; ///< Pre-clipping statistics from the last dynamic update.
   WallModelDiagnosticsState wall_diagnostics; ///< Near-wall statistics from the last wall-model pass.
   PetscInt wall_yplus_excursions; ///< Consecutive diagnostic samples with the first cell outside the selected law's valid y+ range.
+  PetscBool wall_yplus_max_reported; ///< The local y+ maximum has already been reported above the law's range.
 
   // --- Immersed Boundary Method (IBM) ---
   IBMNodes *ibm; IBMList *ibmlist;

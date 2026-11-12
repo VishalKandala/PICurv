@@ -405,12 +405,13 @@ through the three diagonal entries, so a row carries only the viscosity of its o
 axis, and the two coordinates that trigger the branch are exactly the ones
 `ClassifyMomentumRow()` classifies as boundary-pinned - those rows take an identity
 stamp and never assemble a block at all. Both rules restate one boundary fact: the
-wall-normal flux at a no-slip wall is not an unknown. It does not match the residual
-because `ComputeViscous()` substitutes the wall-model eddy viscosity `lnu_wall` there and
-falls back to zero only when no wall model is active. Widening the stencil breaks the
-first of those and exposes the second, because an interior row would then need the
-eddy viscosity on the wall face to build its off-diagonal. Issue #8 tracks fixing it
-before any preconditioner with a wider stencil. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
+wall-normal flux at a no-slip wall is not an unknown. On a wall-resolved face it matches
+the residual, which also uses no eddy viscosity there. On a wall-modelled face the residual
+applies the wall model's stress instead of any gradient flux, and that stress depends on the
+second cell from the wall through the law rather than on the cells either side of the face.
+Widening the stencil makes the branch reachable, and an interior row would then need the
+law's derivative with respect to that reference velocity in place of a viscosity. Issue #8
+tracks this before any preconditioner with a wider stencil. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
 respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark)
 stress, boundary-map derivatives, and body-force derivatives. The eddy viscosity
 and the Clark stress are omitted for different reasons, and only one of them was a

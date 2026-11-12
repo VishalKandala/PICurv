@@ -102,14 +102,17 @@ occupied states (@ref p58_update_sub).
 
 The registered aliases are retained because current diagnostic and boundary
 surfaces use them: `Eddy Viscosity` for `Nu_t`, `Cs` for `CS`,
-`Friction Velocity` for `Utau`, `Wall Eddy Viscosity` for `NuWall`,
+`Friction Velocity` for `Utau`, `Wall Shear Stress` for `WallStress`,
 `Center-Coordinates` for `Cent`, and the `X/Y/Z-Face-Centers` names for
 `Centx/Centy/Centz`. Aliases do not create additional field identities.
 
-`Utau` and `NuWall` exist only while a wall model is active, and neither is restored on
-restart: the first boundary pass of a restarted run recomputes both from the restored
-velocity field. `Utau` is written to checkpoints so postprocessing can read it; `NuWall`
-is not written at all, being rebuilt by every wall pass within a step.
+`Utau` and `WallStress` exist only while a wall model is active, and neither is restored
+on restart: the first boundary pass of a restarted run recomputes both from the restored
+velocity field. `Utau` is written to checkpoints so postprocessing can read it; it holds, at
+each first cell beside a wall, the RMS of the friction velocity over that cell's wall faces.
+`WallStress` is not written at all, being rebuilt by every wall pass within a step; it is a
+vector per wall-face element, kept in the dummy cell of that element's face, so the two faces
+of an edge cell never share a slot.
 
 `InflowFluctuation` exists only when an inlet has `fluctuations` (`-inflow_fluctuations`). It holds
 each such inlet's digital-filter state in the inlet's dummy plane and is written to checkpoints and
@@ -175,7 +178,7 @@ string comparison remains in the periodic field dispatcher.
 The catalog groups fields by layout as follows:
 
 - node-centered: `Coordinates`, `CellScalarAtCorner`, and `CellVectorAtCorner`;
-- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `InflowFluctuation`, `Diffusivity`,
+- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `WallStress`, `InflowFluctuation`, `Diffusivity`,
   `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `Phi`, `Psi`,
   `Nvert_o`, `ParticleCount`, `PostScalar`,
   `PostVector`, `Qcrit`, `SearchCellSize`, `DualPlaneNormalI`, `DualPlaneNormalJ`,

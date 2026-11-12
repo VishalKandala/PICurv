@@ -193,13 +193,20 @@ More detail on every setting at **@subpage 07_Case_Reference**, and the reasonin
 
 Read `<run.analysis.metrics>/wall_model.csv` first: one row per step with the wall-face
 mean, spread and extremes of the friction velocity, the mean and maximum first-cell
-`y+`, and `nu_wall_over_nu_mean`.
+`y+`, `nu_wall_over_nu_mean`, and the wall face and cell where each maximum sits.
 
 **The run stopped with "first-cell y+ has been outside ...".** The runtime checks the
 wall-face mean `y+` every step against the selected law's range (`log_law` 30-300,
 `werner` up to 300, `cabot` up to 1000) and stops after ten consecutive steps outside it.
 A `log_law` run started from a plug or laminar field often sits below 30 at first;
 `werner` has a linear branch and no lower bound. Otherwise resize the first cell.
+
+**`u_tau_max` grows while `u_tau_mean` stays flat.** The excursion is local, and the
+`u_tau_max_face`, `_i`, `_j`, `_k` columns place it without writing a field. The law reads
+the second cell from the wall, so a growing maximum means the resolved velocity there is
+growing; look for the cause in the flow at that site - an outlet, a separation, a corner
+vortex - rather than in the law. A maximum `y+` above the law's range is also reported once
+in the log, with its location.
 
 **`u_tau_mean` collapses toward zero within a few steps**, with `nu_wall_over_nu_mean`
 falling to zero beside it. The flow has stopped, and the wall model is reporting it
@@ -208,13 +215,12 @@ delivers flux: the inlet's `flux_in` in `Continuity_Metrics.csv` should match it
 velocity times the face area. A `cartesian` source's velocity is applied as given, so a
 velocity tangent to the face delivers none; a `normal` source is the speed into the domain.
 
-**`u_tau` disagrees with the stress the flow carries.** In a stationary channel the
-viscous, resolved and subgrid shear together must fall linearly from the wall stress. A
-wall model whose `u_tau^2` sits well above that line is delivering more stress than the
-law it reports, and the excess appears as Reynolds shear stress in the outer layer; that
-was the signature of the cell-integral Werner relation corrected on 2026-10-08
-(`wmles-channel-retau1000-werner-2026-10-09`). On the corrected channel the two agree to
-about 2%.
+**`u_tau` disagrees with the stress the flow carries.** The wall face carries exactly the
+`u_tau^2` the law returns, so in a stationary driven channel or duct the mean `u_tau^2`
+must balance the driving force in `driven_flow.csv` (`u_tau^2 / h` per unit mass in a
+channel of half-height `h`). A persistent gap means the run is not yet stationary, or the
+statistics window is too short; the viscous, resolved and subgrid shear together must also
+fall linearly from the wall stress.
 
 @section p67_related_sec 11. Related Documentation
 

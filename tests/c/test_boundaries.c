@@ -1660,23 +1660,23 @@ static PetscErrorCode SeedWallFrictionVelocityStorage(UserCtx *user)
     PetscCall(VecSet(user->Friction_Velocity, 0.0));
     PetscCall(DMCreateLocalVector(user->da, &user->lFriction_Velocity));
     PetscCall(VecSet(user->lFriction_Velocity, 0.0));
-    PetscCall(DMCreateGlobalVector(user->da, &user->Nu_Wall));
-    PetscCall(VecSet(user->Nu_Wall, 0.0));
-    PetscCall(DMCreateLocalVector(user->da, &user->lNu_Wall));
-    PetscCall(VecSet(user->lNu_Wall, 0.0));
+    PetscCall(DMCreateGlobalVector(user->fda, &user->Wall_Stress));
+    PetscCall(VecSet(user->Wall_Stress, 0.0));
+    PetscCall(DMCreateLocalVector(user->fda, &user->lWall_Stress));
+    PetscCall(VecSet(user->lWall_Stress, 0.0));
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Seeds the fields ApplyWallFunction() reads on a single wall face.
+ * @brief Seeds the fields ApplyWallFunction() reads, for walls on xi and eta faces.
  *
- * A uniform tangential velocity and unit metrics make the wall distances and the
- * face normal analytically known, so the test can reproduce the model's own
+ * A uniform velocity and unit metrics on both wall orientations make the wall distances
+ * and face normals analytically known, so the test can reproduce the model's own
  * arithmetic without copying the integration's index choices.
  */
-static PetscErrorCode SeedWallFunctionFixture(UserCtx *user, PetscReal tangential_speed)
+static PetscErrorCode SeedWallFunctionFixture(UserCtx *user, Cmpnts velocity)
 {
-    Cmpnts ***ucat = NULL, ***csi = NULL;
+    Cmpnts ***ucat = NULL, ***csi = NULL, ***eta = NULL;
     PetscReal ***aj = NULL;
     DMDALocalInfo info = user->info;
 
@@ -1684,22 +1684,26 @@ static PetscErrorCode SeedWallFunctionFixture(UserCtx *user, PetscReal tangentia
     PetscCall(VecSet(user->Aj, 1.0));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
     PetscCall(DMDAVecGetArray(user->fda, user->Csi, &csi));
+    PetscCall(DMDAVecGetArray(user->fda, user->Eta, &eta));
     PetscCall(DMDAVecGetArray(user->da, user->Aj, &aj));
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
-                /* Flow along eta, so the whole velocity is tangential to a xi wall. */
-                ucat[k][j][i] = (Cmpnts){.x = 0.0, .y = tangential_speed, .z = 0.0};
+                ucat[k][j][i] = velocity;
                 csi[k][j][i] = (Cmpnts){.x = 1.0, .y = 0.0, .z = 0.0};
+                eta[k][j][i] = (Cmpnts){.x = 0.0, .y = 1.0, .z = 0.0};
                 aj[k][j][i] = 1.0;
             }
     PetscCall(DMDAVecRestoreArray(user->da, user->Aj, &aj));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Eta, &eta));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Csi, &csi));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Eta, INSERT_VALUES, user->lEta));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Eta, INSERT_VALUES, user->lEta));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1709,10 +1713,10 @@ static PetscErrorCode SeedWallFunctionFixture(UserCtx *user, PetscReal tangentia
  * The kernels are covered separately; what is unverified without this is the wiring
  * around them, where the plausible failures are silent. Feeding the reference and
  * boundary wall distances in the wrong order, taking the reference velocity from the
- * wrong cell, or normalising the face normal incorrectly all still produce a
- * plausible-looking corrected velocity. The check here is that the corrected
- * first-interior velocity is exactly what the log-law model predicts at that cell's
- * distance, for the friction velocity the integration itself stored.
+ * wrong cell, or orienting the stress wrongly all still produce a plausible-looking
+ * stress. The checks here: the stored friction velocity inverts the log law at the
+ * reference cell's distance; the stored stress is u_tau^2 along the flow, in the face's
+ * dummy cell; and the resolved velocity is left exactly as it was.
  */
 static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
 {
@@ -1723,7 +1727,8 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
     const PetscReal speed = 1.0;
     const PetscReal roughness = 1.0e-16;   /* smooth wall */
     PetscReal    kinematic_viscosity, distance_first, distance_second;
-    PetscReal    stored_utau, corrected_speed, expected_speed, reference_check;
+    PetscReal    stored_utau, reference_check, first_speed, stored_stress;
+    Cmpnts    ***stress = NULL;
     PetscReal    untouched_before = 0.0, untouched_after = 0.0;
 
     PetscFunctionBeginUser;
@@ -1734,7 +1739,7 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
 
     PetscCall(SeedWallFrictionVelocityStorage(user));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
-    PetscCall(SeedWallFunctionFixture(user, speed));
+    PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = speed, .z = 0.0}));
 
     /* With unit Jacobians and a unit face area the model's distances are exact:
        the first cell centre sits half a cell from the wall, the second one and a
@@ -1755,7 +1760,7 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
     PetscCall(PicurvAssertRealNear(untouched_before, untouched_after, 0.0,
                                    "a disabled wall function must leave the velocity untouched"));
 
-    /* Enabled: the first interior cell is corrected onto the modelled profile. */
+    /* Enabled: the law is evaluated and its stress stored; the velocity is not modified. */
     simCtx->wallfunction = 1;
     PetscCall(ApplyWallFunction(user));
 
@@ -1775,17 +1780,21 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
                                    "reference cell's distance"));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
-    corrected_speed = ucat[2][2][1].y;
+    first_speed = ucat[2][2][1].y;
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    PetscCall(PicurvAssertRealNear(speed, first_speed, 0.0,
+                                   "the wall model must leave the resolved first-cell velocity untouched"));
 
-    expected_speed = u_hydset_roughness(kinematic_viscosity, distance_first,
-                                        stored_utau, roughness);
-    PetscCall(PicurvAssertRealNear(expected_speed, corrected_speed, 1.0e-9,
-                                   "the corrected velocity must be the modelled profile at "
-                                   "the first interior cell's distance"));
-    PetscCall(PicurvAssertBool((PetscBool)(corrected_speed < speed),
-                               "a log-law wall correction must slow the first interior cell "
-                               "relative to the reference cell"));
+    /* The -Xi face's dummy cell holds the stress, oriented as that face's flux: +u_tau^2
+       along the flow (the first cell's term is minus it, a drag). */
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Wall_Stress, (const Cmpnts ***)&stress));
+    stored_stress = stress[2][2][0].y;
+    PetscCall(PicurvAssertRealNear(0.0, stress[2][2][0].x, 0.0, "the stress has no wall-normal part"));
+    PetscCall(PicurvAssertRealNear(0.0, stress[2][2][0].z, 0.0, "the stress follows the flow direction"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Wall_Stress, (const Cmpnts ***)&stress));
+    PetscCall(PicurvAssertRealNear(stored_utau * stored_utau, stored_stress, 1.0e-12,
+                                   "the stored stress must be u_tau^2 along the flow"));
+    (void)distance_first;
 
     /* The ghost row carries no boundary velocity of its own. */
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, (const Cmpnts ***)&ubcs));
@@ -1795,6 +1804,8 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1804,13 +1815,13 @@ static PetscErrorCode TestApplyWallFunctionMatchesTheLogLawItDispatches(void)
  *
  * The selector was previously validated in the configuration layer and then dropped, so
  * every case ran the log law whatever it asked for. Distinct laws must produce distinct
- * corrections from identical inputs, or the selector is decorative again.
+ * friction velocities from identical inputs, or the selector is decorative again.
  */
 static PetscErrorCode TestWallFunctionModelSelectorChoosesTheLaw(void)
 {
     SimCtx      *simCtx = NULL;
     UserCtx     *user = NULL;
-    Cmpnts    ***ucat = NULL;
+    PetscReal ***utau = NULL;
     PetscReal    corrected[4] = {0.0, 0.0, 0.0, 0.0};
     const PetscInt models[3] = {WALL_FUNCTION_LOG_LAW, WALL_FUNCTION_WERNER, WALL_FUNCTION_CABOT};
 
@@ -1822,14 +1833,14 @@ static PetscErrorCode TestWallFunctionModelSelectorChoosesTheLaw(void)
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
 
     for (PetscInt m = 0; m < 3; ++m) {
-        PetscCall(SeedWallFunctionFixture(user, 1.0));
+        PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = 1.0, .z = 0.0}));
         simCtx->wallfunction = models[m];
         PetscCall(ApplyWallFunction(user));
-        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
-        corrected[m] = ucat[2][2][1].y;
-        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->Friction_Velocity, (const PetscReal ***)&utau));
+        corrected[m] = utau[2][2][1];
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->Friction_Velocity, (const PetscReal ***)&utau));
         PetscCall(PicurvAssertBool((PetscBool)(corrected[m] > 0.0 && corrected[m] < 1.0),
-                                   "every wall model must slow the first interior cell"));
+                                   "every wall model must report a friction velocity below the flow speed"));
     }
 
     /* Each law has its own profile, so no two may coincide. */
@@ -1840,6 +1851,8 @@ static PetscErrorCode TestWallFunctionModelSelectorChoosesTheLaw(void)
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1861,7 +1874,7 @@ static PetscErrorCode TestApplyWallFunctionSkipsNonWallFaces(void)
     simCtx->wall_roughness_height = 1.0e-16;
     PetscCall(SeedWallFrictionVelocityStorage(user));
     /* Every face left at its default, so none is a wall. */
-    PetscCall(SeedWallFunctionFixture(user, 1.0));
+    PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = 1.0, .z = 0.0}));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
     before = ucat[2][2][1].y;
@@ -1873,9 +1886,16 @@ static PetscErrorCode TestApplyWallFunctionSkipsNonWallFaces(void)
 
     PetscCall(PicurvAssertRealNear(before, after, 0.0,
                                    "a face that is not a wall must not be corrected"));
+    {
+        PetscReal stress_norm = 0.0;
+        PetscCall(VecNorm(user->Wall_Stress, NORM_INFINITY, &stress_norm));
+        PetscCall(PicurvAssertRealNear(0.0, stress_norm, 0.0, "a face that is not a wall carries no wall stress"));
+    }
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1898,7 +1918,7 @@ static PetscErrorCode TestApplyWallFunctionSkipsFreeSlipWalls(void)
     PetscCall(SeedWallFrictionVelocityStorage(user));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
     user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_WALL_FREE_SLIP;
-    PetscCall(SeedWallFunctionFixture(user, 1.0));
+    PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = 1.0, .z = 0.0}));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
     before = ucat[2][2][1].y;
@@ -1908,9 +1928,16 @@ static PetscErrorCode TestApplyWallFunctionSkipsFreeSlipWalls(void)
     after = ucat[2][2][1].y;
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
     PetscCall(PicurvAssertRealNear(before, after, 0.0, "a free-slip wall carries no wall model"));
+    {
+        PetscReal stress_norm = 0.0;
+        PetscCall(VecNorm(user->Wall_Stress, NORM_INFINITY, &stress_norm));
+        PetscCall(PicurvAssertRealNear(0.0, stress_norm, 0.0, "a free-slip wall carries no wall stress"));
+    }
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1952,7 +1979,7 @@ static PetscErrorCode TestWallModelFrictionVelocityRespondsToTheFlow(void)
 
         simCtx->wallfunction = models[m];
         for (PetscInt s = 0; s < 2; ++s) {
-            PetscCall(SeedWallFunctionFixture(user, speeds[s]));
+            PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = speeds[s], .z = 0.0}));
             PetscCall(ApplyWallFunction(user));
             PetscCall(DMDAVecGetArrayRead(user->da, user->Friction_Velocity,
                                           (const PetscReal ***)&utau));
@@ -1971,6 +1998,8 @@ static PetscErrorCode TestWallModelFrictionVelocityRespondsToTheFlow(void)
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -2023,8 +2052,93 @@ static PetscErrorCode TestWallFrictionVelocityStorageMatchesTheCatalog(void)
     PetscCall(DMDAVecGetArray(user->da, user->Friction_Velocity, &utau));
     PetscCall(DMDAVecRestoreArray(user->da, user->Friction_Velocity, &utau));
 
+    /* The wall stress is a vector per wall-face element, on the dof-3 DM. */
+    PetscCall(FieldGetDescriptor(FIELD_ID_WALL_STRESS, &descriptor));
+    PetscCall(PicurvAssertBool((PetscBool)(descriptor->dof == 3 && descriptor->dm_kind == FIELD_DM_FDA),
+                               "the wall stress is a vector on the dof-3 DM"));
+    PetscCall(FieldGetView(user, FIELD_ID_WALL_STRESS, &view));
+    PetscCall(PicurvAssertBool((PetscBool)(view.global_vec == user->Wall_Stress &&
+                                           view.local_vec == user->lWall_Stress),
+                               "the catalog must resolve to the wall-stress vectors setup allocated"));
+    {
+        Cmpnts ***stress = NULL;
+        PetscCall(DMDAVecGetArray(user->fda, user->Wall_Stress, &stress));
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Wall_Stress, &stress));
+    }
+
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that a cell beside two walls gets one independent stress per wall face.
+ *
+ * The edge cell is where the previous design overwrote one velocity twice, the second wall
+ * reading the first wall's output as its reference. Here each face must store its own
+ * stress in its own dummy cell from its own reference cell, the resolved velocity must not
+ * move, the cell's friction velocity must be the RMS over its two faces, and each face
+ * element must count once in the diagnostics.
+ */
+static PetscErrorCode TestWallModelEdgeCellHasOneStressPerWall(void)
+{
+    SimCtx      *simCtx = NULL;
+    UserCtx     *user = NULL;
+    Cmpnts    ***ucat = NULL, ***stress = NULL;
+    PetscReal ***utau = NULL;
+    const PetscReal speed = 1.0;
+    DMDALocalInfo info;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    simCtx->ren = 1000.0;
+    simCtx->wall_roughness_height = 1.0e-16;
+    simCtx->wallfunction = WALL_FUNCTION_WERNER;
+    PetscCall(SeedWallFrictionVelocityStorage(user));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
+    user->boundary_faces[BC_FACE_NEG_Y].mathematical_type = WALL;
+    info = user->info;
+
+    /* Flow along zeta, tangential to both walls. */
+    PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = 0.0, .z = speed}));
+
+    PetscCall(ApplyWallFunction(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    PetscCall(PicurvAssertRealNear(speed, ucat[2][1][1].z, 0.0, "the edge cell's resolved velocity must not move"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Wall_Stress, (const Cmpnts ***)&stress));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Friction_Velocity, (const PetscReal ***)&utau));
+    {
+        /* Uniform flow: both walls see the same reference speed at the same distance, so
+           each stores the same stress, and the cell's RMS equals either face's u_tau. */
+        const PetscReal x_wall = stress[2][1][0].z;   /* -Xi face of cell (i=1, j=1) */
+        const PetscReal y_wall = stress[2][0][1].z;   /* -Eta face of the same cell */
+        PetscCall(PicurvAssertBool((PetscBool)(x_wall > 0.0 && y_wall > 0.0),
+                                   "both wall faces of the edge cell must carry a stress along the flow"));
+        PetscCall(PicurvAssertRealNear(x_wall, y_wall, 1.0e-12,
+                                       "each face must read its own unmodified reference, so the two agree"));
+        PetscCall(PicurvAssertRealNear(PetscSqrtReal(x_wall), utau[2][1][1], 1.0e-12,
+                                       "the edge cell's friction velocity is the RMS over its wall faces"));
+        PetscCall(PicurvAssertRealNear(x_wall, stress[2][2][0].z, 1.0e-12,
+                                       "the edge cell's -Xi stress must equal a mid-face element's"));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Friction_Velocity, (const PetscReal ***)&utau));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Wall_Stress, (const Cmpnts ***)&stress));
+
+    /* (my-2)(mz-2) elements on the -Xi face and (mx-2)(mz-2) on the -Eta face. */
+    PetscCall(PicurvAssertBool((PetscBool)(user->wall_diagnostics.cells ==
+                                           (info.my - 2) * (info.mz - 2) + (info.mx - 2) * (info.mz - 2)),
+                               "each wall-face element must count once in the diagnostics"));
+
+    PetscCall(VecDestroy(&user->Friction_Velocity));
+    PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -2052,7 +2166,7 @@ static PetscErrorCode TestWallModelDiagnosticsRecordTheCorrectedCells(void)
     kinematic_viscosity = 1.0 / simCtx->ren;
     PetscCall(SeedWallFrictionVelocityStorage(user));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
-    PetscCall(SeedWallFunctionFixture(user, 1.0));
+    PetscCall(SeedWallFunctionFixture(user, (Cmpnts){.x = 0.0, .y = 1.0, .z = 0.0}));
 
     /* Disabled: nothing is corrected, so nothing is recorded. */
     simCtx->wallfunction = 0;
@@ -2094,6 +2208,8 @@ static PetscErrorCode TestWallModelDiagnosticsRecordTheCorrectedCells(void)
 
     PetscCall(VecDestroy(&user->Friction_Velocity));
     PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(VecDestroy(&user->Wall_Stress));
+    PetscCall(VecDestroy(&user->lWall_Stress));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -2243,6 +2359,7 @@ int main(int argc, char **argv)
         {"apply-wall-function-matches-the-log-law", TestApplyWallFunctionMatchesTheLogLawItDispatches},
         {"apply-wall-function-skips-non-wall-faces", TestApplyWallFunctionSkipsNonWallFaces},
         {"apply-wall-function-skips-free-slip-walls", TestApplyWallFunctionSkipsFreeSlipWalls},
+        {"wall-model-edge-cell-has-one-stress-per-wall", TestWallModelEdgeCellHasOneStressPerWall},
         {"wall-function-model-selector-chooses-the-law", TestWallFunctionModelSelectorChoosesTheLaw},
         {"wall-model-friction-velocity-responds-to-the-flow", TestWallModelFrictionVelocityRespondsToTheFlow},
         {"wall-friction-velocity-storage-matches-the-catalog", TestWallFrictionVelocityStorageMatchesTheCatalog},

@@ -459,50 +459,34 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id);
 PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id);
 
 /**
- * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.
+ * @brief Evaluates the selected wall law on every wall-face element and stores the wall stress.
  *
- * This function implements log-law wall functions to model the near-wall velocity profile
- * without fully resolving the viscous sublayer. It is applicable to ALL wall-type boundaries
- * regardless of their specific boundary condition (no-slip, moving wall, slip, etc.), as
- * determined by the mathematical_type being WALL.
+ * For each element of a face whose boundary exerts shear (no-slip or moving wall; free-slip
+ * exerts none), the law is evaluated from the resolved velocity of the reference cell - the
+ * second cell from the wall - relative to the wall's velocity, at that cell's wall distance,
+ * and gives a friction velocity u_tau. The kinematic wall shear stress u_tau^2, directed
+ * against the reference cell's wall-parallel motion, is written to `Wall_Stress` in the
+ * face's own dummy cell, oriented as that face's viscous flux per unit area;
+ * `ComputeViscous()` applies it on the wall face in place of a gradient flux. The wall-normal
+ * flux through the face is set to zero.
  *
- * MATHEMATICAL BACKGROUND:
- * Wall functions bridge the gap between the wall (y=0) and the first computational cell
- * center by using empirical log-law relationships:
- *   - Viscous sublayer (y+ < 11.81): u+ = y+
- *   - Log-law region (y+ > 11.81): u+ = (1/κ) * ln(E * y+)
- * where u+ = u/u_τ, y+ = y*u_τ/ν, κ = 0.41 (von Karman constant), E = exp(κB)
+ * The resolved velocity is never modified, so the momentum equation, the subgrid closure,
+ * the dummy cells and every other boundary condition read the same near-wall velocity. A
+ * cell beside two walls has one element on each, with its own reference cell and stress.
+ * `Friction_Velocity` holds, per first cell, the RMS of u_tau over its wall faces, and
+ * @ref LogWallModelDiagnostics reduces per-element statistics.
  *
- * IMPLEMENTATION DETAILS:
- * Unlike standard boundary conditions that set ghost cell values, wall functions:
- *   1. Read velocity from the SECOND interior cell (i±2, j±2, k±2)
- *   2. Compute wall shear stress using log-law
- *   3. Modify velocity at the FIRST interior cell (i±1, j±1, k±1) 
- *   4. Keep ghost cell boundary values (ubcs, ucont) at zero
+ * Distances come from the cell Jacobians and the wall-face area: half the first cell's
+ * thickness, and the first cell's full thickness plus half the second's. A rank must own at
+ * least three nodes normal to each wall it serves, so the reference cell is in its block;
+ * a layout that violates this is refused.
  *
- * WORKFLOW:
- *   - Called from ApplyBoundaryConditions after standard BC application
- *   - Operates on ucat (Cartesian velocity)
- *   - Updates ustar (friction velocity field) for diagnostics/turbulence models
- *   - Ghost cells remain zero; UpdateDummyCells handles extrapolation afterward
+ * Cabot may return a negative friction velocity when an adverse pressure gradient reverses
+ * its wall-layer balance; the stress then acts along the reference flow.
  *
- * GEOMETRIC QUANTITIES:
- *   sb = wall-normal distance from wall to first interior cell center
- *   sc = wall-normal distance from wall to second interior cell center  
- *   These are computed from cell Jacobians (aj) and face area vectors
- *
- * APPLICABILITY:
- *   - Requires simCtx->wallfunction = true
- *   - Only processes faces where mathematical_type == WALL
- *   - Skips solid-embedded cells (nvert >= 0.1)
- *
- * @param user The UserCtx containing all simulation state and geometry
- * @return PetscErrorCode 0 on success
- *
- * @note This function modifies interior cell velocities, NOT ghost cells
- * @note Wall roughness (ks) is currently set to 1e-16 (smooth wall)
- * @see wall_function_loglaw() in wallfunction.c for the actual log-law implementation
- * @see noslip() in wallfunction.c for the initial linear interpolation
+ * @param user Block context whose Ucat is the current pass's reconstruction.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_ARG_OUTOFRANGE` for a layout that does not
+ *         reach the reference cell; `PETSC_ERR_FP` for a non-finite friction velocity.
  */
 PetscErrorCode ApplyWallFunction(UserCtx *user);
 

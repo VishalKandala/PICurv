@@ -72,21 +72,21 @@ static PetscErrorCode LESResolveDomain(UserCtx *user, SpatialTargetPlan *plan)
 }
 
 /**
- * @brief Marks the near-wall cells a wall model overwrites, so the procedure skips them.
+ * @brief Marks the first cells beside a modelled wall, so the procedure skips them.
  *
- * A wall model replaces the first interior cell's velocity with an analytic profile.
- * The Germano identity evaluated there measures that imposed profile rather than
- * resolved turbulence, so the cell is excluded from both contraction sums. This is not
- * a modelling preference: the data at those cells is not a measurement, and averaging it
- * in biases whatever set it belongs to. Under global averaging that set is the whole
+ * A wall model exists because the grid does not resolve the wall layer, and the first
+ * cell sits inside it, with its wall flux supplied by the model's stress rather than by
+ * a resolved gradient. The Germano identity evaluated there measures an under-resolved
+ * wall layer, not the inertial-range motions the procedure assumes, so the cell is
+ * excluded from both contraction sums; averaging it in biases whatever set it belongs to. Under global averaging that set is the whole
  * domain; under homogeneous averaging retaining the wall-normal direction it is the wall
  * plane, whose value would otherwise be entirely imposed.
  *
  * A cell left with no data receives a zero coefficient, which is the right answer where
  * a wall model is already supplying the stress.
  *
- * Only meaningful while a wall model is active; with none, nothing is imposed and every
- * cell carries a real measurement.
+ * Only meaningful while a wall model is active; a wall-resolved run resolves that layer
+ * and every cell takes part.
  */
 static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
 {
@@ -108,7 +108,7 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
         const PetscInt coord[3] = {i, j, k};
 
         for (PetscInt axis = 0; axis < 3; axis++) {
-            /* Index 1 and extent-2 are the first interior cells the wall model writes. */
+            /* Index 1 and extent-2 are the first interior cells beside a modelled wall. */
             if ((BoundaryFaceHasWallShear(&user->boundary_faces[negative[axis]]) &&
                  coord[axis] == 1) ||
                 (BoundaryFaceHasWallShear(&user->boundary_faces[positive[axis]]) &&

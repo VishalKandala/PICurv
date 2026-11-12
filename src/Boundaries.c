@@ -2255,128 +2255,62 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
 }
 
 /**
- * @brief Applies the configured wall model at one near-wall cell.
+ * @brief The signed friction velocity the configured wall law gives for one wall-face element.
  *
- * The six face cases differ only in which indices they address, so the choice of law
- * is made here once rather than repeated at each of them. Every model writes the
- * corrected near-wall velocity and the friction velocity through the same two
- * pointers, which is what lets one call site serve all of them.
+ * Every law is evaluated from the resolved velocity of the reference cell, relative to the
+ * wall, at its wall distance. The laws also return a velocity for the first cell; it is
+ * discarded, because the model acts through the wall stress alone (see
+ * @ref ApplyWallFunction).
  *
- * Cabot's non-equilibrium form takes a pressure gradient, which is why the caller
- * supplies the read-only pressure array: the gradient is evaluated at the cell rather
- * than assumed zero, since zero would silently reduce the model to its equilibrium form.
- * The other two laws ignore that array.
+ * Cabot's departure from an equilibrium profile is driven by the pressure gradient in the
+ * wall layer, so it is supplied from the resolved pressure at the first cell rather than
+ * assumed zero; the pressure is the previous projection's, the same lag every other
+ * explicit use of it carries. The other two laws ignore it.
  */
-static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
-                                 PetscReal ***wall_eddy_viscosity, BCFace face,
-                                 PetscInt i, PetscInt j, PetscInt k,
-                                 PetscReal roughness_height,
-                                 PetscReal distance_reference, PetscReal distance_boundary,
-                                 Cmpnts velocity_wall, Cmpnts velocity_reference,
-                                 Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                                 PetscReal normal_x, PetscReal normal_y, PetscReal normal_z)
+static PetscErrorCode WallModelFrictionVelocity(UserCtx *user, const PetscReal ***pressure,
+                                                PetscInt i, PetscInt j, PetscInt k,
+                                                PetscReal roughness_height,
+                                                PetscReal distance_reference, PetscReal distance_boundary,
+                                                Cmpnts velocity_wall, Cmpnts velocity_reference,
+                                                const PetscReal normal[3], PetscReal *friction_velocity)
 {
+    Cmpnts discarded = {0.0, 0.0, 0.0};
+
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
+    *friction_velocity = 0.0;
     switch ((WallFunctionModel)user->simCtx->wallfunction) {
     case WALL_FUNCTION_WERNER:
-        wall_function(user, distance_reference, distance_boundary,
-                      velocity_wall, velocity_reference, velocity_boundary,
-                      friction_velocity, normal_x, normal_y, normal_z);
+        wall_function(user, distance_reference, distance_boundary, velocity_wall, velocity_reference,
+                      &discarded, friction_velocity, normal[0], normal[1], normal[2]);
         break;
     case WALL_FUNCTION_CABOT: {
-        /* Cabot's departure from an equilibrium profile is driven by the pressure
-           gradient in the wall layer, so it is supplied from the resolved pressure at
-           this cell rather than assumed zero. Zero would silently reduce the model to
-           its equilibrium form, which is not the model the user selected. The pressure
-           is the previous projection's, which is the same lag every other explicit use
-           of it carries. */
         Cmpnts pressure_gradient = {0.0, 0.0, 0.0};
 
         if (pressure) {
-            PetscCall(ComputeScalarFieldDerivatives(user, i, j, k, pressure, &pressure_gradient));
+            PetscCall(ComputeScalarFieldDerivatives(user, i, j, k, (PetscReal ***)pressure, &pressure_gradient));
         }
         wall_function_Cabot(user, roughness_height, distance_reference, distance_boundary,
-                            velocity_wall, velocity_reference, velocity_boundary,
-                            friction_velocity, normal_x, normal_y, normal_z,
+                            velocity_wall, velocity_reference, &discarded, friction_velocity,
+                            normal[0], normal[1], normal[2],
                             pressure_gradient.x, pressure_gradient.y, pressure_gradient.z, 0);
         break;
     }
     case WALL_FUNCTION_LOG_LAW:
     default:
         wall_function_loglaw(user, roughness_height, distance_reference, distance_boundary,
-                             velocity_wall, velocity_reference, velocity_boundary,
-                             friction_velocity, normal_x, normal_y, normal_z);
+                             velocity_wall, velocity_reference, &discarded, friction_velocity,
+                             normal[0], normal[1], normal[2]);
         break;
     }
-
-    /* Every face case reaches the model through here, so this is the one place that sees
-       both the wall distance and the friction velocity the law produced. y+ is formed
-       here for that reason: nothing downstream still holds the distance. */
-    {
-        WallModelDiagnosticsState *diagnostics = &user->wall_diagnostics;
-        const PetscReal            molecular   = 1.0 / user->simCtx->ren;
-        const PetscReal            u_tau       = *friction_velocity;
-        const PetscReal            y_plus      = u_tau * distance_boundary / molecular;
-
-        /* The viscous operator reaches the wall through a viscosity times a velocity
-           gradient, so the modelled stress arrives only if the viscosity is the one that
-           reproduces it across this cell: nu_eff = tau_w y / u. Molecular viscosity alone
-           delivers a fraction u+/y+ of the stress, which is where most of it was going.
-           Formed here because this is the one place holding the stress, the distance and
-           the corrected speed together; nothing downstream still has all three. */
-        if (wall_eddy_viscosity) {
-            const Cmpnts    relative = {velocity_boundary->x - velocity_wall.x,
-                                        velocity_boundary->y - velocity_wall.y,
-                                        velocity_boundary->z - velocity_wall.z};
-            const PetscReal normal_component = relative.x * normal_x + relative.y * normal_y +
-                                               relative.z * normal_z;
-            const PetscReal tangential[3] = {relative.x - normal_component * normal_x,
-                                             relative.y - normal_component * normal_y,
-                                             relative.z - normal_component * normal_z};
-            const PetscReal speed = PetscSqrtReal(tangential[0] * tangential[0] +
-                                                  tangential[1] * tangential[1] +
-                                                  tangential[2] * tangential[2]);
-
-            /* A cell the model brought to rest carries no stress to deliver, and the
-               quotient below would be meaningless there. */
-            if (speed > 1.0e-10) {
-                const PetscReal effective = u_tau * u_tau * distance_boundary / speed;
-
-                wall_eddy_viscosity[k][j][i] = PetscMax(effective - molecular, 0.0);
-                diagnostics->wall_viscosity_sum += wall_eddy_viscosity[k][j][i];
-            } else {
-                wall_eddy_viscosity[k][j][i] = 0.0;
-            }
-        }
-
-        /* The extremes keep the cell they were found at, so a local excursion can be
-           placed from the per-step record without writing a field. */
-        if (diagnostics->cells == 0) {
-            diagnostics->friction_velocity_min = u_tau;
-        } else {
-            diagnostics->friction_velocity_min = PetscMin(diagnostics->friction_velocity_min, u_tau);
-        }
-        if (diagnostics->cells == 0 || u_tau > diagnostics->friction_velocity_max) {
-            diagnostics->friction_velocity_max = u_tau;
-            diagnostics->friction_velocity_max_at[0] = (PetscInt)face;
-            diagnostics->friction_velocity_max_at[1] = i;
-            diagnostics->friction_velocity_max_at[2] = j;
-            diagnostics->friction_velocity_max_at[3] = k;
-        }
-        if (diagnostics->cells == 0 || y_plus > diagnostics->y_plus_max) {
-            diagnostics->y_plus_max = y_plus;
-            diagnostics->y_plus_max_at[0] = (PetscInt)face;
-            diagnostics->y_plus_max_at[1] = i;
-            diagnostics->y_plus_max_at[2] = j;
-            diagnostics->y_plus_max_at[3] = k;
-        }
-        diagnostics->friction_velocity_sum += u_tau;
-        diagnostics->friction_velocity_sq  += u_tau * u_tau;
-        diagnostics->wall_distance_sum     += distance_boundary;
-        diagnostics->y_plus_sum            += y_plus;
-        diagnostics->cells                 += 1;
-    }
+    /* The magnitude is the friction velocity. Its sign says whether the stress opposes the
+       reference flow (positive) or, for Cabot under an adverse pressure gradient strong
+       enough to reverse the wall-layer balance, acts along it (negative). A non-finite
+       value stops the run here rather than entering the stress. */
+    PetscCheck(PetscIsInfOrNanReal(*friction_velocity) == PETSC_FALSE, PETSC_COMM_SELF, PETSC_ERR_FP,
+               "Wall model (%s) returned a non-finite friction velocity at cell (%" PetscInt_FMT ", %" PetscInt_FMT
+               ", %" PetscInt_FMT ").",
+               WallFunctionModelToString((WallFunctionModel)user->simCtx->wallfunction), i, j, k);
     PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -2387,491 +2321,227 @@ static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
  */
 PetscErrorCode ApplyWallFunction(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    SimCtx *simCtx = user->simCtx;
-    DMDALocalInfo *info = &user->info;
-    
+    SimCtx              *simCtx = user->simCtx;
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt       end[3]   = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+    const PetscInt       size[3]  = {info->mx, info->my, info->mz};
+    const PetscReal      molecular = 1.0 / simCtx->ren;
+    const PetscReal      roughness_height = simCtx->wall_roughness_height;
+    const Cmpnts      ***ucat, ***ubcs, ***metric[3];
+    const PetscReal   ***nvert, ***aj, ***pressure;
+    Cmpnts            ***ucont, ***stress;
+    PetscReal         ***friction_velocity;
+    PetscInt             wall_faces_at[3][2];
+
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    
-    // =========================================================================
-    // STEP 0: Early exit if wall functions are disabled
-    // =========================================================================
-    if (!simCtx->wallfunction) {
-        PROFILE_HELPER_END;
-        PetscFunctionReturn(0);
-    }
-    
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Processing wall function boundaries.\n");
+    if (!simCtx->wallfunction) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    /* One pass, one sample set: the state describes this pass and nothing earlier. */
-    ierr = PetscMemzero(&user->wall_diagnostics, sizeof(user->wall_diagnostics)); CHKERRQ(ierr);
-    /* Cells the model does not reach must not keep a stale wall viscosity from an
-       earlier pass, so the field is cleared rather than accumulated into. */
-    ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
-    
-    // =========================================================================
-    // STEP 1: Get read/write access to all necessary field arrays
-    // =========================================================================
-    Cmpnts ***velocity_cartesian;           // Cartesian velocity (modified)
-    Cmpnts ***velocity_contravariant;       // Contravariant velocity (set to zero at walls)
-    Cmpnts ***velocity_boundary;            // Boundary condition velocity (kept at zero)
-    Cmpnts ***csi, ***eta, ***zet;         // Metric tensor components (face normals)
-    PetscReal ***node_vertex_flag;          // Fluid/solid indicator (0=fluid, 1=solid)
-    PetscReal ***cell_jacobian;             // Grid Jacobian (1/volume)
-    PetscReal ***wall_eddy_viscosity;    // Effective wall eddy viscosity (written)
-    PetscReal ***friction_velocity;
-    PetscReal ***wall_pressure = NULL;         // u_tau (friction velocity field)
-    
-    ierr = DMDAVecGetArray(user->fda, user->Ucat, &velocity_cartesian); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &velocity_contravariant); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &velocity_boundary); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
-    /* The global view, like the Ucat this pass corrects: every cell it writes is one
-       this rank owns, and the ghosted image is refreshed by the caller afterwards. */
-    ierr = DMDAVecGetArray(user->da, user->Friction_Velocity, &friction_velocity); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->da, user->Nu_Wall, &wall_eddy_viscosity); CHKERRQ(ierr);
-    /* Read-only pressure for the wall models that need its gradient; Cabot is the only
-       one that does, and it reads the previous projection's field. */
-    ierr = DMDAVecGetArrayRead(user->da, user->lP, (const PetscReal ***)&wall_pressure); CHKERRQ(ierr);
-    
-    // =========================================================================
-    // STEP 2: Define loop bounds (owned portion of the grid for this MPI rank)
-    // =========================================================================
-    PetscInt grid_start_i = info->xs, grid_end_i = info->xs + info->xm;
-    PetscInt grid_start_j = info->ys, grid_end_j = info->ys + info->ym;
-    PetscInt grid_start_k = info->zs, grid_end_k = info->zs + info->zm;
-    PetscInt grid_size_i = info->mx, grid_size_j = info->my, grid_size_k = info->mz;
-    
-    // Shrunken loop bounds: exclude domain edges and corners to avoid double-counting
-    PetscInt loop_start_i = grid_start_i, loop_end_i = grid_end_i;
-    PetscInt loop_start_j = grid_start_j, loop_end_j = grid_end_j;
-    PetscInt loop_start_k = grid_start_k, loop_end_k = grid_end_k;
-    
-    if (grid_start_i == 0) loop_start_i = grid_start_i + 1;
-    if (grid_end_i == grid_size_i) loop_end_i = grid_end_i - 1;
-    if (grid_start_j == 0) loop_start_j = grid_start_j + 1;
-    if (grid_end_j == grid_size_j) loop_end_j = grid_end_j - 1;
-    if (grid_start_k == 0) loop_start_k = grid_start_k + 1;
-    if (grid_end_k == grid_size_k) loop_end_k = grid_end_k - 1;
-    
-    // Wall roughness parameter (smooth wall by default, configurable via -wall_roughness).
-    const PetscReal wall_roughness_height = user->simCtx->wall_roughness_height;
-    
-    // =========================================================================
-    // STEP 3: Process each of the 6 domain faces
-    // =========================================================================
-    for (int face_index = 0; face_index < 6; face_index++) {
-        BCFace current_face_id = (BCFace)face_index;
-        BoundaryFaceConfig *face_config = &user->boundary_faces[current_face_id];
-        
-        // Only walls that exert shear carry a wall model; a free-slip wall exerts none.
-        if (!BoundaryFaceHasWallShear(face_config)) {
-            continue;
-        }
-        
-        // Check if this MPI rank owns part of this face
-        PetscBool rank_owns_this_face;
-        ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, 
-                                  current_face_id, &rank_owns_this_face); CHKERRQ(ierr);
-        
-        if (!rank_owns_this_face) {
-            continue;
-        }
-        
-        LOG_ALLOW(LOCAL, LOG_TRACE, "Processing Face %d (%s)\n",
-                  current_face_id, BCFaceToString(current_face_id));
-        
-        // =====================================================================
-        // Process each face with appropriate indexing
-        // =====================================================================
-        switch(current_face_id) {
-            
-            // =================================================================
-            // NEGATIVE X FACE (i = 0, normal points in +X direction)
-            // =================================================================
-            case BC_FACE_NEG_X: {
-                if (grid_start_i == 0) {
-                    const PetscInt ghost_cell_index = grid_start_i;
-                    const PetscInt first_interior_cell = grid_start_i + 1;
-                    const PetscInt second_interior_cell = grid_start_i + 2;
-                    
-                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
-                        for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
-                            
-                            // Skip if this is a solid cell (embedded boundary)
-                            if (node_vertex_flag[k][j][first_interior_cell] < 0.1) {
-                                
-                                // Calculate face area from contravariant metric tensor
-                                PetscReal face_area = sqrt(
-                                    csi[k][j][ghost_cell_index].x * csi[k][j][ghost_cell_index].x + 
-                                    csi[k][j][ghost_cell_index].y * csi[k][j][ghost_cell_index].y + 
-                                    csi[k][j][ghost_cell_index].z * csi[k][j][ghost_cell_index].z
-                                );
-                                
-                                // Compute wall-normal distances using cell Jacobians
-                                // sb = distance from wall to first interior cell center
-                                // sc = distance from wall to second interior cell center
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][j][first_interior_cell] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[k][j][second_interior_cell] / face_area;
-                                
-                                // Compute unit normal vector pointing INTO the domain
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = csi[k][j][ghost_cell_index].x / face_area;
-                                wall_normal[1] = csi[k][j][ghost_cell_index].y / face_area;
-                                wall_normal[2] = csi[k][j][ghost_cell_index].z / face_area;
-                                
-                                // Define velocities for wall function calculation
-                                Cmpnts wall_velocity;      // Ua = velocity at wall (zero for stationary wall)
-                                Cmpnts reference_velocity; // Uc = velocity at second interior cell
-                                
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[k][j][second_interior_cell];
-                                
-                                // Step 1: Linear interpolation (provides initial guess)
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[k][j][first_interior_cell],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                // Step 2: Apply log-law correction (improves near-wall velocity)
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    first_interior_cell, j, k,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[k][j][first_interior_cell],
-                                                    &friction_velocity[k][j][first_interior_cell],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                // Ensure ghost cell BC remains zero (required for proper extrapolation)
-                                velocity_boundary[k][j][ghost_cell_index].x = 0.0;
-                                velocity_boundary[k][j][ghost_cell_index].y = 0.0;
-                                velocity_boundary[k][j][ghost_cell_index].z = 0.0;
-                                velocity_contravariant[k][j][ghost_cell_index].x = 0.0;
-                            }
-                        }
-                    }
+    /* One pass, one sample set: the state describes this pass and nothing earlier. Faces the
+       model does not reach must not keep a stale stress, and the friction velocity is
+       accumulated per cell below, so both start from zero. */
+    PetscCall(PetscMemzero(&user->wall_diagnostics, sizeof(user->wall_diagnostics)));
+    PetscCall(VecSet(user->Wall_Stress, 0.0));
+    PetscCall(VecSet(user->Friction_Velocity, 0.0));
+
+    /* The resolved velocity this pass's Contra2Cart wrote, read from the global view: the
+       model reads it and never writes it. */
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (void *)&ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, (void *)&ubcs));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&metric[0]));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&metric[1]));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&metric[2]));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
+    /* Cabot reads the previous projection's pressure gradient; the other laws ignore it. */
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lP, (void *)&pressure));
+    PetscCall(DMDAVecGetArray(user->fda, user->Wall_Stress, &stress));
+    PetscCall(DMDAVecGetArray(user->da, user->Friction_Velocity, &friction_velocity));
+
+    for (PetscInt axis = 0; axis < 3; axis++) {
+        wall_faces_at[axis][0] = BoundaryFaceHasWallShear(&user->boundary_faces[2 * axis]) ? 1 : 0;
+        wall_faces_at[axis][1] = BoundaryFaceHasWallShear(&user->boundary_faces[2 * axis + 1]) ? 1 : 0;
+    }
+
+    /* Every wall face element is one sample of the law. A cell beside two walls, along an
+       edge of the domain, has two such elements, each with its own reference cell, normal
+       and stress, so the two walls never write into one another's input. */
+    for (PetscInt face = 0; face < 6; face++) {
+        const PetscInt  axis = face / 2;
+        const PetscBool negative = (PetscBool)(face % 2 == 0);
+        const PetscReal side = negative ? 1.0 : -1.0;
+        BoundaryFaceElements elements;
+
+        if (!wall_faces_at[axis][negative ? 0 : 1]) continue;
+        PetscCall(GetBoundaryFaceElements(user, (BCFace)face, &elements));
+        if (elements.n[0] * elements.n[1] == 0) continue;
+
+        const PetscInt face_at   = elements.layer;
+        const PetscInt cell      = negative ? face_at + 1 : face_at;
+        const PetscInt reference = negative ? face_at + 2 : face_at - 1;
+        const PetscInt dummy     = negative ? face_at : face_at + 1;
+        /* The reference cell is read from the owned block. A rank holding fewer than three
+           nodes normal to a wall would read outside it, so that layout is refused. */
+        PetscCheck(reference >= start[axis] && reference < end[axis], PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+                   "Wall model on face %s: this rank owns indices %" PetscInt_FMT "-%" PetscInt_FMT
+                   " normal to the wall, which does not reach the reference cell %" PetscInt_FMT
+                   ". Use a layout with at least three nodes per rank normal to every wall.",
+                   BCFaceToString((BCFace)face), start[axis], end[axis] - 1, reference);
+
+        for (PetscInt q = 0; q < elements.n[1]; q++)
+        for (PetscInt p = 0; p < elements.n[0]; p++) {
+            PetscInt  c[3];
+
+            c[axis] = cell; c[elements.a] = elements.lo[0] + p; c[elements.b] = elements.lo[1] + q;
+            const PetscInt i = c[0], j = c[1], k = c[2];
+            PetscInt  c_ref[3] = {i, j, k}, c_dummy[3] = {i, j, k}, c_face[3] = {i, j, k};
+            PetscReal signed_u_tau = 0.0, u_tau;
+
+            if (nvert[k][j][i] > 0.1) continue;
+            c_ref[axis] = reference;
+            c_dummy[axis] = dummy;
+            c_face[axis] = face_at;
+
+            const Cmpnts    area_vector = metric[axis][c_face[2]][c_face[1]][c_face[0]];
+            const PetscReal area = PetscSqrtReal(area_vector.x * area_vector.x + area_vector.y * area_vector.y +
+                                                 area_vector.z * area_vector.z);
+            /* Unit normal into the fluid, and the first and reference cell-centre distances
+               from the wall, from each cell's volume over the wall area. */
+            const PetscReal normal[3] = {side * area_vector.x / area, side * area_vector.y / area,
+                                         side * area_vector.z / area};
+            const PetscReal distance_boundary  = 0.5 / aj[k][j][i] / area;
+            const PetscReal distance_reference = 2.0 * distance_boundary +
+                                                 0.5 / aj[c_ref[2]][c_ref[1]][c_ref[0]] / area;
+            const Cmpnts    velocity_wall = ubcs[c_dummy[2]][c_dummy[1]][c_dummy[0]];
+            const Cmpnts    velocity_reference = ucat[c_ref[2]][c_ref[1]][c_ref[0]];
+            const Cmpnts    relative_reference = {velocity_reference.x - velocity_wall.x,
+                                                  velocity_reference.y - velocity_wall.y,
+                                                  velocity_reference.z - velocity_wall.z};
+            const Cmpnts    tangent = RemoveFaceNormalComponent(relative_reference, area_vector);
+            const PetscReal tangent_speed = PetscSqrtReal(tangent.x * tangent.x + tangent.y * tangent.y +
+                                                          tangent.z * tangent.z);
+
+            PetscCall(WallModelFrictionVelocity(user, pressure, i, j, k, roughness_height,
+                                                distance_reference, distance_boundary,
+                                                velocity_wall, velocity_reference, normal, &signed_u_tau));
+            u_tau = PetscAbsReal(signed_u_tau);
+
+            /* The stress opposes the reference cell's motion relative to the wall, along its
+               wall-parallel direction. Stored in the face's dummy cell, which no other wall
+               face uses, already oriented as the viscous flux through that face, so the
+               flux is the stored value times the face area (ComputeViscous). */
+            if (tangent_speed > 1.0e-12) {
+                const PetscReal scale = side * signed_u_tau * u_tau / tangent_speed;
+                stress[c_dummy[2]][c_dummy[1]][c_dummy[0]].x = scale * tangent.x;
+                stress[c_dummy[2]][c_dummy[1]][c_dummy[0]].y = scale * tangent.y;
+                stress[c_dummy[2]][c_dummy[1]][c_dummy[0]].z = scale * tangent.z;
+            }
+            /* The wall is impermeable whatever the law. */
+            if (axis == 0) ucont[c_face[2]][c_face[1]][c_face[0]].x = 0.0;
+            else if (axis == 1) ucont[c_face[2]][c_face[1]][c_face[0]].y = 0.0;
+            else ucont[c_face[2]][c_face[1]][c_face[0]].z = 0.0;
+
+            /* The cell's friction velocity is the RMS over its wall faces; the sum of
+               squares is accumulated here and reduced once every face has been visited. */
+            friction_velocity[k][j][i] += u_tau * u_tau;
+
+            {
+                WallModelDiagnosticsState *diagnostics = &user->wall_diagnostics;
+                const PetscReal            y_plus = u_tau * distance_boundary / molecular;
+                const Cmpnts               first = ucat[k][j][i];
+                const Cmpnts               relative_first = {first.x - velocity_wall.x, first.y - velocity_wall.y,
+                                                             first.z - velocity_wall.z};
+                const Cmpnts               first_tangent = RemoveFaceNormalComponent(relative_first, area_vector);
+                const PetscReal            first_speed = PetscSqrtReal(first_tangent.x * first_tangent.x +
+                                                                       first_tangent.y * first_tangent.y +
+                                                                       first_tangent.z * first_tangent.z);
+                /* The eddy viscosity a gradient closure would need on this face to carry
+                   the stress across the resolved first cell: nu_eq = u_tau^2 y / |U_1|,
+                   less the molecular part. A diagnostic only; the stress itself is applied. */
+                if (first_speed > 1.0e-10) {
+                    diagnostics->wall_viscosity_sum += PetscMax(u_tau * u_tau * distance_boundary / first_speed - molecular, 0.0);
                 }
-            } break;
-            
-            // =================================================================
-            // POSITIVE X FACE (i = mx-1, normal points in -X direction)
-            // =================================================================
-            case BC_FACE_POS_X: {
-                if (grid_end_i == grid_size_i) {
-                    const PetscInt ghost_cell_index = grid_end_i - 1;
-                    const PetscInt first_interior_cell = grid_end_i - 2;
-                    const PetscInt second_interior_cell = grid_end_i - 3;
-                    
-                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
-                        for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
-                            
-                            if (node_vertex_flag[k][j][first_interior_cell] < 0.1) {
-                                
-                                PetscReal face_area = sqrt(
-                                    csi[k][j][first_interior_cell].x * csi[k][j][first_interior_cell].x + 
-                                    csi[k][j][first_interior_cell].y * csi[k][j][first_interior_cell].y + 
-                                    csi[k][j][first_interior_cell].z * csi[k][j][first_interior_cell].z
-                                );
-                                
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][j][first_interior_cell] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[k][j][second_interior_cell] / face_area;
-                                
-                                // Note: Normal flipped for +X face to point INTO domain
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = -csi[k][j][first_interior_cell].x / face_area;
-                                wall_normal[1] = -csi[k][j][first_interior_cell].y / face_area;
-                                wall_normal[2] = -csi[k][j][first_interior_cell].z / face_area;
-                                
-                                Cmpnts wall_velocity, reference_velocity;
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[k][j][second_interior_cell];
-                                
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[k][j][first_interior_cell],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    first_interior_cell, j, k,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[k][j][first_interior_cell],
-                                                    &friction_velocity[k][j][first_interior_cell],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                velocity_boundary[k][j][ghost_cell_index].x = 0.0;
-                                velocity_boundary[k][j][ghost_cell_index].y = 0.0;
-                                velocity_boundary[k][j][ghost_cell_index].z = 0.0;
-                                velocity_contravariant[k][j][first_interior_cell].x = 0.0;
-                            }
-                        }
-                    }
+                if (diagnostics->cells == 0) {
+                    diagnostics->friction_velocity_min = u_tau;
+                } else {
+                    diagnostics->friction_velocity_min = PetscMin(diagnostics->friction_velocity_min, u_tau);
                 }
-            } break;
-            
-            // =================================================================
-            // NEGATIVE Y FACE (j = 0, normal points in +Y direction)
-            // =================================================================
-            case BC_FACE_NEG_Y: {
-                if (grid_start_j == 0) {
-                    const PetscInt ghost_cell_index = grid_start_j;
-                    const PetscInt first_interior_cell = grid_start_j + 1;
-                    const PetscInt second_interior_cell = grid_start_j + 2;
-                    
-                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
-                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
-                            
-                            if (node_vertex_flag[k][first_interior_cell][i] < 0.1) {
-                                
-                                PetscReal face_area = sqrt(
-                                    eta[k][ghost_cell_index][i].x * eta[k][ghost_cell_index][i].x + 
-                                    eta[k][ghost_cell_index][i].y * eta[k][ghost_cell_index][i].y + 
-                                    eta[k][ghost_cell_index][i].z * eta[k][ghost_cell_index][i].z
-                                );
-                                
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][first_interior_cell][i] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[k][second_interior_cell][i] / face_area;
-                                
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = eta[k][ghost_cell_index][i].x / face_area;
-                                wall_normal[1] = eta[k][ghost_cell_index][i].y / face_area;
-                                wall_normal[2] = eta[k][ghost_cell_index][i].z / face_area;
-                                
-                                Cmpnts wall_velocity, reference_velocity;
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[k][second_interior_cell][i];
-                                
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[k][first_interior_cell][i],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    i, first_interior_cell, k,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[k][first_interior_cell][i],
-                                                    &friction_velocity[k][first_interior_cell][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                velocity_boundary[k][ghost_cell_index][i].x = 0.0;
-                                velocity_boundary[k][ghost_cell_index][i].y = 0.0;
-                                velocity_boundary[k][ghost_cell_index][i].z = 0.0;
-                                velocity_contravariant[k][ghost_cell_index][i].y = 0.0;
-                            }
-                        }
-                    }
+                if (diagnostics->cells == 0 || u_tau > diagnostics->friction_velocity_max) {
+                    diagnostics->friction_velocity_max = u_tau;
+                    diagnostics->friction_velocity_max_at[0] = face;
+                    diagnostics->friction_velocity_max_at[1] = i;
+                    diagnostics->friction_velocity_max_at[2] = j;
+                    diagnostics->friction_velocity_max_at[3] = k;
                 }
-            } break;
-            
-            // =================================================================
-            // POSITIVE Y FACE (j = my-1, normal points in -Y direction)
-            // =================================================================
-            case BC_FACE_POS_Y: {
-                if (grid_end_j == grid_size_j) {
-                    const PetscInt ghost_cell_index = grid_end_j - 1;
-                    const PetscInt first_interior_cell = grid_end_j - 2;
-                    const PetscInt second_interior_cell = grid_end_j - 3;
-                    
-                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
-                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
-                            
-                            if (node_vertex_flag[k][first_interior_cell][i] < 0.1) {
-                                
-                                PetscReal face_area = sqrt(
-                                    eta[k][first_interior_cell][i].x * eta[k][first_interior_cell][i].x + 
-                                    eta[k][first_interior_cell][i].y * eta[k][first_interior_cell][i].y + 
-                                    eta[k][first_interior_cell][i].z * eta[k][first_interior_cell][i].z
-                                );
-                                
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][first_interior_cell][i] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[k][second_interior_cell][i] / face_area;
-                                
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = -eta[k][first_interior_cell][i].x / face_area;
-                                wall_normal[1] = -eta[k][first_interior_cell][i].y / face_area;
-                                wall_normal[2] = -eta[k][first_interior_cell][i].z / face_area;
-                                
-                                Cmpnts wall_velocity, reference_velocity;
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[k][second_interior_cell][i];
-                                
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[k][first_interior_cell][i],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    i, first_interior_cell, k,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[k][first_interior_cell][i],
-                                                    &friction_velocity[k][first_interior_cell][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                velocity_boundary[k][ghost_cell_index][i].x = 0.0;
-                                velocity_boundary[k][ghost_cell_index][i].y = 0.0;
-                                velocity_boundary[k][ghost_cell_index][i].z = 0.0;
-                                velocity_contravariant[k][first_interior_cell][i].y = 0.0;
-                            }
-                        }
-                    }
+                if (diagnostics->cells == 0 || y_plus > diagnostics->y_plus_max) {
+                    diagnostics->y_plus_max = y_plus;
+                    diagnostics->y_plus_max_at[0] = face;
+                    diagnostics->y_plus_max_at[1] = i;
+                    diagnostics->y_plus_max_at[2] = j;
+                    diagnostics->y_plus_max_at[3] = k;
                 }
-            } break;
-            
-            // =================================================================
-            // NEGATIVE Z FACE (k = 0, normal points in +Z direction)
-            // =================================================================
-            case BC_FACE_NEG_Z: {
-                if (grid_start_k == 0) {
-                    const PetscInt ghost_cell_index = grid_start_k;
-                    const PetscInt first_interior_cell = grid_start_k + 1;
-                    const PetscInt second_interior_cell = grid_start_k + 2;
-                    
-                    for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
-                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
-                            
-                            if (node_vertex_flag[first_interior_cell][j][i] < 0.1) {
-                                
-                                PetscReal face_area = sqrt(
-                                    zet[ghost_cell_index][j][i].x * zet[ghost_cell_index][j][i].x + 
-                                    zet[ghost_cell_index][j][i].y * zet[ghost_cell_index][j][i].y + 
-                                    zet[ghost_cell_index][j][i].z * zet[ghost_cell_index][j][i].z
-                                );
-                                
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[first_interior_cell][j][i] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[second_interior_cell][j][i] / face_area;
-                                
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = zet[ghost_cell_index][j][i].x / face_area;
-                                wall_normal[1] = zet[ghost_cell_index][j][i].y / face_area;
-                                wall_normal[2] = zet[ghost_cell_index][j][i].z / face_area;
-                                
-                                Cmpnts wall_velocity, reference_velocity;
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[second_interior_cell][j][i];
-                                
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[first_interior_cell][j][i],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    i, j, first_interior_cell,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[first_interior_cell][j][i],
-                                                    &friction_velocity[first_interior_cell][j][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                velocity_boundary[ghost_cell_index][j][i].x = 0.0;
-                                velocity_boundary[ghost_cell_index][j][i].y = 0.0;
-                                velocity_boundary[ghost_cell_index][j][i].z = 0.0;
-                                velocity_contravariant[ghost_cell_index][j][i].z = 0.0;
-                            }
-                        }
-                    }
-                }
-            } break;
-            
-            // =================================================================
-            // POSITIVE Z FACE (k = mz-1, normal points in -Z direction)
-            // =================================================================
-            case BC_FACE_POS_Z: {
-                if (grid_end_k == grid_size_k) {
-                    const PetscInt ghost_cell_index = grid_end_k - 1;
-                    const PetscInt first_interior_cell = grid_end_k - 2;
-                    const PetscInt second_interior_cell = grid_end_k - 3;
-                    
-                    for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
-                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
-                            
-                            if (node_vertex_flag[first_interior_cell][j][i] < 0.1) {
-                                
-                                PetscReal face_area = sqrt(
-                                    zet[first_interior_cell][j][i].x * zet[first_interior_cell][j][i].x + 
-                                    zet[first_interior_cell][j][i].y * zet[first_interior_cell][j][i].y + 
-                                    zet[first_interior_cell][j][i].z * zet[first_interior_cell][j][i].z
-                                );
-                                
-                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[first_interior_cell][j][i] / face_area;
-                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
-                                                                     0.5 / cell_jacobian[second_interior_cell][j][i] / face_area;
-                                
-                                PetscReal wall_normal[3];
-                                wall_normal[0] = -zet[first_interior_cell][j][i].x / face_area;
-                                wall_normal[1] = -zet[first_interior_cell][j][i].y / face_area;
-                                wall_normal[2] = -zet[first_interior_cell][j][i].z / face_area;
-                                
-                                Cmpnts wall_velocity, reference_velocity;
-                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
-                                reference_velocity = velocity_cartesian[second_interior_cell][j][i];
-                                
-                                noslip(user, distance_to_second_cell, distance_to_first_cell,
-                                      wall_velocity, reference_velocity,
-                                      &velocity_cartesian[first_interior_cell][j][i],
-                                      wall_normal[0], wall_normal[1], wall_normal[2]);
-                                
-                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity, current_face_id,
-                                                    i, j, first_interior_cell,
-                                                    wall_roughness_height,
-                                                    distance_to_second_cell, distance_to_first_cell,
-                                                    wall_velocity, reference_velocity,
-                                                    &velocity_cartesian[first_interior_cell][j][i],
-                                                    &friction_velocity[first_interior_cell][j][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
-                                
-                                velocity_boundary[ghost_cell_index][j][i].x = 0.0;
-                                velocity_boundary[ghost_cell_index][j][i].y = 0.0;
-                                velocity_boundary[ghost_cell_index][j][i].z = 0.0;
-                                velocity_contravariant[first_interior_cell][j][i].z = 0.0;
-                            }
-                        }
-                    }
-                }
-            } break;
+                diagnostics->friction_velocity_sum += u_tau;
+                diagnostics->friction_velocity_sq  += u_tau * u_tau;
+                diagnostics->wall_distance_sum     += distance_boundary;
+                diagnostics->y_plus_sum            += y_plus;
+                diagnostics->cells                 += 1;
+            }
         }
     }
-    
-    // =========================================================================
-    // STEP 4: Restore all arrays and release memory
-    // =========================================================================
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &velocity_cartesian); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &velocity_contravariant); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &velocity_boundary); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lP, (const PetscReal ***)&wall_pressure); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->da, user->Nu_Wall, &wall_eddy_viscosity); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->da, user->Friction_Velocity, &friction_velocity); CHKERRQ(ierr);
 
-    /* The correction wrote the global view; refresh the ghosted image here so that every
-       caller sees a consistent field rather than each remembering to do it. */
-    ierr = UpdateLocalGhosts(user, FIELD_ID_U_TAU); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_WALL); CHKERRQ(ierr);
+    /* Friction velocity per first cell: the RMS over the wall faces it touches. Only the
+       wall-face elements are visited, and an edge cell is finalized once, by the first of its
+       wall faces in face order, so the cost stays with the wall layers. */
+    for (PetscInt face = 0; face < 6; face++) {
+        const PetscInt axis = face / 2;
+        BoundaryFaceElements elements;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Complete.\n");
-    
+        if (!wall_faces_at[axis][face % 2]) continue;
+        PetscCall(GetBoundaryFaceElements(user, (BCFace)face, &elements));
+        for (PetscInt q = 0; q < elements.n[1]; q++)
+        for (PetscInt p = 0; p < elements.n[0]; p++) {
+            PetscInt c[3];
+            PetscInt faces = 0, first_face = -1;
+
+            c[axis] = (face % 2 == 0) ? elements.layer + 1 : elements.layer;
+            c[elements.a] = elements.lo[0] + p;
+            c[elements.b] = elements.lo[1] + q;
+            const PetscInt i = c[0], j = c[1], k = c[2];
+
+            if (friction_velocity[k][j][i] <= 0.0) continue;
+            for (PetscInt other = 0; other < 6; other++) {
+                const PetscInt other_axis = other / 2;
+                const PetscInt beside = (other % 2 == 0) ? 1 : size[other_axis] - 2;
+                if (wall_faces_at[other_axis][other % 2] && c[other_axis] == beside) {
+                    faces++;
+                    if (first_face < 0) first_face = other;
+                }
+            }
+            if (first_face != face) continue;
+            friction_velocity[k][j][i] = PetscSqrtReal(friction_velocity[k][j][i] / (PetscReal)faces);
+        }
+    }
+
+    PetscCall(DMDAVecRestoreArray(user->da, user->Friction_Velocity, &friction_velocity));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Wall_Stress, &stress));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lP, (void *)&pressure));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&metric[2]));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&metric[1]));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&metric[0]));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, (void *)&ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (void *)&ucat));
+
+    /* Refresh the ghosted images here so that every caller sees consistent fields rather
+       than each remembering to do it. */
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_U_TAU));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_WALL_STRESS));
     PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 /**
@@ -3043,6 +2713,20 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
         } else {
             /* Consecutive, so a sample back in range clears the count. */
             user->wall_yplus_excursions = 0;
+        }
+
+        /* The stop above reads the mean, which a local excursion - a corner, a separation,
+           an outlet - cannot move. The maximum is reported once, with where it is, so such a
+           site is visible without stopping a run whose wall is otherwise in range. */
+        if (global_sum[0] > 0.0 && global_max[1] > upper && !user->wall_yplus_max_reported) {
+            user->wall_yplus_max_reported = PETSC_TRUE;
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "Wall model (%s): first-cell y+ reaches %.2f on face %s at cell (%d, %d, %d), above %s "
+                      "(up to %.0f), although the wall-face mean %.2f is in range. Reported once; "
+                      "wall_model.csv tracks the maximum and its location every step.\n",
+                      WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction),
+                      (double)global_max[1], BCFaceToString((BCFace)global_at[4]), (int)global_at[5],
+                      (int)global_at[6], (int)global_at[7], range_reason, (double)upper, (double)y_plus_mean);
         }
     }
 

@@ -417,13 +417,13 @@ static inline PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
  * check in `BoundarySystem_Validate()`. Both rules state the same boundary
  * fact: the wall-normal flux at a no-slip wall is not an unknown.
  *
- * `ComputeViscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall face and
- * falls back to zero only when `simCtx->wallfunction` is unset, so this branch is
- * already wrong for a wall-modelled run -- it simply has no way to express that yet.
- * Widening the stencil makes it reachable and therefore wrong in effect: an interior
- * row would need the eddy viscosity on the wall face for its off-diagonal. Fix this
- * to read `lNu_Wall` before adding any preconditioner with stencil_width >= 1, or any
- * row classification that makes wall-normal DOFs solvable. Tracked as issue #8.
+ * On a wall-resolved face `ComputeViscous()` uses the molecular gradient flux with no eddy
+ * viscosity, which this branch matches. On a wall-modelled face it applies the wall
+ * stress `ApplyWallFunction()` stored, with no gradient flux at all: that flux depends on
+ * the reference cell, the second from the wall, through the law, and not on the cells
+ * either side of the face. Widening the stencil would make the branch reachable, and the
+ * block would then need the law's derivative with respect to the reference velocity in
+ * place of any viscosity here. Tracked as issue #8.
  */
 static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
     const UserCtx *user, const PetscReal ***nu_t, PetscInt axis,

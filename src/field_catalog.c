@@ -63,16 +63,17 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
                 FIELD_CAPABILITY_CHECKPOINT, Friction_Velocity, lFriction_Velocity,
                 FIELD_DIM_VELOCITY),
-    /* The wall model's effective eddy viscosity at its own wall face. A wall-resolved
-       run has no such face and carries zero here; the field exists so the viscous flux
-       can deliver the modelled stress without re-deriving the wall distance and
-       tangential speed that produced it. Derived state, so not checkpointed. */
-    FIELD_ENTRY(FIELD_ID_NU_WALL, "NuWall", "Wall Eddy Viscosity", NULL, 1, FIELD_DM_DA,
+    /* The wall model's kinematic wall shear stress, one vector per wall-face element,
+       stored in that face's dummy cell (no two wall faces share one) and oriented as the
+       face's viscous flux per unit area. The viscous operator applies it on the wall face
+       in place of a gradient flux. Derived state, rebuilt every wall pass, so not
+       checkpointed. */
+    FIELD_ENTRY(FIELD_ID_WALL_STRESS, "WallStress", "Wall Shear Stress", NULL, 3, FIELD_DM_FDA,
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
                 FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC,
-                Nu_Wall, lNu_Wall,
-                FIELD_DIM_DIFFUSIVITY),
+                Wall_Stress, lWall_Stress,
+                FIELD_DIM_VELOCITY_SQUARED),
     /* The synthetic-inflow time filter's state: three unit-variance components per inlet face
        cell, stored in that face's dummy plane. It carries the inflow's memory, so a restart
        reads it back. Only its inlets read it, through the global vector; the restart's ghost

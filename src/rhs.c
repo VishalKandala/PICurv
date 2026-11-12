@@ -290,7 +290,7 @@ static PICURV_ALWAYS_INLINE Cmpnts RHSViscousFaceFlux(const PoissonFaceMetrics *
  */
 static PICURV_ALWAYS_INLINE void RHSViscousFluxesAlong(const UserCtx *user, const PoissonFaceMetrics *metrics,
                                                        const Cmpnts ***ucat, const PetscReal ***nvert,
-                                                       const PetscReal ***lnu_t, const PetscReal ***lnu_wall,
+                                                       const PetscReal ***lnu_t, const Cmpnts ***lwall_stress,
                                                        const PetscInt lo[3], const PetscInt hi[3],
                                                        const PetscInt m[3], PetscInt n, PetscBool les,
                                                        PetscBool clark, Cmpnts ***fp)
@@ -310,15 +310,25 @@ static PICURV_ALWAYS_INLINE void RHSViscousFluxesAlong(const UserCtx *user, cons
                 PetscReal      nu = 1./ren, nu_t = 0;
                 Cmpnts         d[3];
 
-                if (les) {
-                    nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k + across[2]][j + across[1]][i + across[0]]);
-                    /* Zero suits a wall-resolved run, where the subgrid stress vanishes at the
-                       wall; with a wall model this face is where the modelled stress enters. */
-                    if ((wall_lo && c[n] == 0) || (wall_hi && c[n] == m[n] - 2)) {
-                        PetscInt w[3] = {i, j, k};
-                        w[n] = (c[n] == 0) ? 1 : m[n] - 2;
-                        nu_t = lnu_wall ? lnu_wall[w[2]][w[1]][w[0]] : 0.0;
+                if ((wall_lo && c[n] == 0) || (wall_hi && c[n] == m[n] - 2)) {
+                    /* A wall-modelled face carries the modelled stress itself, already
+                       oriented as this face's flux and stored in the face's dummy cell
+                       (ApplyWallFunction), times the face area: the law, not a gradient
+                       across the resolved first cell, sets the wall shear. A wall-resolved
+                       face keeps the molecular gradient flux; the subgrid stress vanishes at
+                       a wall, so the eddy viscosity there is zero. */
+                    if (lwall_stress) {
+                        const Cmpnts    N = metrics->metric[n][n][k][j][i];
+                        const PetscReal area = PetscSqrtReal(N.x * N.x + N.y * N.y + N.z * N.z);
+                        PetscInt        w[3] = {i, j, k};
+                        w[n] = (c[n] == 0) ? 0 : m[n] - 1;
+                        fp[k][j][i].x = lwall_stress[w[2]][w[1]][w[0]].x * area;
+                        fp[k][j][i].y = lwall_stress[w[2]][w[1]][w[0]].y * area;
+                        fp[k][j][i].z = lwall_stress[w[2]][w[1]][w[0]].z * area;
+                        continue;
                     }
+                } else if (les) {
+                    nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k + across[2]][j + across[1]][i + across[0]]);
                 }
                 RHSFaceVelocityDifferences(ucat, nvert, c, n, d);
                 fp[k][j][i] = RHSViscousFaceFlux(metrics, d, c, n, nu, nu_t, les, clark);
@@ -345,7 +355,8 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucat, Vec Visc)
     Vec                  Fp[3];
     Cmpnts            ***fp[3], ***visc;
     const Cmpnts      ***ucat;
-    const PetscReal   ***nvert, ***lnu_t = NULL, ***lnu_wall = NULL;
+    const PetscReal   ***nvert, ***lnu_t = NULL;
+    const Cmpnts      ***lwall_stress = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -360,15 +371,15 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucat, Vec Visc)
     PetscCall(DMDAVecGetArrayRead(user->fda, Ucat, (void *)&ucat));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
     if (les) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_t, (void *)&lnu_t));
-    /* A wall model replaces the subgrid viscosity at its own face rather than adding to it, so
-       the flux there carries the stress the model computed instead of the molecular fraction. */
-    if (simCtx->wallfunction) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_Wall, (void *)&lnu_wall));
+    /* A wall model supplies its own face's flux: the modelled stress, in place of the
+       gradient flux across the resolved first cell. */
+    if (simCtx->wallfunction) PetscCall(DMDAVecGetArrayRead(user->fda, user->lWall_Stress, (void *)&lwall_stress));
     PetscCall(DMDAVecGetArray(user->fda, Visc, &visc));
 
     /* Stresses on every face of the owned cells, one constant direction per call. */
-    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 0, les, clark, fp[0]);
-    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 1, les, clark, fp[1]);
-    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 2, les, clark, fp[2]);
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lwall_stress, lo, hi, m, 0, les, clark, fp[0]);
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lwall_stress, lo, hi, m, 1, les, clark, fp[1]);
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lwall_stress, lo, hi, m, 2, les, clark, fp[2]);
 
     /* Viscous term in Cartesian components: the net stress out of each cell. */
     for (PetscInt k = lo[2]; k < hi[2]; k++) {
@@ -391,7 +402,7 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucat, Vec Visc)
     }
 
     PetscCall(DMDAVecRestoreArray(user->fda, Visc, &visc));
-    if (lnu_wall) PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNu_Wall, (void *)&lnu_wall));
+    if (lwall_stress) PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lWall_Stress, (void *)&lwall_stress));
     if (lnu_t) PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNu_t, (void *)&lnu_t));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, Ucat, (void *)&ucat));

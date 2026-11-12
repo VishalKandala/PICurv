@@ -66,8 +66,8 @@ direction by the cell's own spacing. Entries and full detail at
 DNS field, every one removes the energy pile-up an unmodelled run builds at the grid
 cutoff, and the dynamic coefficient settles at 0.18-0.19; none keeps the resolved energy
 decay within 10% of the DNS during start-up (@ref p72_status_sec). The dynamic model with
-homogeneous averaging and the Werner wall model reproduces Lee & Moser's Re_tau = 1000
-channel within criteria fixed beforehand. The `geometric_mean` width is supported on
+homogeneous averaging reproduced Lee & Moser's Re_tau = 1000 channel within criteria fixed
+beforehand, with a Werner wall model in the formulation it had then. The `geometric_mean` width is supported on
 orthogonal cells, where it reproduces `cube_root_volume`. The `simpson_ik` test filter is
 supported for planes homogeneous in xi and zeta, after a fix to its dynamic-procedure weighting.
 
@@ -75,13 +75,13 @@ There is no RANS closure. A `k_omega` selector existed until 2026-09-22, but not
 behind it was ever implemented, so it was removed and the subsystem returned to planned;
 `models.physics.turbulence.rans` is now refused at validation (@ref p57_rans_sec). Wall
 functions are configured separately from the LES closure, and offer three
-laws - `log_law`, `werner`, and `cabot`; `log_law` and `werner` are supported on that
-channel validation, and `cabot` is known-defective: on the same channel its pressure-gradient
-term put the friction velocity 22% low. The correction is applied inside the
-momentum solve and again before the LES strain rates are formed, so a
-wall-modelled large-eddy simulation is coupled in both directions, and the modelled
-stress reaches the momentum equation through an effective eddy viscosity installed at
-the wall face.
+laws - `log_law`, `werner`, and `cabot`. Each is a stress boundary condition: the law's
+`u_tau^2`, evaluated from the resolved velocity of the second cell from the wall, is
+applied on each wall face, and the resolved velocity is left as it is. `log_law` and
+`werner` are experimental: the channel validation that made them supported was taken with
+the earlier formulation, which overwrote the first cell's velocity, and is owed again.
+`cabot` is known-defective: on the same channel its pressure-gradient term put the friction
+velocity 22% low.
 
 @note A wall model is not independent of the turbulence model in the way its
 configuration placement suggests. It supplies the stress of a layer the mesh does not

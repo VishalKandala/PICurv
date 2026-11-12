@@ -309,7 +309,7 @@ def test_changed_path_test_targets_come_from_the_narrowest_owner():
     assert "make unit-boundaries" in module.targets_for_routes(module.routes_for_path("src/Boundaries.c"))
     # Owned through its freshness surface; the LES and grid subsystems share its pages only.
     targets = module.targets_for_routes(module.routes_for_path("src/wallfunction.c"))
-    assert targets == ["make unit-boundaries", "make unit-runtime"]
+    assert targets == ["make unit-boundaries", "make unit-poisson-rhs", "make unit-runtime"]
     assert module.targets_for_routes({}) == []
 
 
