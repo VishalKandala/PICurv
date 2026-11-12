@@ -88,6 +88,25 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
                                            const PetscReal u[3],PetscReal uc[3]);
 
 /**
+ * @brief @p velocity less its component along the face metric @p metric, which leaves it tangent
+ *        to the face. A face of zero area has no normal, and @p velocity is returned unchanged.
+ *        Shared by the boundary handlers and the wall model, which both need the wall-parallel
+ *        part of a velocity on a curvilinear face.
+ */
+static inline Cmpnts RemoveFaceNormalComponent(Cmpnts velocity, Cmpnts metric)
+{
+    const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+    const PetscReal normal = (area_sq > 0.0)
+        ? (velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z) / area_sq : 0.0;
+    Cmpnts tangential;
+
+    tangential.x = velocity.x - normal * metric.x;
+    tangential.y = velocity.y - normal * metric.y;
+    tangential.z = velocity.z - normal * metric.z;
+    return tangential;
+}
+
+/**
  * @brief Computes the unit normal vectors and areas of the three faces of a computational cell.
  *
  * Given the metric vectors (csi, eta, zet), this function calculates the geometric

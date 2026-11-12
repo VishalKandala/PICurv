@@ -402,6 +402,24 @@ typedef struct BoundaryCondition {
     PetscBool needs_repeat_pass;
 } BoundaryCondition;
 
+/**
+ * @brief The elements of one boundary face that this rank owns: one per interior cell beside
+ *        the face, addressed by the face's normal axis, its two tangential axes and their owned
+ *        index ranges. Filled by GetBoundaryFaceElements().
+ *
+ * Element (p, q) sits at index `layer` along `normal`, `lo[0] + p` along `a` and `lo[1] + q`
+ * along `b`. `layer` indexes the face's own metric and flux: 0 on a negative face, where the
+ * dummy cell is that same index and the cell behind it is 1; m - 2 on a positive face, where the
+ * cell behind it is that index and the dummy cell is m - 1.
+ */
+typedef struct BoundaryFaceElements {
+    PetscInt normal;  /**< Logical axis of the face normal. */
+    PetscInt a, b;    /**< The two tangential axes, a < b. */
+    PetscInt layer;   /**< Index along the normal of the face's metric and flux. */
+    PetscInt lo[2];   /**< First owned indices along a and b. */
+    PetscInt n[2];    /**< Owned elements along a and b; 0 when this rank does not serve the face. */
+} BoundaryFaceElements;
+
 /** @brief Holds the complete configuration for one of the six boundary faces. */
 typedef struct BoundaryFaceConfig {
     BCFace             face_id;

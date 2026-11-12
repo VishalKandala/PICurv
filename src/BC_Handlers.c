@@ -214,22 +214,6 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
     PetscFunctionReturn(0);
 }
 
-/**
- * @brief @p velocity less its component along the face metric @p metric, which leaves it tangent
- *        to the face. A face of zero area has no normal, and @p velocity is returned unchanged.
- */
-static inline Cmpnts RemoveFaceNormalComponent(Cmpnts velocity, Cmpnts metric)
-{
-    const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
-    const PetscReal normal = (area_sq > 0.0)
-        ? (velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z) / area_sq : 0.0;
-    Cmpnts tangential;
-
-    tangential.x = velocity.x - normal * metric.x;
-    tangential.y = velocity.y - normal * metric.y;
-    tangential.z = velocity.z - normal * metric.z;
-    return tangential;
-}
 
 /**
  * @brief The free-slip wall's boundary velocity: the adjacent velocity, less its normal part.
@@ -327,7 +311,7 @@ static inline PetscInt PrescribedSlot(const InletPrescribedVelocityData *data, P
 {
     const PetscInt idx[3] = {i, j, k};
     const PicurvSourceFaceSlots *slots = &data->slots;
-    return (idx[slots->a] - slots->lo[0]) + slots->n[0] * (idx[slots->b] - slots->lo[1]);
+    return (idx[slots->elements.a] - slots->elements.lo[0]) + slots->elements.n[0] * (idx[slots->elements.b] - slots->elements.lo[1]);
 }
 
 /**
@@ -894,7 +878,7 @@ static PetscErrorCode Initialize_InletPrescribedVelocity(BoundaryCondition *self
 static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id, PetscReal local[4])
 {
     const PicurvSourceFaceSlots *slots = &data->slots;
-    const PetscInt normal = slots->normal, a = slots->a, b = slots->b;
+    const PetscInt normal = slots->elements.normal, a = slots->elements.a, b = slots->elements.b;
     const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
     const PetscReal sign = negative ? 1.0 : -1.0, U_ref = user->simCtx->scaling.U_ref;
     const PetscReal L_ref = user->simCtx->scaling.L_ref;
@@ -902,35 +886,35 @@ static PetscErrorCode PrescribedFaceSums(const InletPrescribedVelocityData *data
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
     local[0] = local[1] = local[2] = local[3] = 0.0;
-    if (slots->n[0] * slots->n[1] > 0) {
-        const PetscInt slot = slots->layer;
+    if (slots->elements.n[0] * slots->elements.n[1] > 0) {
+        const PetscInt slot = slots->elements.layer;
         const PetscInt cell = negative ? slot + 1 : slot;
         const Cmpnts ***metric_arr;
         const PetscReal ***nvert;
         Vec metric_vec = (normal == 0) ? user->lCsi : (normal == 1) ? user->lEta : user->lZet;
         PetscCall(DMDAVecGetArrayRead(user->fda, metric_vec, &metric_arr));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, &nvert));
-        for (PetscInt q = 0; q < slots->n[1]; ++q)
-        for (PetscInt p = 0; p < slots->n[0]; ++p) {
+        for (PetscInt q = 0; q < slots->elements.n[1]; ++q)
+        for (PetscInt p = 0; p < slots->elements.n[0]; ++p) {
             PetscInt s_idx[3], c_idx[3];
-            s_idx[normal] = slot; s_idx[a] = slots->lo[0] + p; s_idx[b] = slots->lo[1] + q;
+            s_idx[normal] = slot; s_idx[a] = slots->elements.lo[0] + p; s_idx[b] = slots->elements.lo[1] + q;
             c_idx[normal] = cell; c_idx[a] = s_idx[a]; c_idx[b] = s_idx[b];
             if (nvert[c_idx[2]][c_idx[1]][c_idx[0]] > 0.1) continue;
             const Cmpnts m = metric_arr[s_idx[2]][s_idx[1]][s_idx[0]];
-            const Cmpnts v = data->velocity[p + slots->n[0] * q];
+            const Cmpnts v = data->velocity[p + slots->elements.n[0] * q];
             const PetscReal area = PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z);
             const PetscReal physical = U_ref * L_ref * L_ref;
             local[0] += physical * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
                                     ? v.x * area : sign * (v.x * m.x + v.y * m.y + v.z * m.z));
             if (data->profile) {
-                const Cmpnts staged = data->profile[p + slots->n[0] * q];
+                const Cmpnts staged = data->profile[p + slots->elements.n[0] * q];
                 local[1] += physical * ((data->source.frame == PICURV_SOURCE_FRAME_NORMAL)
                                         ? staged.x * area : sign * (staged.x * m.x + staged.y * m.y + staged.z * m.z));
             }
             local[2] += L_ref * L_ref * area;
             /* Fluctuations are Cartesian in every frame (Apply adds them to the velocity). */
             if (data->fluct) {
-                const Cmpnts f = data->fluct[p + slots->n[0] * q];
+                const Cmpnts f = data->fluct[p + slots->elements.n[0] * q];
                 local[3] += physical * sign * (f.x * m.x + f.y * m.y + f.z * m.z);
             }
         }
@@ -980,10 +964,10 @@ static PetscErrorCode LoadPrescribedFrame(InletPrescribedVelocityData *data, Pet
     }
     while (data->next_frame <= frame) PetscCall(ReadPicSliceFrame(data));
     /* A PICSLICE row runs along the face's first tangential axis; rows step along the second. */
-    for (PetscInt q = 0; q < slots->n[1]; ++q)
-    for (PetscInt p = 0; p < slots->n[0]; ++p) {
-        const PetscReal *value = &data->file_values[components * ((slots->lo[1] + q - 1) * n2 + (slots->lo[0] + p - 1))];
-        Cmpnts *v = &target[p + slots->n[0] * q];
+    for (PetscInt q = 0; q < slots->elements.n[1]; ++q)
+    for (PetscInt p = 0; p < slots->elements.n[0]; ++p) {
+        const PetscReal *value = &data->file_values[components * ((slots->elements.lo[1] + q - 1) * n2 + (slots->elements.lo[0] + p - 1))];
+        Cmpnts *v = &target[p + slots->elements.n[0] * q];
         v->x = value[0];
         v->y = (components == 3) ? value[1] : 0.0;
         v->z = (components == 3) ? value[2] : 0.0;
@@ -998,7 +982,7 @@ static PetscErrorCode LoadPrescribedFrame(InletPrescribedVelocityData *data, Pet
  */
 static PetscErrorCode OpenPrescribedProfile(InletPrescribedVelocityData *data, UserCtx *user, BCFace face_id)
 {
-    const PetscInt n_slots = data->slots.n[0] * data->slots.n[1];
+    const PetscInt n_slots = data->slots.elements.n[0] * data->slots.elements.n[1];
     const PetscBool normal = (PetscBool)(data->source.frame == PICURV_SOURCE_FRAME_NORMAL);
     PetscInt n1 = 0, n2 = 0;
 
@@ -1032,7 +1016,7 @@ static PetscErrorCode OpenPrescribedProfile(InletPrescribedVelocityData *data, U
  */
 static PetscErrorCode InterpolatePrescribedFrames(InletPrescribedVelocityData *data, BCFace face_id, PetscReal physical_time)
 {
-    const PetscInt n_slots = data->slots.n[0] * data->slots.n[1];
+    const PetscInt n_slots = data->slots.elements.n[0] * data->slots.elements.n[1];
     const PetscReal position = physical_time / data->interval;
     PetscInt  frame[2] = {(PetscInt)PetscFloorReal(position), 0};
     PetscReal weight = position - PetscFloorReal(position);
@@ -1130,8 +1114,8 @@ PetscErrorCode LogPrescribedFlowDiagnostics(UserCtx *user)
 static PetscErrorCode BuildInletFluctuation(InletPrescribedVelocityData *data, UserCtx *user)
 {
     PicurvSourceFaceSlots *slots = &data->slots;
-    const PetscInt         count = slots->n[0] * slots->n[1];
-    const PetscInt         tangential[2] = {slots->a, slots->b};
+    const PetscInt         count = slots->elements.n[0] * slots->elements.n[1];
+    const PetscInt         tangential[2] = {slots->elements.a, slots->elements.b};
     const PetscReal        U2 = user->simCtx->scaling.U_ref * user->simCtx->scaling.U_ref;
     /* Widest and narrowest cell along each axis, as {max0, max1, -min0, -min1}. Each width comes
        from its own cell's metrics and a maximum is exact in any order, so every decomposition
@@ -1199,13 +1183,13 @@ static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, Us
 {
     SimCtx                      *simCtx = user->simCtx;
     const PicurvSourceFaceSlots *slots = &data->slots;
-    const PetscInt               n0 = slots->n[0], n1 = slots->n[1], h0 = data->half[0], h1 = data->half[1];
+    const PetscInt               n0 = slots->elements.n[0], n1 = slots->elements.n[1], h0 = data->half[0], h1 = data->half[1];
     const PetscInt               w0 = n0 + 2 * h0, w1 = n1 + 2 * h1;
     const PetscInt               nodes[3] = {user->info.mx, user->info.my, user->info.mz};
-    const PetscInt               cells[2] = {nodes[slots->a] - 2, nodes[slots->b] - 2};
+    const PetscInt               cells[2] = {nodes[slots->elements.a] - 2, nodes[slots->elements.b] - 2};
     PetscBool                    axes_periodic[3];
     GetPeriodicAxes(simCtx, axes_periodic);
-    const PetscBool              periodic[2] = {axes_periodic[slots->a], axes_periodic[slots->b]};
+    const PetscBool              periodic[2] = {axes_periodic[slots->elements.a], axes_periodic[slots->elements.b]};
     const PetscBool              negative = (PetscBool)((PetscInt)face_id % 2 == 0);
     const PetscReal              decay = PetscExpReal(-PETSC_PI * simCtx->dt / (2.0 * data->fluct_time));
     const PetscReal              gain = PetscSqrtReal(1.0 - decay * decay);
@@ -1222,7 +1206,7 @@ static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, Us
         for (PetscInt c = 0; c < 3 && !restored; ++c) {
             for (PetscInt qq = 0; qq < w1; ++qq) {
                 for (PetscInt pp = 0; pp < w0; ++pp) {
-                    PetscInt g[2] = {slots->lo[0] - 1 - h0 + pp, slots->lo[1] - 1 - h1 + qq};
+                    PetscInt g[2] = {slots->elements.lo[0] - 1 - h0 + pp, slots->elements.lo[1] - 1 - h1 + qq};
                     for (PetscInt d = 0; d < 2; ++d) if (periodic[d]) g[d] = ((g[d] % cells[d]) + cells[d]) % cells[d];
                     /* A face cell, or one of its halo beyond a closed edge, on a lattice padded by a fixed
                        width, so a draw does not depend on the filter's half-widths. */
@@ -1254,9 +1238,9 @@ static PetscErrorCode StepInletFluctuation(InletPrescribedVelocityData *data, Us
             for (PetscInt p = 0; p < n0; ++p) {
                 const PetscInt   s = p + n0 * q;
                 PetscInt         idx[3];
-                idx[slots->normal] = negative ? 0 : nodes[slots->normal] - 1;
-                idx[slots->a] = slots->lo[0] + p;
-                idx[slots->b] = slots->lo[1] + q;
+                idx[slots->elements.normal] = negative ? 0 : nodes[slots->elements.normal] - 1;
+                idx[slots->elements.a] = slots->elements.lo[0] + p;
+                idx[slots->elements.b] = slots->elements.lo[1] + q;
                 Cmpnts          *st = &state[idx[2]][idx[1]][idx[0]];
                 const PetscReal *f = &psi[3 * s];
                 if (fresh) { st->x = f[0]; st->y = f[1]; st->z = f[2]; }
@@ -1304,7 +1288,7 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
         PetscCall(PicurvSourceFaceSlotsCreate(user, ctx->face_id, fraction, length, &data->slots));
         PetscCall(VecDestroy(&fraction));
         PetscCall(VecDestroy(&length));
-        PetscCall(PetscMalloc1(data->slots.n[0] * data->slots.n[1], &data->velocity));
+        PetscCall(PetscMalloc1(data->slots.elements.n[0] * data->slots.elements.n[1], &data->velocity));
         if (data->source_file) PetscCall(OpenPrescribedProfile(data, user, ctx->face_id));
         if (data->fluctuate) PetscCall(BuildInletFluctuation(data, user));
     }
@@ -1316,10 +1300,10 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
     if (evaluate && data->source.count > 0) {
         const PetscReal U_ref = simCtx->scaling.U_ref;
         const PetscInt  nodes[3] = {user->info.mx, user->info.my, user->info.mz};
-        for (PetscInt s = 0; s < data->slots.n[0] * data->slots.n[1]; ++s) {
-            const PetscInt p = s % data->slots.n[0], q = s / data->slots.n[0];
+        for (PetscInt s = 0; s < data->slots.elements.n[0] * data->slots.elements.n[1]; ++s) {
+            const PetscInt p = s % data->slots.elements.n[0], q = s / data->slots.elements.n[0];
             const PicurvExpressionDrawKey key = PicurvFaceDrawKey((PetscInt64)simCtx->sourceRandomSeed, user->_this, nodes, ctx->face_id,
-                                                                  data->slots.lo[0] + p - 1, data->slots.lo[1] + q - 1,
+                                                                  data->slots.elements.lo[0] + p - 1, data->slots.elements.lo[1] + q - 1,
                                                                   (PetscInt64)simCtx->step);
             Cmpnts v;
             data->slots.values[s][PICURV_SOURCE_VAR_T] = physical_time;
@@ -1328,7 +1312,7 @@ static PetscErrorCode PreStep_InletPrescribedVelocity(BoundaryCondition *self, B
             data->velocity[s].y = v.y / U_ref;
             data->velocity[s].z = v.z / U_ref;
             if (user->boundary_faces[ctx->face_id].handler_type == BC_HANDLER_WALL_MOVING) {
-                const Cmpnts m = data->slots.edges[s][data->slots.normal];
+                const Cmpnts m = data->slots.edges[s][data->slots.elements.normal];
                 const PetscReal speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
                 const PetscReal through = v.x * m.x + v.y * m.y + v.z * m.z;
                 PetscCheck(through * through <= 2.5e-3 * speed2 * (m.x * m.x + m.y * m.y + m.z * m.z), PETSC_COMM_SELF, PETSC_ERR_USER_INPUT,

@@ -130,13 +130,13 @@ static PetscErrorCode SetBoundaryVelocityFromSource(UserCtx *user, const struct 
     PetscCall(DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs));
     for (PetscInt face = 0; face < 6; ++face) {
         const PicurvSourceFaceSlots *slots = &field->faces[block][face];
-        for (PetscInt q = 0; q < slots->n[1]; ++q)
-        for (PetscInt p = 0; p < slots->n[0]; ++p) {
-            const PetscInt s = p + slots->n[0] * q;
+        for (PetscInt q = 0; q < slots->elements.n[1]; ++q)
+        for (PetscInt p = 0; p < slots->elements.n[0]; ++p) {
+            const PetscInt s = p + slots->elements.n[0] * q;
             PetscInt f[3];
             Cmpnts v;
             /* A + face's boundary value sits one past its flux, in the dummy layer. */
-            f[slots->normal] = slots->layer + face % 2; f[slots->a] = slots->lo[0] + p; f[slots->b] = slots->lo[1] + q;
+            f[slots->elements.normal] = slots->elements.layer + face % 2; f[slots->elements.a] = slots->elements.lo[0] + p; f[slots->elements.b] = slots->elements.lo[1] + q;
             slots->values[s][PICURV_SOURCE_VAR_T] = physical_time;
             PetscCall(PicurvVelocitySourceEvaluate(&field->source, slots->values[s], NULL, slots->edges[s], &v));
             ubcs[f[2]][f[1]][f[0]].x = field->factor * v.x / U_ref;

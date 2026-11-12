@@ -98,6 +98,34 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref GetBoundaryFaceElements().
+ * @see GetBoundaryFaceElements()
+ */
+PetscErrorCode GetBoundaryFaceElements(UserCtx *user, BCFace face_id, BoundaryFaceElements *elements)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       nodes[3] = {info->mx, info->my, info->mz};
+    const PetscBool      negative = (PetscBool)((PetscInt)face_id % 2 == 0);
+    PetscBool            can_service = PETSC_FALSE;
+    PetscInt             lo[3], hi[3];
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    elements->normal = (PetscInt)face_id / 2;
+    elements->a = (elements->normal == 0) ? 1 : 0;
+    elements->b = (elements->normal == 2) ? 1 : 2;
+    elements->layer = negative ? 0 : nodes[elements->normal] - 2;
+    PetscCall(CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service));
+    GetOwnedInteriorCellBounds(info, lo, hi);
+    elements->lo[0] = lo[elements->a];
+    elements->lo[1] = lo[elements->b];
+    elements->n[0] = can_service ? hi[elements->a] - lo[elements->a] : 0;
+    elements->n[1] = can_service ? hi[elements->b] - lo[elements->b] : 0;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 
 /**
  * @brief Implementation of \ref ClassifyMomentumRow().
@@ -3029,7 +3057,6 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
 PetscErrorCode LogBoundaryPressureDiagnostics(UserCtx *user)
 {
     SimCtx              *simCtx = user->simCtx;
-    const DMDALocalInfo *info   = &user->info;
     /* Per face: the area-weighted pressure sum and the open area. One collective for all six. */
     PetscReal            local[12] = {0.0}, global[12];
     PetscBool            selected[6] = {PETSC_FALSE};
@@ -3047,9 +3074,6 @@ PetscErrorCode LogBoundaryPressureDiagnostics(UserCtx *user)
     {
         const PetscReal ***pressure, ***nvert;
         const Cmpnts    ***metric[3];
-        const PetscInt   start[3] = {info->xs, info->ys, info->zs};
-        const PetscInt   end[3]   = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
-        const PetscInt   size[3]  = {info->mx, info->my, info->mz};
 
         PetscCall(DMDAVecGetArrayRead(user->da, user->P, (void *)&pressure));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
@@ -3057,30 +3081,21 @@ PetscErrorCode LogBoundaryPressureDiagnostics(UserCtx *user)
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&metric[1]));
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&metric[2]));
         for (PetscInt face = 0; face < 6; face++) {
-            PetscBool can_service = PETSC_FALSE;
-            if (!selected[face]) continue;
-            PetscCall(CanRankServiceFace(info, user->IM, user->JM, user->KM, (BCFace)face, &can_service));
-            if (!can_service) continue;
+            BoundaryFaceElements elements;
 
-            /* The first interior cell beside the face and the face's own metric, with the
-               edge and corner cells left out, as the outlet's flux sum does. */
-            const PetscInt axis = face / 2;
-            const PetscBool negative = (PetscBool)(face % 2 == 0);
-            PetscInt lo[3], hi[3];
-            for (PetscInt d = 0; d < 3; d++) {
-                lo[d] = (start[d] == 0) ? start[d] + 1 : start[d];
-                hi[d] = (end[d] == size[d]) ? end[d] - 1 : end[d];
-            }
-            const PetscInt cell = negative ? start[axis] + 1 : end[axis] - 2;
-            const PetscInt face_index = negative ? start[axis] : end[axis] - 2;
-            lo[axis] = cell;
-            hi[axis] = cell + 1;
-            for (PetscInt k = lo[2]; k < hi[2]; k++)
-            for (PetscInt j = lo[1]; j < hi[1]; j++)
-            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+            if (!selected[face]) continue;
+            /* The first interior cell beside each owned face element, and the face's own metric. */
+            PetscCall(GetBoundaryFaceElements(user, (BCFace)face, &elements));
+            const PetscInt axis = elements.normal;
+            const PetscInt cell = (face % 2 == 0) ? elements.layer + 1 : elements.layer;
+            for (PetscInt q = 0; q < elements.n[1]; q++)
+            for (PetscInt p = 0; p < elements.n[0]; p++) {
+                PetscInt c[3], f[3];
+                c[axis] = cell; c[elements.a] = elements.lo[0] + p; c[elements.b] = elements.lo[1] + q;
+                const PetscInt i = c[0], j = c[1], k = c[2];
                 if (nvert[k][j][i] > 0.1) continue;
-                PetscInt f[3] = {i, j, k};
-                f[axis] = face_index;
+                f[0] = i; f[1] = j; f[2] = k;
+                f[axis] = elements.layer;
                 const Cmpnts    m    = metric[axis][f[2]][f[1]][f[0]];
                 const PetscReal area = PetscSqrtReal(m.x * m.x + m.y * m.y + m.z * m.z);
                 local[2 * face]     += pressure[k][j][i] * area;

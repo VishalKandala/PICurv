@@ -1231,13 +1231,8 @@ PetscErrorCode PicurvSourceSetCellFields(UserCtx *user, const PicurvVelocitySour
 PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fraction, Vec length,
                                            PicurvSourceFaceSlots *slots)
 {
-    const DMDALocalInfo *info = &user->info;
-    const PetscInt start[3] = {info->xs, info->ys, info->zs};
-    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
-    const PetscInt nodes[3] = {info->mx, info->my, info->mz};
     const PetscReal L_ref = user->simCtx->scaling.L_ref;
     const PetscBool negative = (PetscBool)((PetscInt)face_id % 2 == 0);
-    PetscBool can_service = PETSC_FALSE;
     PetscInt  n_slots;
     Cmpnts    face_centre;
     PetscReal face_area;
@@ -1245,22 +1240,14 @@ PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fr
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     PetscCall(CalculateFaceCenterAndArea(user, face_id, &face_centre, &face_area));
-    slots->normal = (PetscInt)face_id / 2;
-    slots->a = (slots->normal == 0) ? 1 : 0;
-    slots->b = (slots->normal == 2) ? 1 : 2;
-    const PetscInt normal = slots->normal, a = slots->a, b = slots->b;
-    PetscCall(CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service));
-    slots->layer = negative ? start[normal] : nodes[normal] - 2;
-    slots->lo[0] = (start[a] == 0) ? 1 : start[a];
-    slots->lo[1] = (start[b] == 0) ? 1 : start[b];
-    slots->n[0] = can_service ? ((end[a] == nodes[a]) ? nodes[a] - 1 : end[a]) - slots->lo[0] : 0;
-    slots->n[1] = can_service ? ((end[b] == nodes[b]) ? nodes[b] - 1 : end[b]) - slots->lo[1] : 0;
-    n_slots = slots->n[0] * slots->n[1];
+    PetscCall(GetBoundaryFaceElements(user, face_id, &slots->elements));
+    const PetscInt normal = slots->elements.normal, a = slots->elements.a, b = slots->elements.b;
+    n_slots = slots->elements.n[0] * slots->elements.n[1];
     PetscCall(PetscMalloc2(n_slots, &slots->values, n_slots, &slots->edges));
 
     if (n_slots > 0) {
         /* The interior cell behind the slot layer. */
-        const PetscInt cell = negative ? slots->layer + 1 : slots->layer;
+        const PetscInt cell = negative ? slots->elements.layer + 1 : slots->elements.layer;
         const Vec centres = (normal == 0) ? user->lCentx : (normal == 1) ? user->lCenty : user->lCentz;
         const Cmpnts ***cent, ***frac, ***len, ***csi, ***eta, ***zet;
         const PetscReal ***aj;
@@ -1271,11 +1258,11 @@ PetscErrorCode PicurvSourceFaceSlotsCreate(UserCtx *user, BCFace face_id, Vec fr
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
-        for (PetscInt q = 0; q < slots->n[1]; ++q)
-        for (PetscInt p = 0; p < slots->n[0]; ++p) {
-            const PetscInt s = p + slots->n[0] * q;
+        for (PetscInt q = 0; q < slots->elements.n[1]; ++q)
+        for (PetscInt p = 0; p < slots->elements.n[0]; ++p) {
+            const PetscInt s = p + slots->elements.n[0] * q;
             PetscInt f[3], c[3];
-            f[normal] = slots->layer; f[a] = slots->lo[0] + p; f[b] = slots->lo[1] + q;
+            f[normal] = slots->elements.layer; f[a] = slots->elements.lo[0] + p; f[b] = slots->elements.lo[1] + q;
             c[normal] = cell; c[a] = f[a]; c[b] = f[b];
             PicurvSourceSetVariables(slots->values[s], cent[f[2]][f[1]][f[0]], frac[c[2]][c[1]][c[0]], len[c[2]][c[1]][c[0]], L_ref);
             slots->values[s][PICURV_SOURCE_VAR_T] = 0.0;

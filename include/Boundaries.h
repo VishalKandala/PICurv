@@ -142,6 +142,22 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
                                   BCFace face_id, PetscBool *can_service_out);
 
 /**
+ * @brief The elements of a boundary face this rank owns, as index ranges.
+ *
+ * Purely local: it reads the block's decomposition through CanRankServiceFace() and
+ * GetOwnedInteriorCellBounds(), allocates nothing and communicates nothing, so a per-pass loop
+ * over a face's elements may call it freely. Edge and corner elements of the face are those of
+ * the interior cells beside it; the dummy rows of the other faces are not included.
+ *
+ * @param[in]  user     Block context.
+ * @param[in]  face_id  Face.
+ * @param[out] elements Axes, the face's metric/flux layer, and the owned tangential ranges;
+ *                      `n` is zero along both axes when this rank does not serve the face.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode GetBoundaryFaceElements(UserCtx *user, BCFace face_id, BoundaryFaceElements *elements);
+
+/**
  * @brief Reports whether a boundary face is a wall that exerts shear on the flow.
  *
  * Every WALL face is impenetrable, and code that needs only that tests the type. A

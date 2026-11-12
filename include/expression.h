@@ -314,11 +314,7 @@ static inline PicurvExpressionDrawKey PicurvFaceDrawKey(PetscInt64 seed, PetscIn
 
 /** @brief What a source reads at each boundary-face slot this rank owns, gathered once. */
 typedef struct {
-    PetscInt   normal;  /**< Logical axis of the face normal. */
-    PetscInt   a, b;    /**< The two tangential axes. */
-    PetscInt   layer;   /**< Index along the normal of the face's metric and flux. */
-    PetscInt   lo[2];   /**< First tangential indices of the owned slots. */
-    PetscInt   n[2];    /**< Owned slots along the two tangential axes; 0 off the face. */
+    BoundaryFaceElements elements;               /**< The owned face elements the slots are. */
     PetscReal (*values)[PICURV_SOURCE_VAR_COUNT]; /**< Variables per slot; `t` is the caller's. */
     Cmpnts    (*edges)[3];                        /**< Directions per slot, for the curvilinear frame. */
 } PicurvSourceFaceSlots;
