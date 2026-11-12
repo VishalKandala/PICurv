@@ -1,0 +1,6 @@
+- Run diagnostics for locating and stopping a failing solve (f3472887; #24, #25, #26, #28, #29):
+  - `wall_model.csv` records the wall face and cell of the maximum friction velocity and `y+`.
+  - `inlet_flow.csv` adds `fluctuation_flow_rate` and `applied_flow_rate`, the flux an inlet with synthetic fluctuations actually admits; `flow_rate` remains the rescaled mean.
+  - New `boundary_pressure.csv`: per-step mean pressure on each inlet and outlet face, whose difference is the pressure drop.
+  - New `solver.yml` key `tolerances.max_consecutive_unconverged_steps` stops a run after that many consecutive unconverged momentum steps (default 0, off).
+  - `picurv run` gives the one-rank restart-continuation check 120 s and undoes staging with a named cause instead of hanging on a cluster login node.
