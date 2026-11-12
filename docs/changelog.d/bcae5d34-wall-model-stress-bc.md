@@ -1,0 +1,7 @@
+
+- Wall models are a stress boundary condition (bcae5d34, ecb42cac): each wall face carries the law's `u_tau^2`, taken from the resolved velocity of the second cell, and the resolved velocity is no longer overwritten. The overwrite never reached the momentum residual, and the conservation outlet copied it into its mass flux, which drove outlet-corner backflow and a solver blow-up on a wall-modelled duct. `werner` and `log_law` return to experimental until their channel and bend comparisons are retaken.
+  - New field `WallStress` replaces `NuWall`. `Utau` is the RMS over a cell's wall faces, and `wall_model.csv` statistics are per wall-face element. A local `y+` above the law's range is reported once.
+  - The wall model calls each law's inverse directly; the overwrite-era wrappers and `noslip()` are removed.
+- Wall laws (8b1a6d08): the `log_law` and `werner` branch switches are continuous, `log_law` keeps a positive friction velocity on rough walls, and `cabot` keeps its stress sign and integrates its wall layer accurately (`cabot` is still known-defective).
+- `BoundaryFaceElements` / `GetBoundaryFaceElements()` and `RemoveFaceNormalComponent` are shared primitives (b57a73bf); the face slots, the wall model and the boundary-pressure record use them. Issue #30 tracks migrating the remaining face loops.
+- Docs and summarize follow-ups for f3472887 (3cc6daf8): `summarize --table inlet-flow` and `boundary-pressure`; page 19 units for the boundary records; page 39 entries for the unconverged-step stop and the restart-check timeout.
