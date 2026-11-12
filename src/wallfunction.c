@@ -19,9 +19,8 @@
  *   κ ≈ 0.41 (von Karman constant)
  *   B ≈ 5.5 (log-law intercept for smooth walls)
  *
- * IMPLEMENTED MODELS:
- *   - No-slip: Linear interpolation for stationary walls
- *   - Free-slip: Normal interpolation, tangential extrapolation
+ * IMPLEMENTED MODELS (each a profile and the friction velocity that inverts it, which
+ * ApplyWallFunction() turns into the wall shear stress):
  *   - Werner-Wengle: Algebraic wall function
  *   - Log-law: Standard equilibrium wall function with roughness
  *   - Cabot: Non-equilibrium wall function with pressure gradient effects
@@ -66,39 +65,6 @@
 // ============================================================================
 //                   BASIC BOUNDARY CONDITION FUNCTIONS
 // ============================================================================
-
-/**
- * @brief Implementation of \ref noslip().
- * @see noslip()
- */
-void noslip(UserCtx *user, 
-            double distance_reference, double distance_boundary,
-            Cmpnts velocity_wall, Cmpnts velocity_reference,
-            Cmpnts *velocity_boundary,
-            double normal_x, double normal_y, double normal_z)
-{
-    (void)user;
-    (void)normal_x;
-    (void)normal_y;
-    (void)normal_z;
-    // Compute velocity difference between reference point and wall
-    double delta_u = velocity_reference.x - velocity_wall.x;
-    double delta_v = velocity_reference.y - velocity_wall.y;
-    double delta_w = velocity_reference.z - velocity_wall.z;
-    
-    // Linear interpolation factor
-    double interpolation_factor = distance_boundary / distance_reference;
-    
-    // Apply linear interpolation
-    (*velocity_boundary).x = interpolation_factor * delta_u;
-    (*velocity_boundary).y = interpolation_factor * delta_v;
-    (*velocity_boundary).z = interpolation_factor * delta_w;
-    
-    // Add wall velocity (shift to absolute frame)
-    (*velocity_boundary).x += velocity_wall.x;
-    (*velocity_boundary).y += velocity_wall.y;
-    (*velocity_boundary).z += velocity_wall.z;
-}
 
 // ============================================================================
 //              ROUGHNESS-CORRECTED LOG-LAW FUNCTIONS
@@ -481,9 +447,8 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 double u_Werner(double kinematic_viscosity, double wall_distance,
                 double friction_velocity)
 {
-    /* The pointwise profile, and the production path: `wall_function()` evaluates it at
-       the boundary cell with the friction velocity `find_utau_Werner()` takes from the
-       reference cell, so one relation is used in both directions. */
+    /* The pointwise profile. ApplyWallFunction() takes the friction velocity from its exact
+       inverse, find_utau_Werner(), at the reference cell. */
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
     
     // Werner-Wengle constants
@@ -614,212 +579,3 @@ double find_utau_Werner(double kinematic_viscosity, double velocity,
 //          HIGH-LEVEL WALL FUNCTION INTERFACE FUNCTIONS
 // ============================================================================
 
-/**
- * @brief Implementation of \ref wall_function().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/wallfunction.h`.
- * @see wall_function()
- */
-void wall_function(UserCtx *user, double distance_reference, double distance_boundary,
-                   Cmpnts velocity_wall, Cmpnts velocity_reference,
-                   Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                   double normal_x, double normal_y, double normal_z)
-{
-    SimCtx *simCtx = user->simCtx;
-    double kinematic_viscosity = 1.0 / simCtx->ren;
-    
-    // Decompose velocity into components
-    double delta_u = velocity_reference.x - velocity_wall.x;
-    double delta_v = velocity_reference.y - velocity_wall.y;
-    double delta_w = velocity_reference.z - velocity_wall.z;
-    
-    double normal_velocity = delta_u * normal_x + delta_v * normal_y + delta_w * normal_z;
-    
-    double tangential_u = delta_u - normal_velocity * normal_x;
-    double tangential_v = delta_v - normal_velocity * normal_y;
-    double tangential_w = delta_w - normal_velocity * normal_z;
-    
-    double tangential_magnitude = sqrt(tangential_u * tangential_u +
-                                      tangential_v * tangential_v +
-                                      tangential_w * tangential_w);
-    
-    /* The reference speed is a point value - the velocity at the reference cell's centre,
-       `distance_reference` from the wall - so the wall stress comes from the pointwise
-       Werner-Wengle profile inverted there, and the boundary cell's speed from that same
-       profile at its own centre. One relation in both directions, as the log-law path
-       does, and both directions are closed form, so there is still no inner iteration.
-       The cell-integral relation (`taw_Werner()`) reads its input as the average over
-       [0, distance_reference]; given this point value it over-predicted u_tau by about
-       (1 + 1/7)^(7/8), 12-14%, on a wall-modelled channel at Re_tau ~ 1000. */
-    const double friction = find_utau_Werner(kinematic_viscosity, tangential_magnitude,
-                                             distance_reference, 0.0);
-    double tangential_modeled = u_Werner(kinematic_viscosity, distance_boundary, friction);
-    if (friction_velocity) {
-        *friction_velocity = (PetscReal)friction;
-    }
-    
-    // Scale tangential components
-    if (tangential_magnitude > 1.e-10) {
-        tangential_u *= tangential_modeled / tangential_magnitude;
-        tangential_v *= tangential_modeled / tangential_magnitude;
-        tangential_w *= tangential_modeled / tangential_magnitude;
-    }
-    else {
-        tangential_u = tangential_v = tangential_w = 0.0;
-    }
-    
-    // Reconstruct velocity: U = U_t + U_n * n
-    (*velocity_boundary).x = tangential_u + (distance_boundary / distance_reference) * normal_velocity * normal_x;
-    (*velocity_boundary).y = tangential_v + (distance_boundary / distance_reference) * normal_velocity * normal_y;
-    (*velocity_boundary).z = tangential_w + (distance_boundary / distance_reference) * normal_velocity * normal_z;
-    
-    // Add wall velocity
-    (*velocity_boundary).x += velocity_wall.x;
-    (*velocity_boundary).y += velocity_wall.y;
-    (*velocity_boundary).z += velocity_wall.z;
-}
-
-/**
- * @brief Implementation of \ref wall_function_loglaw().
- * @see wall_function_loglaw()
- */
-void wall_function_loglaw(UserCtx *user, double roughness_height,
-                          double distance_reference, double distance_boundary,
-                          Cmpnts velocity_wall, Cmpnts velocity_reference,
-                          Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                          double normal_x, double normal_y, double normal_z)
-{
-    SimCtx *simCtx = user->simCtx;
-    double kinematic_viscosity = 1.0 / simCtx->ren;
-    
-    // Decompose velocity
-    double delta_u = velocity_reference.x - velocity_wall.x;
-    double delta_v = velocity_reference.y - velocity_wall.y;
-    double delta_w = velocity_reference.z - velocity_wall.z;
-    
-    double normal_velocity = delta_u * normal_x + delta_v * normal_y + delta_w * normal_z;
-    
-    double tangential_u = delta_u - normal_velocity * normal_x;
-    double tangential_v = delta_v - normal_velocity * normal_y;
-    double tangential_w = delta_w - normal_velocity * normal_z;
-    
-    double tangential_magnitude = sqrt(tangential_u * tangential_u +
-                                      tangential_v * tangential_v +
-                                      tangential_w * tangential_w);
-    
-    // Solve for friction velocity
-    *friction_velocity = find_utau_hydset(kinematic_viscosity, tangential_magnitude,
-                                         distance_reference, 0.001, roughness_height);
-    
-    // Compute wall function velocity
-    double tangential_modeled = u_hydset_roughness(kinematic_viscosity, distance_boundary,
-                                                   *friction_velocity, roughness_height);
-    
-    // Check if outside valid range (y+ > 300)
-    if (tangential_modeled < 0.0) {
-        tangential_modeled = tangential_magnitude;
-    }
-    
-    // Scale tangential components
-    if (tangential_magnitude > 1.e-10) {
-        tangential_u *= tangential_modeled / tangential_magnitude;
-        tangential_v *= tangential_modeled / tangential_magnitude;
-        tangential_w *= tangential_modeled / tangential_magnitude;
-    }
-    else {
-        tangential_u = tangential_v = tangential_w = 0.0;
-    }
-    
-    // Reconstruct total velocity
-    (*velocity_boundary).x = tangential_u + (distance_boundary / distance_reference) * normal_velocity * normal_x;
-    (*velocity_boundary).y = tangential_v + (distance_boundary / distance_reference) * normal_velocity * normal_y;
-    (*velocity_boundary).z = tangential_w + (distance_boundary / distance_reference) * normal_velocity * normal_z;
-    
-    // Add wall velocity
-    (*velocity_boundary).x += velocity_wall.x;
-    (*velocity_boundary).y += velocity_wall.y;
-    (*velocity_boundary).z += velocity_wall.z;
-}
-
-/**
- * @brief Implementation of \ref wall_function_Cabot().
- * @see wall_function_Cabot()
- */
-void wall_function_Cabot(UserCtx *user, double roughness_height,
-                         double distance_reference, double distance_boundary,
-                         Cmpnts velocity_wall, Cmpnts velocity_reference,
-                         Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                         double normal_x, double normal_y, double normal_z,
-                         double pressure_gradient_x, double pressure_gradient_y,
-                         double pressure_gradient_z, int iteration_count)
-{
-    (void)roughness_height;
-    SimCtx *simCtx = user->simCtx;
-    double kinematic_viscosity = 1.0 / simCtx->ren;
-    
-    // Decompose velocity
-    double delta_u = velocity_reference.x - velocity_wall.x;
-    double delta_v = velocity_reference.y - velocity_wall.y;
-    double delta_w = velocity_reference.z - velocity_wall.z;
-    
-    double normal_velocity = delta_u * normal_x + delta_v * normal_y + delta_w * normal_z;
-    
-    double tangential_u = delta_u - normal_velocity * normal_x;
-    double tangential_v = delta_v - normal_velocity * normal_y;
-    double tangential_w = delta_w - normal_velocity * normal_z;
-    
-    double tangential_magnitude = sqrt(tangential_u * tangential_u +
-                                      tangential_v * tangential_v +
-                                      tangential_w * tangential_w);
-    
-    // Compute tangential pressure gradient
-    double pressure_gradient_tangent = 0.0;
-    if (tangential_magnitude > 1.e-10) {
-        pressure_gradient_tangent = (pressure_gradient_x * tangential_u +
-                                    pressure_gradient_y * tangential_v +
-                                    pressure_gradient_z * tangential_w) / tangential_magnitude;
-    }
-    
-    // Normal pressure gradient (currently set to zero)
-    double pressure_gradient_normal = 0.0;
-    
-    // Solve for friction velocity (only on first iteration or periodically)
-    if (iteration_count == 0 || iteration_count > 4) {
-        double utau, wall_shear1, wall_shear2;
-        find_utau_Cabot(kinematic_viscosity, tangential_magnitude, distance_reference,
-                       0.01, pressure_gradient_tangent, pressure_gradient_normal,
-                       &utau, &wall_shear1, &wall_shear2);
-        /* The momentum balance gives a signed stress: an adverse pressure gradient strong
-           enough to exceed the reference speed's share reverses it. The magnitude is the
-           friction velocity; its sign is carried on it, so a caller applies the stress
-           along or against the reference flow rather than always against it. */
-        *friction_velocity = (wall_shear1 < 0.0) ? -utau : utau;
-    }
-    
-    // Compute wall function velocity with pressure gradient correction
-    double tangential_modeled = u_Cabot(kinematic_viscosity, distance_boundary,
-                                       fabs(*friction_velocity), pressure_gradient_tangent,
-                                       taw(kinematic_viscosity, fabs(*friction_velocity),
-                                           distance_reference, tangential_magnitude,
-                                           pressure_gradient_tangent));
-    
-    // Scale tangential components
-    if (tangential_magnitude > 1.e-10) {
-        tangential_u *= tangential_modeled / tangential_magnitude;
-        tangential_v *= tangential_modeled / tangential_magnitude;
-        tangential_w *= tangential_modeled / tangential_magnitude;
-    }
-    else {
-        tangential_u = tangential_v = tangential_w = 0.0;
-    }
-    
-    // Reconstruct total velocity
-    (*velocity_boundary).x = tangential_u + (distance_boundary / distance_reference) * normal_velocity * normal_x;
-    (*velocity_boundary).y = tangential_v + (distance_boundary / distance_reference) * normal_velocity * normal_y;
-    (*velocity_boundary).z = tangential_w + (distance_boundary / distance_reference) * normal_velocity * normal_z;
-    
-    // Add wall velocity
-    (*velocity_boundary).x += velocity_wall.x;
-    (*velocity_boundary).y += velocity_wall.y;
-    (*velocity_boundary).z += velocity_wall.z;
-}

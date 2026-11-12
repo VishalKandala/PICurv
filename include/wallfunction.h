@@ -27,41 +27,6 @@
 // ===========================================================================
 
 /**
- * @brief Applies no-slip wall boundary condition with linear interpolation
- *
- * This function enforces a no-slip boundary condition (zero velocity at the wall)
- * by linearly interpolating between the wall velocity (typically zero) and the
- * velocity at a reference point in the flow.
- *
- * MATHEMATICAL FORMULATION:
- *   For a point at distance sb from the wall, with a reference velocity Uc
- *   at distance sc from the wall:
- *     U_boundary = U_wall + (U_reference - U_wall) * (sb / sc)
- *
- * PHYSICAL INTERPRETATION:
- *   This provides a first-order approximation assuming linear velocity variation
- *   in the near-wall region, which is valid in the viscous sublayer.
- *
- * @param[in]  user              Simulation context (unused but required for interface)
- * @param[in]  distance_reference Wall-normal distance to reference point (sc)
- * @param[in]  distance_boundary  Wall-normal distance to boundary point (sb)
- * @param[in]  velocity_wall      Velocity at the wall (Ua), typically zero
- * @param[in]  velocity_reference Velocity at reference point (Uc)
- * @param[out] velocity_boundary  Computed velocity at boundary point (Ub)
- * @param[in]  normal_x           X-component of wall normal vector
- * @param[in]  normal_y           Y-component of wall normal vector
- * @param[in]  normal_z           Z-component of wall normal vector
- *
- * @note For moving walls, velocity_wall would be non-zero
- * @note The normal vector should point INTO the fluid domain
- */
-void noslip(UserCtx *user, 
-            double distance_reference, double distance_boundary,
-            Cmpnts velocity_wall, Cmpnts velocity_reference,
-            Cmpnts *velocity_boundary,
-            double normal_x, double normal_y, double normal_z);
-
-/**
  * @brief Computes roughness-modified log-law coefficient E
  *
  * The coefficient E accounts for wall roughness effects on the log-law:
@@ -305,12 +270,11 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 /**
  * @brief Computes velocity using Werner-Wengle wall function
  *
- * The pointwise Werner-Wengle profile, and the relation the solver uses: the wall
- * function evaluates it at the boundary cell with the friction velocity that
- * @ref find_utau_Werner() takes from the reference cell. Explicit relation:
- *   u+ = y+                    for y+ < 11.81 (viscous sublayer)
- *   u+ = A * (y+)^B            for y+ ≥ 11.81 (power law)
- * where A = 8.3, B = 1/7 are empirical constants.
+ * The pointwise Werner-Wengle profile; the solver takes the friction velocity from its
+ * exact inverse, @ref find_utau_Werner(), at the reference cell. Explicit relation:
+ *   u+ = y+                    below the sublayer edge (viscous sublayer)
+ *   u+ = A * (y+)^B            above it (power law)
+ * where A = 8.3, B = 1/7, and the edge is where the two meet, A^(7/6) = 11.8148.
  *
  * ADVANTAGES:
  *   - Explicit (no iteration required)
@@ -403,89 +367,7 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
 double find_utau_Werner(double kinematic_viscosity, double velocity,
                         double wall_distance, double initial_guess);
 
-/**
- * @brief Applies standard wall function with Werner-Wengle model
- *
- * This is a high-level interface that:
- *   1. Decomposes velocity into normal/tangential components
- *   2. Applies wall function to tangential velocity
- *   3. Interpolates normal velocity
- *   4. Reconstructs total velocity
- *
- * @param[in]  user              Simulation context
- * @param[in]  distance_reference Distance to reference point
- * @param[in]  distance_boundary  Distance to boundary point
- * @param[in]  velocity_wall      Wall velocity
- * @param[in]  velocity_reference Reference velocity
- * @param[out] velocity_boundary  Output boundary velocity
- * @param[out] friction_velocity  Output friction velocity
- * @param[in]  normal_x           X-component of wall normal
- * @param[in]  normal_y           Y-component of wall normal
- * @param[in]  normal_z           Z-component of wall normal
- */
-void wall_function(UserCtx *user, double distance_reference, double distance_boundary,
-                   Cmpnts velocity_wall, Cmpnts velocity_reference,
-                   Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                   double normal_x, double normal_y, double normal_z);
-
-/**
- * @brief Applies log-law wall function with roughness correction
- *
- * This is the recommended wall function interface for most applications.
- * It uses the roughness-corrected log-law which is accurate for both
- * smooth and rough walls.
- *
- * @param[in]  user              Simulation context
- * @param[in]  roughness_height  Wall roughness height ks
- * @param[in]  distance_reference Distance to reference point
- * @param[in]  distance_boundary  Distance to boundary point
- * @param[in]  velocity_wall      Wall velocity (typically zero)
- * @param[in]  velocity_reference Reference velocity
- * @param[out] velocity_boundary  Output boundary velocity
- * @param[out] friction_velocity  Output friction velocity u_τ
- * @param[in]  normal_x           X-component of wall normal
- * @param[in]  normal_y           Y-component of wall normal
- * @param[in]  normal_z           Z-component of wall normal
- *
- * @note Sets velocity to reference value if y+ > 300 (outside log-layer)
- */
-void wall_function_loglaw(UserCtx *user, double roughness_height,
-                          double distance_reference, double distance_boundary,
-                          Cmpnts velocity_wall, Cmpnts velocity_reference,
-                          Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                          double normal_x, double normal_y, double normal_z);
 						  
-/**
- * @brief Applies Cabot non-equilibrium wall function with pressure gradients
- *
- * This wall function accounts for pressure gradient effects and is most
- * accurate in separated or strongly accelerating/decelerating flows.
- *
- * @param[in]  user               Simulation context
- * @param[in]  roughness_height   Wall roughness (currently unused in this version)
- * @param[in]  distance_reference Distance to reference point
- * @param[in]  distance_boundary  Distance to boundary point
- * @param[in]  velocity_wall      Wall velocity
- * @param[in]  velocity_reference Reference velocity
- * @param[out] velocity_boundary  Output boundary velocity
- * @param[out] friction_velocity  Output friction velocity
- * @param[in]  normal_x           X-component of wall normal
- * @param[in]  normal_y           Y-component of wall normal
- * @param[in]  normal_z           Z-component of wall normal
- * @param[in]  pressure_gradient_x X-component of pressure gradient
- * @param[in]  pressure_gradient_y Y-component of pressure gradient
- * @param[in]  pressure_gradient_z Z-component of pressure gradient
- * @param[in]  iteration_count    Current iteration count
- *
- * @note Only updates friction velocity every 5 iterations for stability
- * @note Normal pressure gradient currently set to zero
- */
-void wall_function_Cabot(UserCtx *user, double roughness_height,
-                         double distance_reference, double distance_boundary,
-                         Cmpnts velocity_wall, Cmpnts velocity_reference,
-                         Cmpnts *velocity_boundary, PetscReal *friction_velocity,
-                         double normal_x, double normal_y, double normal_z,
-                         double pressure_gradient_x, double pressure_gradient_y,
-                         double pressure_gradient_z, int iteration_count);						  
+						  
 
 #endif // WALLFUNCTION_H

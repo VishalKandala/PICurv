@@ -1270,23 +1270,6 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests the no-slip wall helper kernel.
- */
-
-static PetscErrorCode TestWallNoSlipHelper(void)
-{
-    Cmpnts wall_velocity = {0.0, 0.0, 0.0};
-    Cmpnts reference_velocity = {2.0, 4.0, 6.0};
-    Cmpnts boundary_velocity = {0.0, 0.0, 0.0};
-
-    PetscFunctionBeginUser;
-    noslip(NULL, 2.0, 1.0, wall_velocity, reference_velocity, &boundary_velocity, 1.0, 0.0, 0.0);
-    PetscCall(PicurvAssertRealNear(1.0, boundary_velocity.x, 1.0e-12, "no-slip interpolated x"));
-    PetscCall(PicurvAssertRealNear(2.0, boundary_velocity.y, 1.0e-12, "no-slip interpolated y"));
-    PetscCall(PicurvAssertRealNear(3.0, boundary_velocity.z, 1.0e-12, "no-slip interpolated z"));
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Tests wall-model scalar helper kernels.
  */
 
@@ -1468,17 +1451,14 @@ static PetscErrorCode TestLogLawFrictionVelocityStaysPositiveOnRoughWalls(void)
  * @brief Tests Cabot's stress sign and its wall-layer integral at large y+.
  *
  * Cabot's momentum balance gives a signed stress; under an adverse pressure gradient strong
- * enough to exceed the reference speed's share it reverses, and the friction velocity it
- * returns carries that sign. Its wall-layer integrals were 30 uniform points, about a third
+ * enough to exceed the reference speed's share it reverses, and the solver applies it in that
+ * direction. Its wall-layer integrals were 30 uniform points, about a third
  * off at y+ = 1000; they must now agree with a resolved reference.
  */
 static PetscErrorCode TestCabotSignedStressAndIntegralAccuracy(void)
 {
-    SimCtx  *simCtx = NULL;
-    UserCtx *user = NULL;
     const double nu = 1.0e-3, y = 1.0e-2;
-    Cmpnts wall_velocity = {0.0, 0.0, 0.0}, reference = {0.0, 1.0, 0.0}, boundary = {0.0, 0.0, 0.0};
-    PetscReal u_tau = 0.0;
+    double u_tau = 0.0, stress = 0.0, stress_normal = 0.0;
 
     PetscFunctionBeginUser;
     /* Integral against a resolved trapezoid in log-spaced y (no closed form). */
@@ -1498,72 +1478,18 @@ static PetscErrorCode TestCabotSignedStressAndIntegralAccuracy(void)
                                        "Cabot's wall-layer integral must match a resolved reference at y+ = 1000"));
     }
 
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    simCtx->ren = 1.0 / nu;
-    /* No pressure gradient: the stress opposes the flow. */
-    wall_function_Cabot(user, 0.0, 2.0 * y, y, wall_velocity, reference, &boundary, &u_tau,
-                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
-    PetscCall(PicurvAssertBool((PetscBool)(u_tau > 0.0), "with no pressure gradient Cabot's stress opposes the flow"));
-    /* A strong adverse gradient along the flow reverses the wall-layer balance. */
-    wall_function_Cabot(user, 0.0, 2.0 * y, y, wall_velocity, reference, &boundary, &u_tau,
-                        1.0, 0.0, 0.0, 0.0, 1.0e3, 0.0, 0);
-    PetscCall(PicurvAssertBool((PetscBool)(u_tau < 0.0),
+    /* No pressure gradient: the momentum-balance stress opposes the flow. */
+    find_utau_Cabot(nu, 1.0, 2.0 * y, 0.01, 0.0, 0.0, &u_tau, &stress, &stress_normal);
+    PetscCall(PicurvAssertBool((PetscBool)(u_tau > 0.0 && stress > 0.0),
+                               "with no pressure gradient Cabot's stress opposes the flow"));
+    /* A strong adverse gradient along the flow reverses the wall-layer balance; the signed
+       stress is what ApplyWallFunction orients the wall stress by. */
+    find_utau_Cabot(nu, 1.0, 2.0 * y, 0.01, 1.0e3, 0.0, &u_tau, &stress, &stress_normal);
+    PetscCall(PicurvAssertBool((PetscBool)(stress < 0.0),
                                "an adverse gradient that reverses the balance must reverse Cabot's stress"));
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 
-/**
- * @brief Tests the vector wall-function wrappers on a tangential reference flow.
- */
-static PetscErrorCode TestWallFunctionVectorWrappers(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    Cmpnts wall_velocity = {0.0, 0.0, 0.0};
-    Cmpnts reference_velocity = {0.0, 1.0, 0.0};
-    Cmpnts boundary_velocity = {0.0, 0.0, 0.0};
-    PetscReal friction_velocity = 0.0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    simCtx->ren = 1000.0;
-
-    wall_function(user, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
-    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "Werner wall function should preserve zero normal velocity"));
-    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y < 1.0), "Werner wall function should damp tangential velocity"));
-    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "Werner wall function should compute positive friction velocity"));
-
-    /* A reference speed taken from the pointwise profile itself must return that
-       profile's friction velocity, and the boundary cell must land on the same profile.
-       The reference sits in the power-law branch (y+ = 20), the boundary cell in the
-       sublayer (y+ = 10), so both branches are exercised. The cell-integral relation
-       read this point value as a cell average and returned u_tau 14% high. */
-    {
-        const PetscReal nu = 1.0 / simCtx->ren, u_tau = 1.0;
-        Cmpnts profile_reference = {0.0, (PetscReal)u_Werner(nu, 2.0e-2, u_tau), 0.0};
-
-        wall_function(user, 2.0e-2, 1.0e-2, wall_velocity, profile_reference, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
-        PetscCall(PicurvAssertRealNear(u_tau, friction_velocity, 1.0e-12,
-                                       "Werner wall function must return the friction velocity of the profile it is given"));
-        PetscCall(PicurvAssertRealNear(u_Werner(nu, 1.0e-2, u_tau), boundary_velocity.y, 1.0e-12,
-                                       "Werner wall function must put the boundary cell on the same pointwise profile"));
-    }
-
-    wall_function_loglaw(user, 1.0e-4, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
-    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "log-law wall function should preserve zero normal velocity"));
-    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y <= 1.0), "log-law wall function should keep tangential velocity bounded"));
-    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "log-law wall function should compute positive friction velocity"));
-
-    wall_function_Cabot(user, 1.0e-4, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity,
-                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10);
-    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "Cabot wall function should preserve zero normal velocity"));
-    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y <= 1.0), "Cabot wall function should keep tangential velocity bounded"));
-    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "Cabot wall function should compute positive friction velocity"));
-
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
 /**
  * @brief Tests driven-flow validation when no driven handlers are present.
  */
@@ -1853,13 +1779,11 @@ int main(int argc, char **argv)
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},
-        {"wall-noslip-helper", TestWallNoSlipHelper},
         {"wall-law-branches-are-continuous", TestWallLawBranchesAreContinuous},
         {"log-law-friction-velocity-stays-positive-on-rough-walls", TestLogLawFrictionVelocityStaysPositiveOnRoughWalls},
         {"cabot-signed-stress-and-integral-accuracy", TestCabotSignedStressAndIntegralAccuracy},
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
         {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},
-        {"wall-function-vector-wrappers", TestWallFunctionVectorWrappers},
         {"validate-driven-flow-configuration-no-driven-handlers", TestValidateDrivenFlowConfigurationNoDrivenHandlers},
         {"minimal-fixture-mirrors-production-dm-layout", TestMinimalFixtureMirrorsProductionDMLayout},
         {"minimal-fixture-registers-production-swarm-fields", TestMinimalFixtureRegistersProductionSwarmFields},

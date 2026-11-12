@@ -2257,56 +2257,48 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
 /**
  * @brief The signed friction velocity the configured wall law gives for one wall-face element.
  *
- * Every law is evaluated from the resolved velocity of the reference cell, relative to the
- * wall, at its wall distance. The laws also return a velocity for the first cell; it is
- * discarded, because the model acts through the wall stress alone (see
- * @ref ApplyWallFunction).
- *
- * Cabot's departure from an equilibrium profile is driven by the pressure gradient in the
- * wall layer, so it is supplied from the resolved pressure at the first cell rather than
- * assumed zero; the pressure is the previous projection's, the same lag every other
- * explicit use of it carries. The other two laws ignore it.
+ * Each law is inverted at the reference cell's wall distance for the wall-parallel speed of
+ * that cell relative to the wall, which the caller has already projected. Cabot's departure
+ * from an equilibrium profile is driven by the wall-parallel pressure gradient, taken from the
+ * resolved pressure at the first cell along the same direction; the pressure is the previous
+ * projection's, the same lag every other explicit use of it carries. Its momentum balance
+ * gives a signed stress, so the sign is returned on the friction velocity: negative when an
+ * adverse gradient reverses the stress. The other two laws are always positive.
  */
 static PetscErrorCode WallModelFrictionVelocity(UserCtx *user, const PetscReal ***pressure,
                                                 PetscInt i, PetscInt j, PetscInt k,
-                                                PetscReal roughness_height,
-                                                PetscReal distance_reference, PetscReal distance_boundary,
-                                                Cmpnts velocity_wall, Cmpnts velocity_reference,
-                                                const PetscReal normal[3], PetscReal *friction_velocity)
+                                                PetscReal roughness_height, PetscReal distance_reference,
+                                                Cmpnts tangent, PetscReal tangent_speed,
+                                                PetscReal *friction_velocity)
 {
-    Cmpnts discarded = {0.0, 0.0, 0.0};
+    const PetscReal kinematic_viscosity = 1.0 / user->simCtx->ren;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    *friction_velocity = 0.0;
     switch ((WallFunctionModel)user->simCtx->wallfunction) {
     case WALL_FUNCTION_WERNER:
-        wall_function(user, distance_reference, distance_boundary, velocity_wall, velocity_reference,
-                      &discarded, friction_velocity, normal[0], normal[1], normal[2]);
+        *friction_velocity = find_utau_Werner(kinematic_viscosity, tangent_speed, distance_reference, 0.0);
         break;
     case WALL_FUNCTION_CABOT: {
-        Cmpnts pressure_gradient = {0.0, 0.0, 0.0};
+        Cmpnts    gradient = {0.0, 0.0, 0.0};
+        PetscReal gradient_along = 0.0, u_tau = 0.0, stress = 0.0, stress_normal = 0.0;
 
-        if (pressure) {
-            PetscCall(ComputeScalarFieldDerivatives(user, i, j, k, (PetscReal ***)pressure, &pressure_gradient));
+        if (pressure) PetscCall(ComputeScalarFieldDerivatives(user, i, j, k, (PetscReal ***)pressure, &gradient));
+        if (tangent_speed > 1.0e-10) {
+            gradient_along = (gradient.x * tangent.x + gradient.y * tangent.y + gradient.z * tangent.z) / tangent_speed;
         }
-        wall_function_Cabot(user, roughness_height, distance_reference, distance_boundary,
-                            velocity_wall, velocity_reference, &discarded, friction_velocity,
-                            normal[0], normal[1], normal[2],
-                            pressure_gradient.x, pressure_gradient.y, pressure_gradient.z, 0);
+        find_utau_Cabot(kinematic_viscosity, tangent_speed, distance_reference, 0.01, gradient_along, 0.0,
+                        &u_tau, &stress, &stress_normal);
+        *friction_velocity = (stress < 0.0) ? -u_tau : u_tau;
         break;
     }
     case WALL_FUNCTION_LOG_LAW:
     default:
-        wall_function_loglaw(user, roughness_height, distance_reference, distance_boundary,
-                             velocity_wall, velocity_reference, &discarded, friction_velocity,
-                             normal[0], normal[1], normal[2]);
+        *friction_velocity = find_utau_hydset(kinematic_viscosity, tangent_speed, distance_reference, 0.001,
+                                              roughness_height);
         break;
     }
-    /* The magnitude is the friction velocity. Its sign says whether the stress opposes the
-       reference flow (positive) or, for Cabot under an adverse pressure gradient strong
-       enough to reverse the wall-layer balance, acts along it (negative). A non-finite
-       value stops the run here rather than entering the stress. */
+    /* A non-finite value stops the run here rather than entering the stress. */
     PetscCheck(PetscIsInfOrNanReal(*friction_velocity) == PETSC_FALSE, PETSC_COMM_SELF, PETSC_ERR_FP,
                "Wall model (%s) returned a non-finite friction velocity at cell (%" PetscInt_FMT ", %" PetscInt_FMT
                ", %" PetscInt_FMT ").",
@@ -2407,10 +2399,8 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
             const Cmpnts    area_vector = metric[axis][c_face[2]][c_face[1]][c_face[0]];
             const PetscReal area = PetscSqrtReal(area_vector.x * area_vector.x + area_vector.y * area_vector.y +
                                                  area_vector.z * area_vector.z);
-            /* Unit normal into the fluid, and the first and reference cell-centre distances
-               from the wall, from each cell's volume over the wall area. */
-            const PetscReal normal[3] = {side * area_vector.x / area, side * area_vector.y / area,
-                                         side * area_vector.z / area};
+            /* The first and reference cell-centre distances from the wall, from each cell's
+               volume over the wall area. */
             const PetscReal distance_boundary  = 0.5 / aj[k][j][i] / area;
             const PetscReal distance_reference = 2.0 * distance_boundary +
                                                  0.5 / aj[c_ref[2]][c_ref[1]][c_ref[0]] / area;
@@ -2423,9 +2413,8 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
             const PetscReal tangent_speed = PetscSqrtReal(tangent.x * tangent.x + tangent.y * tangent.y +
                                                           tangent.z * tangent.z);
 
-            PetscCall(WallModelFrictionVelocity(user, pressure, i, j, k, roughness_height,
-                                                distance_reference, distance_boundary,
-                                                velocity_wall, velocity_reference, normal, &signed_u_tau));
+            PetscCall(WallModelFrictionVelocity(user, pressure, i, j, k, roughness_height, distance_reference,
+                                                tangent, tangent_speed, &signed_u_tau));
             u_tau = PetscAbsReal(signed_u_tau);
 
             /* The stress opposes the reference cell's motion relative to the wall, along its
