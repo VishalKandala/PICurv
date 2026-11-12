@@ -1395,6 +1395,125 @@ static PetscErrorCode TestWallModelVelocityHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the wall laws' branches meet, so each reference speed has one friction velocity.
+ *
+ * The log law switched from u+ = y+ to its logarithm at a fixed y+ = 11.81, where the two
+ * differ by about 2.4%, and Werner-Wengle at the same rounded value, where its branches
+ * differ by about 2e-5. Either jump makes the speed-to-u_tau map non-monotone near the
+ * switch and the residual non-smooth for a finite-difference Jacobian.
+ */
+static PetscErrorCode TestWallLawBranchesAreContinuous(void)
+{
+    const double nu = 1.0e-3, y = 1.0e-2;
+    const double edge = 11.81;    /* only a probe location; the switches are computed */
+    double previous_utau = 0.0;
+
+    PetscFunctionBeginUser;
+    /* Profiles: sample u+ across the old switch at a fine step; no step may jump. */
+    for (int law = 0; law < 2; ++law) {
+        double previous = -1.0;
+        for (int n = 0; n <= 400; ++n) {
+            const double yplus = edge - 1.0 + 2.0 * n / 400.0;
+            const double u_tau = yplus * nu / y;
+            const double u = (law == 0) ? u_hydset_roughness(nu, y, u_tau, 0.0) : u_Werner(nu, y, u_tau);
+            const double uplus = u / u_tau;
+            if (previous > 0.0) {
+                PetscCall(PicurvAssertBool((PetscBool)(PetscAbsReal(uplus - previous) < 1.0e-2),
+                                           law == 0 ? "the log-law profile must not jump at its sublayer edge"
+                                                    : "the Werner-Wengle profile must not jump at its sublayer edge"));
+                PetscCall(PicurvAssertBool((PetscBool)(uplus >= previous - 1.0e-12),
+                                           "u+ must not decrease with y+"));
+            }
+            previous = uplus;
+        }
+    }
+    /* Inverse: across the band of U y / nu where the old log law had two roots, the
+       friction velocity must increase with the reference speed and reproduce it. */
+    for (int n = 0; n <= 200; ++n) {
+        const double U = (130.0 + 15.0 * n / 200.0) * nu / y;
+        const double u_tau = find_utau_hydset(nu, U, y, 1.0e-3, 0.0);
+        PetscCall(PicurvAssertRealNear(U, u_hydset_roughness(nu, y, u_tau, 0.0), 1.0e-6 * U,
+                                       "the log-law friction velocity must reproduce the speed it inverts"));
+        PetscCall(PicurvAssertBool((PetscBool)(u_tau > previous_utau), "the log-law friction velocity must increase with speed"));
+        previous_utau = u_tau;
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the log law's friction velocity stays positive on a rough wall.
+ *
+ * Newton from a small guess could step onto the linear branch's mirror root at -u_tau; a
+ * rough wall made that common, and the sign then corrupted u_tau, its minimum and y+.
+ */
+static PetscErrorCode TestLogLawFrictionVelocityStaysPositiveOnRoughWalls(void)
+{
+    const double nu = 1.0 / 4.0e4;
+    const double roughness[4] = {1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2};
+    const double distance[3] = {1.0e-3, 1.0e-2, 3.0e-2};
+    const double speed[6] = {1.0e-3, 1.0e-2, 0.1, 0.5, 1.0, 2.0};
+
+    PetscFunctionBeginUser;
+    for (int r = 0; r < 4; ++r)
+        for (int d = 0; d < 3; ++d)
+            for (int s = 0; s < 6; ++s) {
+                const double u_tau = find_utau_hydset(nu, speed[s], distance[d], 1.0e-3, roughness[r]);
+                PetscCall(PicurvAssertBool((PetscBool)(u_tau > 0.0 && isfinite(u_tau)),
+                                           "the log-law friction velocity must be positive and finite"));
+            }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests Cabot's stress sign and its wall-layer integral at large y+.
+ *
+ * Cabot's momentum balance gives a signed stress; under an adverse pressure gradient strong
+ * enough to exceed the reference speed's share it reverses, and the friction velocity it
+ * returns carries that sign. Its wall-layer integrals were 30 uniform points, about a third
+ * off at y+ = 1000; they must now agree with a resolved reference.
+ */
+static PetscErrorCode TestCabotSignedStressAndIntegralAccuracy(void)
+{
+    SimCtx  *simCtx = NULL;
+    UserCtx *user = NULL;
+    const double nu = 1.0e-3, y = 1.0e-2;
+    Cmpnts wall_velocity = {0.0, 0.0, 0.0}, reference = {0.0, 1.0, 0.0}, boundary = {0.0, 0.0, 0.0};
+    PetscReal u_tau = 0.0;
+
+    PetscFunctionBeginUser;
+    /* Integral against a resolved trapezoid in log-spaced y (no closed form). */
+    for (int mode = 0; mode < 2; ++mode) {
+        const double u_tau_probe = 1000.0 * nu / y;   /* y+ = 1000 at the end */
+        const int    fine = 200000;
+        double       reference_integral = 0.0, y_prev = 0.0, f_prev = 0.0;
+        for (int n = 1; n <= fine; ++n) {
+            const double yy = y * (double)n * (double)n / ((double)fine * (double)fine);
+            const double f = ((mode == 0) ? 1.0 : yy) / ((1.0 + nu_t(yy * u_tau_probe / nu)) * nu);
+            if (n == 1) f_prev = ((mode == 0) ? 1.0 : 0.0) / nu;
+            reference_integral += 0.5 * (f + f_prev) * (yy - y_prev);
+            y_prev = yy; f_prev = f;
+        }
+        PetscCall(PicurvAssertRealNear(reference_integral, integrate_1(nu, y, u_tau_probe, mode),
+                                       2.0e-3 * PetscAbsReal(reference_integral),
+                                       "Cabot's wall-layer integral must match a resolved reference at y+ = 1000"));
+    }
+
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->ren = 1.0 / nu;
+    /* No pressure gradient: the stress opposes the flow. */
+    wall_function_Cabot(user, 0.0, 2.0 * y, y, wall_velocity, reference, &boundary, &u_tau,
+                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+    PetscCall(PicurvAssertBool((PetscBool)(u_tau > 0.0), "with no pressure gradient Cabot's stress opposes the flow"));
+    /* A strong adverse gradient along the flow reverses the wall-layer balance. */
+    wall_function_Cabot(user, 0.0, 2.0 * y, y, wall_velocity, reference, &boundary, &u_tau,
+                        1.0, 0.0, 0.0, 0.0, 1.0e3, 0.0, 0);
+    PetscCall(PicurvAssertBool((PetscBool)(u_tau < 0.0),
+                               "an adverse gradient that reverses the balance must reverse Cabot's stress"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests the vector wall-function wrappers on a tangential reference flow.
  */
 static PetscErrorCode TestWallFunctionVectorWrappers(void)
@@ -1735,6 +1854,9 @@ int main(int argc, char **argv)
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},
         {"wall-noslip-helper", TestWallNoSlipHelper},
+        {"wall-law-branches-are-continuous", TestWallLawBranchesAreContinuous},
+        {"log-law-friction-velocity-stays-positive-on-rough-walls", TestLogLawFrictionVelocityStaysPositiveOnRoughWalls},
+        {"cabot-signed-stress-and-integral-accuracy", TestCabotSignedStressAndIntegralAccuracy},
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
         {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},
         {"wall-function-vector-wrappers", TestWallFunctionVectorWrappers},

@@ -45,8 +45,14 @@
 /** @brief Log-law intercept constant B for smooth walls */
 #define LOGLAW_B 5.5
 
-/** @brief Viscous sublayer thickness y+ threshold */
-#define VISCOUS_SUBLAYER_YPLUS 11.81
+/** @brief Werner-Wengle power-law coefficient A and exponent B in u+ = A (y+)^B. */
+#define WERNER_A 8.3
+#define WERNER_B (1.0 / 7.0)
+
+/** @brief Werner-Wengle sublayer edge: where u+ = y+ meets u+ = A (y+)^B, at A^(1/(1-B)).
+ *  The commonly quoted 11.81 is this value rounded, and rounding it leaves the two branches
+ *  apart by about 2e-5 of u+, so the profile and its inverse jump there. */
+#define WERNER_SUBLAYER_YPLUS (pow(WERNER_A, 1.0 / (1.0 - WERNER_B)))
 
 /** @brief Smooth-to-rough transition y+ threshold */
 #define ROUGHNESS_TRANSITION_YPLUS 2.25
@@ -131,6 +137,31 @@ double E_coeff(double friction_velocity, double roughness_height, double kinemat
 }
 
 /**
+ * @brief The log law's sublayer edge for a given E: the y+ where u+ = y+ meets
+ *        u+ = ln(E y+)/kappa.
+ *
+ * Switching at a fixed 11.81 instead left the two branches apart by about 2.4% of u+ for a
+ * smooth wall (E = exp(kappa B)), so the profile jumped and the friction velocity it implies
+ * had two roots in a band of U y/nu. Switching where they meet keeps the profile continuous
+ * and increasing, so each reference speed has one friction velocity. Newton from 11.81
+ * converges in a few steps for every E the roughness function produces.
+ */
+static inline double LogLawSublayerEdge(double E)
+{
+    double y = 11.81;
+
+    for (int iteration = 0; iteration < 50; iteration++) {
+        const double g = y - log(E * y) / KAPPA;
+        const double dg = 1.0 - 1.0 / (KAPPA * y);
+        const double step = g / dg;
+
+        y -= step;
+        if (fabs(step) < 1.e-12 * y) break;
+    }
+    return y;
+}
+
+/**
  * @brief Implementation of \ref u_hydset_roughness().
  * @see u_hydset_roughness()
  */
@@ -141,18 +172,17 @@ double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
     
     // Threshold values for regime transitions
-    const double viscous_limit = VISCOUS_SUBLAYER_YPLUS;
     const double loglayer_limit = 300.0;
+    const double E = E_coeff(friction_velocity, roughness_height, kinematic_viscosity);
     
     double tangential_velocity;
     
-    if (yplus <= viscous_limit) {
+    if (yplus <= LogLawSublayerEdge(E)) {
         // Viscous sublayer: linear velocity profile
         tangential_velocity = friction_velocity * yplus;
     }
     else if (yplus <= loglayer_limit) {
         // Log-layer: logarithmic velocity profile with roughness correction
-        double E = E_coeff(friction_velocity, roughness_height, kinematic_viscosity);
         tangential_velocity = (friction_velocity / KAPPA) * log(E * yplus);
     }
     else {
@@ -176,15 +206,15 @@ double f_hydset(double kinematic_viscosity, double known_velocity,
                 double roughness_height)
 {
     double yplus = friction_velocity_guess * wall_distance / kinematic_viscosity;
+    double E = E_coeff(friction_velocity_guess, roughness_height, kinematic_viscosity);
     double residual;
     
-    if (yplus <= VISCOUS_SUBLAYER_YPLUS) {
+    if (yplus <= LogLawSublayerEdge(E)) {
         // Viscous sublayer: u = u_τ * y+
         residual = friction_velocity_guess * yplus - known_velocity;
     }
     else {
         // Log-layer: u = (u_τ / κ) * ln(E * y+)
-        double E = E_coeff(friction_velocity_guess, roughness_height, kinematic_viscosity);
         residual = friction_velocity_guess * (1.0 / KAPPA * log(E * yplus)) - known_velocity;
     }
     
@@ -235,8 +265,14 @@ double find_utau_hydset(double kinematic_viscosity, double known_velocity,
                                   friction_velocity_old, roughness_height);
         double derivative = df_hydset(kinematic_viscosity, known_velocity, wall_distance,
                                      friction_velocity_old, roughness_height);
+        if (derivative == 0.0 || !isfinite(derivative)) break;
         
         friction_velocity = friction_velocity_old - residual / derivative;
+        /* The friction velocity is positive. The linear branch's residual u_tau^2 y/nu - U
+           has a mirror root at -u_tau, which an undamped step from a small guess can reach
+           (a rough wall made it common); halving toward the last positive iterate keeps the
+           iteration on the physical root. */
+        if (!(friction_velocity > 0.0)) friction_velocity = 0.5 * friction_velocity_old;
         
         // Check convergence
         if (fabs(friction_velocity - friction_velocity_old) < convergence_tolerance) {
@@ -283,42 +319,26 @@ double nu_t(double yplus)
 double integrate_1(double kinematic_viscosity, double wall_distance,
                    double friction_velocity, int integration_mode)
 {
-    const int num_points = 30;
-    double step_size = wall_distance / (num_points - 1);
-    double integral_values[num_points];
-    
-    // Compute integrand at each point
-    for (int i = 0; i < num_points; i++) {
-        double current_distance = i * step_size;
-        double yplus = current_distance * friction_velocity / kinematic_viscosity;
-        double eddy_viscosity_ratio = nu_t(yplus);
-        
-        if (integration_mode == 0) {
-            // Mode 0: integrand = 1 / [(1 + ν_t/ν) * ν]
-            integral_values[i] = 1.0 / ((1.0 + eddy_viscosity_ratio) * kinematic_viscosity);
-        }
-        else {
-            // Mode 1: integrand = y / [(1 + ν_t/ν) * ν]
-            integral_values[i] = current_distance / 
-                                ((1.0 + eddy_viscosity_ratio) * kinematic_viscosity);
-        }
+    /* Composite Simpson in s, with y = wall_distance * s^2. The integrand falls off like
+       1/y+ across the log layer, so uniform points in y left the near-wall rise under-sampled:
+       30 of them were about 33% off at y+ = 1000. Clustering them toward the wall as s^2 does
+       makes the mapped integrand smooth at every y+ the model is allowed to reach. */
+    const int    intervals = 128;                 /* even */
+    const double ds = 1.0 / intervals;
+    double       integral_sum = 0.0;
+
+    for (int i = 0; i <= intervals; i++) {
+        const double s_value = i * ds;
+        const double current_distance = wall_distance * s_value * s_value;
+        const double jacobian = 2.0 * wall_distance * s_value;      /* dy/ds */
+        const double yplus = current_distance * friction_velocity / kinematic_viscosity;
+        const double denominator = (1.0 + nu_t(fabs(yplus))) * kinematic_viscosity;
+        const double integrand = ((integration_mode == 0) ? 1.0 : current_distance) / denominator * jacobian;
+        const double weight = (i == 0 || i == intervals) ? 1.0 : ((i % 2) ? 4.0 : 2.0);
+
+        integral_sum += weight * integrand;
     }
-    
-    // Trapezoidal rule integration with corrected endpoints
-    double integral_sum = 0.0;
-    
-    // Interior points: weight = (f[i-1] + 2*f[i] + f[i+1]) * dy/4
-    for (int i = 1; i < num_points - 1; i++) {
-        integral_sum += (integral_values[i-1] + 2.0 * integral_values[i] + 
-                        integral_values[i+1]) * 0.25 * step_size;
-    }
-    
-    // Endpoint correction for higher accuracy
-    integral_sum += 0.1667 * step_size * 
-                   (2.0 * integral_values[0] + integral_values[1] +
-                    2.0 * integral_values[num_points-1] + integral_values[num_points-2]);
-    
-    return integral_sum;
+    return integral_sum * ds / 3.0;
 }
 
 // ============================================================================
@@ -467,12 +487,12 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
     
     // Werner-Wengle constants
-    const double power_law_coefficient = 8.3;
-    const double power_law_exponent = 1.0 / 7.0;
+    const double power_law_coefficient = WERNER_A;
+    const double power_law_exponent = WERNER_B;
     
     double velocity;
     
-    if (yplus <= VISCOUS_SUBLAYER_YPLUS) {
+    if (yplus <= WERNER_SUBLAYER_YPLUS) {
         // Viscous sublayer: u+ = y+
         velocity = yplus * friction_velocity;
     }
@@ -494,8 +514,8 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
 double taw_Werner(double kinematic_viscosity, double velocity, double wall_distance)
 {
     PROFILE_HELPER_BEGIN;
-    const double A = 8.3;
-    const double B = 1.0 / 7.0;
+    const double A = WERNER_A;
+    const double B = WERNER_B;
     const double speed = fabs(velocity);
     const double nu_over_y = kinematic_viscosity / wall_distance;
 
@@ -533,8 +553,8 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
                          double wall_shear_stress)
 {
     PROFILE_HELPER_BEGIN;
-    const double A = 8.3;
-    const double B = 1.0 / 7.0;
+    const double A = WERNER_A;
+    const double B = WERNER_B;
     const double stress = fabs(wall_shear_stress);
     const double nu_over_y = kinematic_viscosity / wall_distance;
 
@@ -570,17 +590,17 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
 double find_utau_Werner(double kinematic_viscosity, double velocity,
                         double wall_distance, double initial_guess)
 {
-    const double A = 8.3;
-    const double B = 1.0 / 7.0;
+    const double A = WERNER_A;
+    const double B = WERNER_B;
     const double speed = fabs(velocity);
     const double y_over_nu = wall_distance / kinematic_viscosity;
     (void)initial_guess;
 
     /* The exact inverse of `u_Werner()`, branch for branch. Along that profile
        U y / nu = (y+)^2 in the sublayer, so the branch it was evaluated on is decided by
-       the data alone: the sublayer holds while U y / nu <= VISCOUS_SUBLAYER_YPLUS^2, the
+       the data alone: the sublayer holds while U y / nu <= WERNER_SUBLAYER_YPLUS^2, the
        same switch `u_Werner()` applies to y+. Both branches then invert explicitly. */
-    if (speed * y_over_nu <= VISCOUS_SUBLAYER_YPLUS * VISCOUS_SUBLAYER_YPLUS) {
+    if (speed * y_over_nu <= WERNER_SUBLAYER_YPLUS * WERNER_SUBLAYER_YPLUS) {
         return sqrt(speed / y_over_nu);                           /* U = u_tau^2 y / nu */
     }
     return pow(speed / (A * pow(y_over_nu, B)), 1.0 / (1.0 + B)); /* U = A u_tau^(1+B) (y/nu)^B */
@@ -769,13 +789,17 @@ void wall_function_Cabot(UserCtx *user, double roughness_height,
         find_utau_Cabot(kinematic_viscosity, tangential_magnitude, distance_reference,
                        0.01, pressure_gradient_tangent, pressure_gradient_normal,
                        &utau, &wall_shear1, &wall_shear2);
-        *friction_velocity = utau;
+        /* The momentum balance gives a signed stress: an adverse pressure gradient strong
+           enough to exceed the reference speed's share reverses it. The magnitude is the
+           friction velocity; its sign is carried on it, so a caller applies the stress
+           along or against the reference flow rather than always against it. */
+        *friction_velocity = (wall_shear1 < 0.0) ? -utau : utau;
     }
     
     // Compute wall function velocity with pressure gradient correction
     double tangential_modeled = u_Cabot(kinematic_viscosity, distance_boundary,
-                                       *friction_velocity, pressure_gradient_tangent,
-                                       taw(kinematic_viscosity, *friction_velocity,
+                                       fabs(*friction_velocity), pressure_gradient_tangent,
+                                       taw(kinematic_viscosity, fabs(*friction_velocity),
                                            distance_reference, tangential_magnitude,
                                            pressure_gradient_tangent));
     
