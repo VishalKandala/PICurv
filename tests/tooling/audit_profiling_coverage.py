@@ -106,15 +106,11 @@ KERNELS = {
     "find_utau_Werner": "32/wall face per step",
     "find_utau_hydset": "32/wall face per step",
     "integrate_1": "1203/wall face per step",
-    "noslip": "38/wall face per step",
     "nu_t": "36096/wall face per step",
     "taw": "564/wall face per step",
     "u_Cabot": "38/wall face per step",
     "u_Werner": "32/wall face per step",
     "u_hydset_roughness": "32/wall face per step",
-    "wall_function": "32/wall face per step",
-    "wall_function_Cabot": "38/wall face per step",
-    "wall_function_loglaw": "32/wall face per step",
 }
 
 #: Whole files deliberately untimed: dependency-free leaf modules that include only petscsys.h.

@@ -92,6 +92,9 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
  *        to the face. A face of zero area has no normal, and @p velocity is returned unchanged.
  *        Shared by the boundary handlers and the wall model, which both need the wall-parallel
  *        part of a velocity on a curvilinear face.
+ * @param velocity Velocity to project.
+ * @param metric   The face's area vector (any length, any orientation).
+ * @return The tangential part of @p velocity.
  */
 static inline Cmpnts RemoveFaceNormalComponent(Cmpnts velocity, Cmpnts metric)
 {
