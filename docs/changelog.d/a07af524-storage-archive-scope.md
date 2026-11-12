@@ -1,0 +1,1 @@
+- The storage guide states that `--policy`, `--retain` and `--drop` choose only what `offload` keeps local: a run or study archive always holds the whole artifact, checkpoints included, and `restore` can fetch selected checkpoints. Four measurement records name the current Drive locations of their archives and results. `Makefile.local-petsc19` is removed.
