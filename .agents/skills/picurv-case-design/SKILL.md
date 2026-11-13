@@ -64,9 +64,12 @@ difference smaller than the error bars supports no convergence claim.
 Pilot at the real grid and layout; take the per-step cost and extrapolate (AGENTS.md: over
 45 minutes goes to the cluster). A pilot must reach the time or state where the physics of
 interest - and its failure modes - appear, or say plainly what it cannot show. Scale between
-Reynolds numbers only with a stated law. Pack related runs into one allocation: stage each
-with `picurv run --no-submit`, then run their `solver.sbatch` in sequence, with walltime for
-the sum. Large campaigns need the owner's approval; approval does not carry across campaigns.
+Reynolds numbers only with a stated law. Size each job's walltime request at about 1.3-1.5
+times its measured cost; the walltime guard checkpoints a run that overruns. Pack short related
+runs into one allocation (stage each with `picurv run --no-submit`, then run their
+`solver.sbatch` in sequence) only while the summed request stays a few hours; schedulers
+deprioritise long requests, so longer runs go as separate `picurv submit --run-dir` jobs. Large
+campaigns need the owner's approval; approval does not carry across campaigns.
 
 ## 7. Design diagnostic matrices
 
