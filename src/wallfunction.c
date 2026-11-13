@@ -136,24 +136,21 @@ double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
 {
     // Normalized wall distance
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
-    
-    // Threshold values for regime transitions
-    const double loglayer_limit = 300.0;
     const double E = E_coeff(friction_velocity, roughness_height, kinematic_viscosity);
     
     double tangential_velocity;
     
+    /* The forward form of exactly the relation find_utau_hydset() inverts, at every y+:
+       the logarithmic branch continues above y+ = 300 as it does in the inverse. Whether
+       the first cell lies where the law describes the flow is the range check in
+       LogWallModelDiagnostics(), not a property of the profile. */
     if (yplus <= LogLawSublayerEdge(E)) {
         // Viscous sublayer: linear velocity profile
         tangential_velocity = friction_velocity * yplus;
     }
-    else if (yplus <= loglayer_limit) {
+    else {
         // Log-layer: logarithmic velocity profile with roughness correction
         tangential_velocity = (friction_velocity / KAPPA) * log(E * yplus);
-    }
-    else {
-        // Outside valid range (wake region or beyond)
-        tangential_velocity = -1.0;
     }
     
     return tangential_velocity;

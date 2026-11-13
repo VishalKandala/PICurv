@@ -51,21 +51,23 @@ double E_coeff(double friction_velocity, double roughness_height, double kinemat
  * @brief Computes velocity from log-law for rough walls
  *
  * Calculates the tangential velocity at a given wall distance using
- * the roughness-modified log-law of the wall.
+ * the roughness-modified log-law of the wall:
+ *   - below the sublayer edge: u+ = y+
+ *   - above it:                u+ = (1/κ) ln(E * y+)
+ * where the edge is the y+ at which the two branches meet (about 11.45 for a smooth
+ * wall; it moves with E on a rough wall).
  *
- * APPLICABLE REGIMES:
- *   - Viscous sublayer (y+ < 11.53): u+ = y+
- *   - Log-layer (11.53 < y+ < 300): u+ = (1/κ) ln(E * y+)
- *   - Outer layer (y+ > 300): Returns -1 (invalid, wake region)
+ * @note Not called by the solver, which takes the friction velocity from the inverse
+ *       @ref find_utau_hydset(); this forward form is the definition that inverse is
+ *       tested against, and it agrees with it at every y+. Above y+ ~ 300 the flow
+ *       leaves the logarithmic region; that limit is enforced on the first cell by the
+ *       range check of LogWallModelDiagnostics(), not by this function.
  *
  * @param[in] kinematic_viscosity Kinematic viscosity ν
  * @param[in] wall_distance       Distance from wall y
  * @param[in] friction_velocity   Friction velocity u_τ
  * @param[in] roughness_height    Equivalent sand grain roughness ks
- * @return    Tangential velocity u_t, or -1 if outside valid range
- *
- * @note The upper limit y+ < 300 ensures we stay within the log-layer
- * @note For y+ > 300, wake effects become important and log-law is invalid
+ * @return    Tangential velocity u_t
  */
 double u_hydset_roughness(double kinematic_viscosity, double wall_distance,
                           double friction_velocity, double roughness_height);
@@ -202,6 +204,10 @@ double taw(double kinematic_viscosity, double friction_velocity,
  * Reconstructs velocity from wall shear stress and pressure gradient:
  *   u = τ_w * F1 + (dp/dx) * Fy
  *
+ * @note Not called by the solver, which takes the friction velocity from the inverse
+ *       @ref find_utau_Cabot(); this forward form is the definition that inverse is
+ *       tested against.
+ *
  * @param[in] kinematic_viscosity Kinematic viscosity
  * @param[in] wall_distance       Distance from wall
  * @param[in] friction_velocity   Friction velocity
@@ -270,8 +276,9 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 /**
  * @brief Computes velocity using Werner-Wengle wall function
  *
- * The pointwise Werner-Wengle profile; the solver takes the friction velocity from its
- * exact inverse, @ref find_utau_Werner(), at the reference cell. Explicit relation:
+ * The pointwise Werner-Wengle profile. Not called by the solver, which takes the friction
+ * velocity from its exact inverse, @ref find_utau_Werner(), at the reference cell; this
+ * forward form is the definition that inverse is tested against. Explicit relation:
  *   u+ = y+                    below the sublayer edge (viscous sublayer)
  *   u+ = A * (y+)^B            above it (power law)
  * where A = 8.3, B = 1/7, and the edge is where the two meet, A^(7/6) = 11.8102.

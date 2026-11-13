@@ -1420,6 +1420,23 @@ static PetscErrorCode TestWallLawBranchesAreContinuous(void)
         PetscCall(PicurvAssertBool((PetscBool)(u_tau > previous_utau), "the log-law friction velocity must increase with speed"));
         previous_utau = u_tau;
     }
+    /* Forward and inverse are one relation at every y+, smooth and rough, including above
+       y+ = 300 where the profile once returned -1 while the inverse kept the log branch.
+       y+ = 100 is the control inside the old range. */
+    {
+        const double yplus_samples[] = {100.0, 299.0, 301.0, 500.0, 2000.0};
+        const double roughness[] = {0.0, 5.0e-3};
+        for (int r = 0; r < 2; ++r) {
+            for (int n = 0; n < 5; ++n) {
+                const double u_tau = yplus_samples[n] * nu / y;
+                const double U = u_hydset_roughness(nu, y, u_tau, roughness[r]);
+                PetscCall(PicurvAssertBool((PetscBool)(U > 0.0),
+                                           "the log-law profile must be a speed at every y+, not a sentinel"));
+                PetscCall(PicurvAssertRealNear(u_tau, find_utau_hydset(nu, U, y, 1.0e-3, roughness[r]), 1.0e-6 * u_tau,
+                                               "the log-law inverse must recover the friction velocity of its profile"));
+            }
+        }
+    }
     PetscFunctionReturn(0);
 }
 
