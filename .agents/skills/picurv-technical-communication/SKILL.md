@@ -84,6 +84,8 @@ Read only the references needed for the current discussion:
   PETSc/MPI behavior, ownership, synchronization, lifecycle, or performance.
 - Read [references/evidence-and-results.md](references/evidence-and-results.md) for runs,
   plots, statistics, comparisons, validation, literature, plans, or technical handoffs.
+- Read [references/research-log.md](references/research-log.md) before writing or editing
+  the research log on Overleaf.
 
 Read more than one only when the question genuinely crosses those concerns.
 

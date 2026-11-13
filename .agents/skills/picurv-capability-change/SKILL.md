@@ -1,6 +1,6 @@
 ---
 name: picurv-capability-change
-description: Route new or changed PICurv solvers, preconditioners, forces, boundaries, postprocessors, CLI features, and other capabilities. Use for extension work; not narrow fixes or diagnosis.
+description: Use before editing PICurv code that adds or changes behaviour, an option, an output, a diagnostic or a contract - solvers, preconditioners, forces, boundaries, wall models, postprocessors, CLI features, tooling. Pair with picurv-spatial-kernel-change for loops and stencils and with picurv-test-design for tests; diagnose an unknown cause with picurv-solver-debugging first.
 ---
 
 # PICurv capability change
@@ -39,6 +39,16 @@ current, use its bounded direct and two-hop edges to choose caller sites to insp
 respecting the printed Doxygen call-graph caveat. A missing optional index is normal;
 continue with the base route or run `make docs-xref` when caller discovery will repay the
 build cost.
+
+## Design before editing
+
+When more than one implementation is plausible, put two or three to the owner with a
+recommendation and wait for a choice; a small, unambiguous change needs only a short plan.
+Keep the diff to what the request needs: every changed line traces to it. Put structural
+changes (moves, renames, extractions, consolidation) and behavioural changes in separate
+commits, and ship an optimisation or a refactor the request did not ask for only as its own
+approved commit. Report dead or duplicated code found along the way rather than removing it,
+unless removing it is the change.
 
 ## Trace a live sibling
 
@@ -123,6 +133,9 @@ sharing generated outputs.
 
 ## Verify and document
 
+Select, size and write tests with `picurv-test-design`; the guidance below names where the
+targets and owners are.
+
 Read `tests/guide.md` and select the narrowest test that answers each affected layer. Add a
 real executable smoke check when unit tests cannot exercise ingress or lifecycle behavior,
 and an applicable MPI check when rank behavior can differ. Run broader gates in proportion
@@ -149,6 +162,8 @@ hand-edit `docs/generated/`. If an audit, generator, or review-packet command fa
 the tooling failure and its partial scope; do not silently replace machine evidence with a
 prose claim. If visual preview is warranted, distinguish a successful build/gate from an
 interactive serving process.
+
+Before handoff, complete the documentation trail (`AGENTS.md`, "Documentation trail").
 
 ## Handoff
 

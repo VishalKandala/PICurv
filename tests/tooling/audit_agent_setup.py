@@ -16,6 +16,8 @@ CLAUDE_ROOT = REPO_ROOT / ".claude" / "skills"
 EXPECTED_SKILLS = {
     "picurv-capability-change",
     "picurv-solver-debugging",
+    "picurv-case-design",
+    "picurv-test-design",
     "picurv-spatial-kernel-change",
     "picurv-technical-communication",
 }

@@ -1,6 +1,6 @@
 ---
 name: picurv-spatial-kernel-change
-description: Design or refactor PICurv stencils, interpolation/scatter, and distributed field loops across layouts, metrics, ghost/periodic synchronization, and MPI ownership. Not configuration-only work or initial diagnosis.
+description: Use before writing or changing any PICurv loop over cells, faces or particles, a stencil, interpolation or scatter, a boundary or wall treatment's per-element kernel, or anything touching ghosts, periodic repair, decomposition or field ownership. Pair with picurv-capability-change when behaviour changes.
 ---
 
 # PICurv spatial kernel change
@@ -45,7 +45,12 @@ rather than copying them into this skill.
 ## Reuse spatial infrastructure first
 
 Before adding loop-bound, layout, periodicity, scatter, assembly, or field-access code,
-apply the reuse gate in `AGENTS.md`. Inspect current callers of shared operations such as
+apply the reuse gate in `AGENTS.md`. Inspect first the operations that already own these
+responsibilities - at the time of writing `GetOwnedInteriorCellBounds` and
+`GetOwnedCellRange` (bounds), `CanRankServiceFace` and `GetBoundaryFaceElements`
+(boundary-face elements), `RemoveFaceNormalComponent` (the tangential part on a face),
+`FieldGetView` and `UpdateLocalGhosts` (field access and refresh) - and resolve the current
+names in code. Inspect current callers of shared operations such as
 `GetOwnedCellRange`, `FieldGetView`, `UpdateLocalGhosts`, and the layout-specific periodic
 synchronizers; reuse them only when their ownership and vector-authority contracts match.
 Also locate the established boundary/periodicity state rather than creating a
@@ -113,6 +118,9 @@ multiblock or multigrid-level equivalence when the current runtime and tests do 
 demonstrate it.
 
 ## Implement and verify
+
+Choose tests with `picurv-test-design`; its relations - decomposition, restart, orientation,
+order of accuracy - are the usual evidence for a spatial change.
 
 Derive loop bounds from the stated physical domain and layout. Keep owned writes
 separate from ghosted reads, make synchronization explicit at the owning orchestration

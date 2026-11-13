@@ -116,7 +116,11 @@ names the test targets declared for the paths you actually changed. When the pac
 reports a changed path as unrouted, fall back to the nearest directory `guide.md`
 and choose by responsibility; do not treat an unrouted path as "nothing to re-run".
 
-Run the full suite once, before committing — not after each fix in the loop.
+The pre-push hook runs the full certification on every push to `main`, so the full suite is
+not re-run by hand before committing. Run it yourself only when its result is the question -
+another index width, another MPI layout, the cluster - or before a push that is not to
+`main`; branch pushes are not gated. `picurv-test-design` covers which checks answer which
+question and when a check becomes a permanent test.
 
 Do not pre-run the merge gates. `make certify-docs` and `certify-docs-fast` are
 commit-scoped by construction: they refuse a dirty tree, because a certificate is
@@ -126,6 +130,16 @@ anyway. Running them mid-iteration returns an error, not an answer.
 A test that was passing before your change is not evidence that it still passes.
 State which targets you re-ran and which you did not, so the difference is visible
 rather than assumed.
+
+## Plan before acting
+
+Before any code change, case, run or campaign step, load the workflow skill that owns it -
+`picurv-capability-change`, `picurv-spatial-kernel-change`, `picurv-solver-debugging`,
+`picurv-case-design`, `picurv-test-design` - as the first step, not after reading the code.
+Skill loads made for an earlier change do not carry over to a new one. Read what the
+repository and records already answer, write the plan, and when there is a real choice put
+the options to the owner with a recommendation. An approval of compute or of a goal is not
+approval of a design.
 
 ## Technical communication
 
@@ -280,6 +294,21 @@ make attest-freshness ARGS="<surface-id>"
 
 Attesting records that the comparison happened. It is not a claim that the page is
 correct, and it is never a substitute for making the page correct.
+
+### Documentation trail
+
+Work on the code or in a campaign is done when its trail is complete, so that both the
+code reasoning and the scientific reasoning can be found later:
+
+- a changelog fragment for every push to `main`;
+- repository documentation, directory `guide.md` files and code comments that describe the
+  behaviour as it now is;
+- the research log on Overleaf (local clone `../picurv-research-log`): Part I describes the
+  method as it now is, with its reasoning and limitations; Part II records the dated study
+  or decision, citing record, product, run and archive ids. Pull before editing and push
+  after, following `picurv-technical-communication`, `references/research-log.md`;
+- dated records and products on the research drive (`research-data` skill);
+- a measurement record for evidence that backs a status.
 
 ### Two standing rules
 

@@ -1,6 +1,6 @@
 ---
 name: picurv-solver-debugging
-description: Diagnose PICurv convergence, PETSc or MPI, boundary, restart, and numerical anomalies. Use for evidence-first investigation or requested fixes; not new capability work.
+description: Use whenever a PICurv run diverges, stalls, blows up, gives a suspicious number, or a test fails for an unclear reason - convergence, PETSc or MPI errors, boundaries, restarts, numerical anomalies - before changing settings or code.
 ---
 
 # PICurv solver debugging
@@ -85,6 +85,11 @@ Do not respond to uncertainty with an unbounded parameter sweep, a larger case, 
 ranks. Bound experiments in advance and stop when the evidence separates the leading
 hypotheses or when the remaining uncertainty can be stated precisely.
 
+Find a working sibling - another case, layout, version or setting where the behaviour is
+right - and list what differs before forming hypotheses. Test one hypothesis at a time.
+After three fixes that did not remove the signature, stop and question the design rather
+than trying a fourth.
+
 ## Coordinate independent evidence lanes
 
 When permitted and useful, delegate independent read-only lanes: one agent traces
@@ -95,8 +100,10 @@ solver runs and all runs sharing output locations.
 
 ## Verify a requested fix
 
-Read `tests/guide.md` and select the narrowest relevant unit target, then exercise the exact
-reproducer and its negative control. Add a real runtime smoke test when the defect depends
+Read `tests/guide.md` and select the narrowest relevant unit target. State the defect's
+class boundary and test it as `picurv-test-design` sets out: at least two representatives
+inside it and a control outside, each failing before the fix, passing after it, and failing
+again when the fix alone is reverted. Add a real runtime smoke test when the defect depends
 on ingress, lifecycle, boundary ordering, pressure coupling, or restart. Repeat at another
 rank count when decomposition could matter.
 
@@ -113,6 +120,9 @@ If the fix changes documented behavior or invalidates an empirical characterizat
 the applicable review packet before editing the canonical page, follow the freshness and
 documentation audits in `AGENTS.md`, and update that page rather than creating a parallel
 diagnostic ledger. Report any review/audit tooling failure explicitly.
+
+Before handoff of a fix, complete the documentation trail (`AGENTS.md`, "Documentation
+trail").
 
 ## Handoff
 
