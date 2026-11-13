@@ -1,1 +1,1 @@
-- Wall-model comments and docs (2642e8ce): the Werner sublayer edge is `8.3^(7/6) = 11.8102`, and comments and page 09 describe the stress condition rather than a first-cell overwrite. No behaviour change.
+- Wall-model comments and docs (2642e8ce): the Werner sublayer edge is `8.3^(7/6) = 11.8102`, and comments and page 09 describe the stress condition rather than a first-cell overwrite; the no-wall-face warning says "reached" instead of "corrected" (6f7fe878). No numerical change.
