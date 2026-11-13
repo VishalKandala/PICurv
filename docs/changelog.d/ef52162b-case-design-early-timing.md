@@ -1,0 +1,1 @@
+- Case-design skill (ef52162b): the first steps of a cluster job are its timing pilot; a slow run is stopped with `picurv cancel --graceful` and continued at a larger layout, and node counts are sized by layout feasibility rather than caution.
