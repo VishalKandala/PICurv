@@ -1723,6 +1723,35 @@ def test_wall_model_without_a_turbulence_model_is_rejected():
     assert _wall_pairing_errors(les={"enabled": False}, wall={"enabled": False}) == []
 
 
+def test_wall_model_pairing_reads_les_as_the_launcher_writes_it():
+    """!
+    @brief Test that validation accepts a wall model exactly when the launcher enables LES.
+
+    The pairing check once read only a mapping with `enabled: true`, so the shorthand
+    `les: true`, a bare model name, and a block that omits `enabled` (which the launcher
+    enables) were refused as "no turbulence model". For every spelling, the check must
+    agree with the `-les` flag the launcher writes.
+    """
+    picurv = load_picurv_module()
+    spellings = [
+        True, False, "dynamic_smagorinsky", "none", 2, 0,
+        {"model": "wale"}, {"enabled": True}, {"enabled": False},
+        {"enabled": True, "model": "none"}, {"enabled": False, "model": "vreman"},
+    ]
+    for les in spellings:
+        lines = []
+        picurv.append_turbulence_flags(
+            {"physics": {"turbulence": {"les": les}}}, lines,
+            {"length_ref": 1.0, "velocity_ref": 1.0})
+        launcher_on = any(line.startswith("-les ") and line.split()[1] != "0" for line in lines)
+        refused = any("no turbulence model" in e
+                      for e in _wall_pairing_errors(les=les, wall={"enabled": True}))
+        assert refused != launcher_on, (les, lines)
+
+    # No les key at all is no subgrid model.
+    assert any("no turbulence model" in e for e in _wall_pairing_errors(les=None, wall={"enabled": True}))
+
+
 def test_generator_destination_keys_are_refused_rather_than_ignored():
     """!
     @brief Test that generated inputs cannot name their own output paths.

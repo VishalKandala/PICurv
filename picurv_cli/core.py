@@ -8297,8 +8297,10 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
     except ValueError:
         return  # The selector's own validation already reported this.
 
-    les_on = isinstance(les_cfg, dict) and bool(les_cfg.get('enabled', False)) \
-        and str(les_cfg.get('model', 'dynamic_smagorinsky')).strip().lower() != 'none'
+    try:
+        les_on = bool(resolve_les_model_code(les_cfg))
+    except ValueError:
+        return  # The les selector's own validation already reported this.
     # A wall model with nothing to sit on. The convective scheme here is QUICK, whose
     # dissipation is linear and upwind-biased; it is not a limiter-based scheme whose
     # truncation error stands in for a subgrid stress, so there is no implicit LES to
@@ -16143,6 +16145,26 @@ def normalize_wall_function_model(value) -> int:
             "Unknown wall_function model '%s'. Use one of: 'log_law', 'werner', 'cabot'." % value)
     return mapped
 
+def resolve_les_model_code(les_cfg) -> "int | None":
+    """!
+    @brief The `-les` code the launcher writes for a `models.physics.turbulence.les` value.
+    @details A mapping is enabled unless it says `enabled: false` and defaults to the
+             constant Smagorinsky model; any other value (`true`, a model name, an integer)
+             is a selector on its own. Validation and flag generation both read this, so
+             they agree about whether a subgrid model is on.
+    @param[in] les_cfg The `les` value, or None when the key is absent.
+    @return The code (0 when disabled), or None when `les` is absent.
+    @throws ValueError if the value or its `enabled` flag cannot be mapped.
+    """
+    if les_cfg is None:
+        return None
+    if isinstance(les_cfg, dict):
+        if not resolve_enabled_flag(les_cfg, "models.physics.turbulence.les"):
+            return 0
+        return normalize_les_model(les_cfg.get('model', 'constant_smagorinsky'))
+    return normalize_les_model(les_cfg)
+
+
 def resolve_enabled_flag(cfg: dict, path: str, default: bool = True) -> bool:
     """!
     @brief Resolves a structured `enabled` flag and rejects non-boolean values.
@@ -16295,17 +16317,12 @@ def append_turbulence_flags(models: dict, control_lines: list, scales: dict = No
     les_cfg = turbulence_cfg.get('les')
     rans_cfg = turbulence_cfg.get('rans')
     wall_cfg = turbulence_cfg.get('wall_function')
-    les_code = None
 
+    les_code = resolve_les_model_code(les_cfg)
+    if les_code is not None:
+        control_lines.append(f"-les {les_code}")
     if isinstance(les_cfg, dict):
-        enabled = resolve_enabled_flag(les_cfg, "models.physics.turbulence.les")
-        model_value = les_cfg.get('model', 'constant_smagorinsky')
-        les_code = normalize_les_model(model_value) if enabled else 0
-        control_lines.append(f"-les {les_code}")
         append_les_parameter_flags(les_cfg, control_lines)
-    elif les_cfg is not None:
-        les_code = normalize_les_model(les_cfg)
-        control_lines.append(f"-les {les_code}")
 
     if rans_cfg is not None:
         raise ValueError(RANS_PLANNED_REFUSAL)
