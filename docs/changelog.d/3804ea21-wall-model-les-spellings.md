@@ -1,0 +1,2 @@
+- Wall-model validation accepts every `les` spelling the launcher enables (3804ea21): `les: true`, a model name, an integer code, or a block without `enabled` no longer fail as "no turbulence model". One mapping, `resolve_les_model_code()`, serves the launcher and the check.
+- `u_hydset_roughness()` continues the log branch above y+ = 300, as its inverse does, instead of returning -1 (60f2565c); the forward wall laws are documented as the definitions their inverses are tested against.
