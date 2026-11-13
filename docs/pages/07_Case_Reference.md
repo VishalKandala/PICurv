@@ -1103,9 +1103,11 @@ checks that the integration stores a friction velocity that inverts the law at t
 reference cell's distance, stores `u_tau^2` along the flow in the face's dummy cell, leaves
 the resolved velocity untouched, and gives an edge cell one independent stress per wall;
 `tests/c/test_poisson_rhs.c` checks that the viscous operator applies that stress on the
-wall face. The Re_tau ~ 1000 channel record `wmles-channel-retau1000-loglaw-2026-10-09` was
-taken when the model acted by overwriting the first cell's velocity, so it does not
-describe this formulation; the reference comparison is owed again.
+wall face. Reference verified - `wmles-channel-retau1000-loglaw-stressbc-2026-11-12`: the
+wall-modelled channel at Re_tau ~ 1000 (32 x 20 x 48 cells, first cell at y+ ~ 50) meets
+every criterion fixed beforehand against Lee & Moser, with `u_tau` within 0.21%, `U+` within
+0.15 over y+ 100-500 and the resolved shear stress within 0.91-0.95 of the DNS in the outer
+layer.
 
 **Limitations.** Validity depends on the first cell falling in the logarithmic region.
 Only the wall-face mean y+ stops a run; a local maximum outside the region is reported once
@@ -1145,16 +1147,17 @@ selected model by name.
 `u_Werner` exactly at y+ from 2 to 500, across the switch, and the profile is continuous and
 increasing there (`wall-law-branches-are-continuous`). The integration and the wall-face
 stress are covered as for @ref p07_cap_wall_log_law "log_law", in `tests/c/test_boundaries.c`
-and `tests/c/test_poisson_rhs.c`. The Re_tau ~ 1000 channel
-record `wmles-channel-retau1000-werner-2026-10-09` and the duct-bend record
-`humphrey-turbulent-bend-wmles-2026-10-09` were taken when the model acted by overwriting
-the first cell's velocity, so they do not describe this formulation; both comparisons are
-owed again.
+and `tests/c/test_poisson_rhs.c`. In the Re_tau ~ 1000 channel of the `log_law` record, run
+alongside it, `werner` meets every criterion except the friction velocity, which is 3.36%
+above Lee & Moser against a 3% bound (product `channel-ret1000_wm-matrix_v2`). In the
+turbulent 90-degree duct bend at Re 40,000 every step converges and the mean velocity at six
+measured stations differs from NASA CR-3367 by 0.04-0.08 bulk velocity RMS (product
+`humphrey-bend_turbulent-stressbc_v1`). Neither is a measurement record.
 
 **Limitations.** No roughness. The power-law constants are fixed, and the model carries
 no pressure-gradient term, so it describes an equilibrium layer only; no implemented
-model handles a non-equilibrium layer correctly (see `cabot`). No reference-flow evidence
-for the current formulation yet.
+model handles a non-equilibrium layer correctly (see `cabot`). Its friction velocity in the
+Re_tau ~ 1000 channel is about 3% high.
 
 
 @subsection p07_cap_wall_cabot_sub cabot

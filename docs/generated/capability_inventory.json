@@ -500,12 +500,12 @@
       },
       "log_law": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "loglaw": {
         "maps_to": 1,
         "spelling_of": "log_law",
-        "status": "experimental"
+        "status": "supported"
       },
       "werner": {
         "maps_to": 2,

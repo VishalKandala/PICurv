@@ -944,7 +944,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "log_law": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -954,6 +954,9 @@
               "file:tests/c/test_boundaries.c",
               "make:unit-poisson-rhs",
               "file:tests/c/test_poisson_rhs.c"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-loglaw-stressbc-2026-11-12"
             ]
           }
         },

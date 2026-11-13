@@ -117,8 +117,9 @@ likely to matter:
   Lee & Moser (2015), judged against criteria fixed before the runs, on one grid:
   `wmles-channel-retau1000-werner-2026-10-09` backs the dynamic-Smagorinsky path,
   `wmles-channel-retau1000-simpson-2026-10-09` backs `simpson_ik`, and
-  `wmles-channel-retau1000-loglaw-2026-10-09` is cited on the `log_law` entry as the record
-  of the formulation before the stress boundary condition. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
+  `wmles-channel-retau1000-loglaw-stressbc-2026-11-12` backs `log_law`, and
+  `wmles-channel-retau1000-loglaw-2026-10-09` records the formulation before the stress
+  boundary condition. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
   retains an 11.4% friction-Reynolds-number discrepancy and 29.3% excess skin friction;
   its `met` verdict concerns converged production execution, so it contributes a
   `production` facet rather than a `reference` facet. See @ref p55_channel_evidence_sub.

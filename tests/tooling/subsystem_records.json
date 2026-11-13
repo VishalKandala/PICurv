@@ -454,10 +454,9 @@
     {
       "id": "turbulence.wall_function",
       "title": "Wall Function Boundary Treatment",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": "supported",
-      "demotion_reason": "On 2026-11-12 the wall model was reformulated as a stress boundary condition: the law's u_tau^2 is applied on each wall face and the resolved velocity is no longer overwritten. The overwrite had been discarded by the momentum residual (ComputeRHS reconstructs Ucat), so the delivered stress was not the model's, and the conservation outlet copied the overwritten value into its mass flux, which drove outlet-corner backflow and a solver blow-up on a 128x128 duct (records/2026-11-12_duct-bend_outlet-corner-backflow, _outlet-matrix). The channel and bend records behind supported describe the previous formulation, so the claim is withdrawn until they are retaken.",
+      "previous_status": "experimental",
       "capability_families": [
         "turbulence.wall_function"
       ],
@@ -506,6 +505,30 @@
         "safe_use_boundaries": {
           "page": "07_Case_Reference",
           "anchor": "p07_wall_laws_sec"
+        },
+        "evidence": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_cap_wall_log_law"
+        },
+        "lifecycle_and_restart": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_wall_restart"
+        },
+        "operations": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_newrun_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_wallmodel_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_wall_laws_sec"
         }
       },
       "concerns": {
@@ -525,7 +548,7 @@
           "not_applicable": "The wall_function block and its -wallfunction / -wall_roughness flags are unchanged; nothing has been renamed or retired."
         }
       },
-      "note": "Promoted 2026-10-09 with the repository owner's approval. werner: wmles-channel-retau1000-werner-2026-10-09 reproduces Lee & Moser's Re_tau = 1000 channel within criteria fixed beforehand (u_tau +2.9%, against +14.5% before the pointwise fix 01416a8), and humphrey-turbulent-bend-wmles-2026-10-09 exercises it through a turbulent duct bend. log_law and cabot remain experimental: unit coverage only, no reference run. One grid of one channel; the solver does not report the driving force, so the ~2% gap between the applied wall stress and the outer-layer stress balance is unresolved."
+      "note": "Promoted again 2026-11-13 with the repository owner's approval, on the wall-stress formulation (bcae5d34). log_law: wmles-channel-retau1000-loglaw-stressbc-2026-11-12 reproduces Lee & Moser's Re_tau = 1000 channel within the criteria fixed for its 2026-10-09 record. werner stays experimental: in the same channel it misses only the u_tau criterion (+3.36% against 3%), and the Re 40,000 duct bend (product humphrey-bend_turbulent-stressbc_v1) is a product, not a record. cabot stays known-defective. One grid of one channel; first cells at y+ ~ 50, so first cells in the buffer layer are not covered."
     },
     {
       "id": "particles.transport",

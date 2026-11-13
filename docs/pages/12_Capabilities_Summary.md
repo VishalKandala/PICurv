@@ -77,9 +77,9 @@ behind it was ever implemented, so it was removed and the subsystem returned to 
 functions are configured separately from the LES closure, and offer three
 laws - `log_law`, `werner`, and `cabot`. Each is a stress boundary condition: the law's
 `u_tau^2`, evaluated from the resolved velocity of the second cell from the wall, is
-applied on each wall face, and the resolved velocity is left as it is. `log_law` and
-`werner` are experimental: the channel validation that made them supported was taken with
-the earlier formulation, which overwrote the first cell's velocity, and is owed again.
+applied on each wall face, and the resolved velocity is left as it is. `log_law` is supported: in the wall-modelled channel at Re_tau = 1000 it meets every
+criterion fixed beforehand against Lee & Moser. `werner` is experimental: in the same
+channel its friction velocity is 3.4% high, outside the 3% criterion.
 `cabot` is known-defective: on the same channel its pressure-gradient term put the friction
 velocity 22% low.
 

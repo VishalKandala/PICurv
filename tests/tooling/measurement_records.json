@@ -718,6 +718,23 @@
       "artifacts": []
     },
     {
+      "id": "wmles-channel-retau1000-loglaw-stressbc-2026-11-12",
+      "question": "Does the log_law wall function, applied as a wall-stress boundary condition (bcae5d34), still reproduce Lee & Moser's Re_tau = 1000 channel within the criteria fixed for wmles-channel-retau1000-loglaw-2026-10-09?",
+      "date": "2026-11-12",
+      "commit": "ff3ca41556a649a268b18af7510ca19723f94b13 (0.1.0.dev524+gff3ca41556a6, pinned executables; job 20508239).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, executables pinned at ff3ca415. Restarted from step 100000 (t = 2000) of case_constant_flux_20261008-154731 (restored from archive 027377ff00624202bfa1dea8edc3a682) with --statistics-state reset, as the 2026-10-09 record. Reduced by wm_matrix.py with the profile tool at bf4f687 (the repository file was removed in 5c2dc4ac); the reducer's --parent-check reproduced the published werner parent numbers before use.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000 at the parent's settings, as in wmles-channel-retau1000-loglaw-2026-10-09, with wall_function.model log_law, smooth wall. Run wm_log_law_20261112-191556; statistics window t = 2200-2800 (halves split at 2500). A werner control (wm_werner_control_20261112-191516, job 20508238) ran alongside from the same state.",
+      "result": {
+        "measured": "u_tau = 0.0499415, -0.21% against Lee & Moser; halves 0.0497585 / 0.0501239 (0.73% apart); u_tau from the driving force 0.0498602 (-0.37%), ratio 1.0016. Bulk-unit mean velocity RMS 0.0148 U_b (max 0.0256); U+ within 0.148 of Lee & Moser over y+ 100-500 (first cell +0.55 at y+ 49.9); resolved -u'v' 0.906-0.946 of Lee & Moser for 0.3 <= y/h <= 0.85; outer u', v', w' ratios 0.988 / 0.979 / 0.922. cs_effective 0.043, nu_t/nu 3.54. The werner control: u_tau +3.36%, failing only that criterion, as its 2026-10-09 window-2 record did (+3.23%).",
+        "threshold": "The criteria of wmles-channel-retau1000-loglaw-2026-10-09, unchanged: sqrt(<u_tau^2>) within +-3% of Lee & Moser (0.050046); window halves within 1%; bulk-unit mean velocity RMS <= 0.02 U_b; |U+ - U+_LM| <= 1 for y+ 100-500, first cell excluded; resolved -u'v' within 0.85-1.15 of Lee & Moser for 0.3 <= y/h <= 0.85; wall-model u_tau within 1% of the force u_tau.",
+        "verdict": "met"
+      },
+      "limitations": "One grid, one Reynolds number, smooth wall only. Restarted from a state developed under the earlier wall-model formulation and with werner; the 200 time units before the window are the only adaptation. The halves differ by 0.73%, inside the 1% criterion but larger than the 0.10% of the 2026-10-09 record. Outer resolved shear stress 5-9% below Lee & Moser, inside the criterion. First cell at y+ about 50: the record does not cover first cells inside the buffer layer.",
+      "artifacts": [
+        "CSBL-runs:products/channel-ret1000/channel-ret1000_wm-matrix_v2/ (summary.csv, acceptance.csv, uplus_profiles.csv, product.json)"
+      ]
+    },
+    {
       "id": "wmles-channel-retau1000-werner-window2-2026-10-09",
       "question": "Does the werner result of wmles-channel-retau1000-werner-2026-10-09 hold over a later window of the same flow, restarted through the current build?",
       "date": "2026-10-09",
