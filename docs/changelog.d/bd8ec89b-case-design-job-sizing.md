@@ -1,0 +1,1 @@
+- Case-design skill (bd8ec89b): pack only short related runs into one allocation; longer runs go as separate `picurv submit` jobs sized at about 1.3-1.5x their measured cost, since schedulers deprioritise long requests.
