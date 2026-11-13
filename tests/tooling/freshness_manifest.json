@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:f65bffc1ca923d4d40d8fbc361a2c3b24bc42ee3bb0c6f1c8786e05370d0799c",
+      "attested_digest": "sha256:c7ef70ccc2ba316878d388a7d531833389b9d84bbf2a534f285ef8e046b432d9",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -152,7 +152,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:87974647a1195881fa2304a9450685599a3a77b168617e76ffe1cb86c3b9e42d",
+      "attested_digest": "sha256:85a5c2362a620859da7df4e9c3f9247da175d32e4c27d37497ebb8d52d27c081",
       "note": "Four models, all experimental: the Germano-Lilly and constant-model defects recorded earlier were fixed on 2026-09-01, and Vreman and WALE were added. If this file or its header changes, re-check the model entries on 07 and the formulation on 72 first."
     },
     {
@@ -169,7 +169,7 @@
       "dependent_pages": [
         "72_LES_Turbulence_Closure"
       ],
-      "attested_digest": "sha256:79ab38ec1144e607494011b5130e56981e075f2fbced12377acc48922a5a7a2f"
+      "attested_digest": "sha256:b4928c0575c07f986baf56153dc9e224f9c1f36ba5c5ff54d2d48df418622884"
     },
     {
       "id": "grid.metrics",
