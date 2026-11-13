@@ -1752,6 +1752,28 @@ def test_wall_model_pairing_reads_les_as_the_launcher_writes_it():
     assert any("no turbulence model" in e for e in _wall_pairing_errors(les=None, wall={"enabled": True}))
 
 
+def test_statistics_les_fields_read_les_as_the_launcher_writes_it():
+    """!
+    @brief Test that LES-dependent statistics fields are available exactly when the launcher enables LES.
+
+    The availability check once read only `les.enabled`, so a block that omits `enabled`
+    (enabled by default) or a model name counted as no LES, and `les: true` raised an
+    AttributeError. `Nu_t` and `CS` must be available exactly when the launcher writes a
+    nonzero -les.
+    """
+    picurv = load_picurv_module()
+    for les in (True, False, "dynamic_smagorinsky", "none", 2, 0, {"model": "wale"},
+                {"enabled": True}, {"enabled": False}, {"enabled": True, "model": "none"}, None):
+        turbulence = {} if les is None else {"les": les}
+        lines = []
+        picurv.append_turbulence_flags({"physics": {"turbulence": turbulence}}, lines,
+                                       {"length_ref": 1.0, "velocity_ref": 1.0})
+        launcher_on = any(line.startswith("-les ") and line.split()[1] != "0" for line in lines)
+        case_cfg = {"models": {"physics": {"turbulence": turbulence}}}
+        for requirement in ("les", "turbulence"):
+            assert picurv._statistics_subsystem_available(case_cfg, requirement) == launcher_on, (les, requirement)
+
+
 def test_generator_destination_keys_are_refused_rather_than_ignored():
     """!
     @brief Test that generated inputs cannot name their own output paths.

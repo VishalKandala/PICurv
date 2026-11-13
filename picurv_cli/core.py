@@ -12689,7 +12689,7 @@ def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
     @brief Report whether the subsystem a statistics field depends on is active.
     @param[in] case_cfg Parsed case configuration.
     @param[in] requirement Subsystem key from `STATISTICS_ELIGIBLE_FIELDS`, or None.
-    @return Value returned by `_statistics_subsystem_available()`.
+    @return Whether that subsystem is enabled, as the launcher configures it.
     """
     if requirement is None:
         return True
@@ -12701,7 +12701,10 @@ def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
         except (TypeError, ValueError):
             return False
     turbulence = physics.get("turbulence", {}) or {}
-    les_on = bool((turbulence.get("les", {}) or {}).get("enabled", False))
+    try:
+        les_on = bool(resolve_les_model_code(turbulence.get("les")))
+    except ValueError:
+        return False  # The les selector's own validation reports the value.
     if requirement == "les":
         return les_on
     if requirement == "turbulence":
