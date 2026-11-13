@@ -144,6 +144,8 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `inlet-picslice-source-behavior`
   - `inlet-source-follows-time-and-bulk-velocity`
   - `outlet-conservation-handler-behavior`
+  - `outlet-conservation-backflow-clip`
+  - `outlet-conservation-clip-frozen-per-step`
 - `test_periodic_dev.c`:
   - `periodic-geometric-factory-assignment`
   - `periodic-face-center-coordinate-synchronization`

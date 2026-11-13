@@ -1374,6 +1374,17 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
 //             and applies it to the contravariant velocity (ucont) on the outlet face.
 // 3. PostStep: Measures the *corrected* flux for verification and logging.
 //
+// Backflow clip. The uniform correction adds the same velocity c to every face,
+// so it can leave a face with flux into the domain. Once per time step, at the
+// step's first Apply, the handler asks whether F + c*A < 0 on any face of this
+// outlet (F the zero-gradient flux, A the face area). If not, the uniform rule
+// runs unchanged. If so, the faces with F < 0 are clipped to zero flux (and zero
+// normal velocity in Ubcs), and the remaining faces are scaled by one factor
+// psi so that this face carries the same total as the uniform rule would. The
+// rule and the clipped set are frozen for the rest of the step so the residual
+// stays smooth inside a Newton solve; psi is re-measured on every call, as c is,
+// so the total stays exact.
+//
 //================================================================================
 
 // --- 1. FORWARD DECLARATIONS ---
@@ -1382,6 +1393,15 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
 static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                                   PetscReal *in, PetscReal *out);
+static PetscErrorCode Destroy_OutletConservation(BoundaryCondition *self);
+
+/** Per-face state of the backflow clip; see the section comment above. */
+typedef struct {
+    PetscInt   decisionStep; /* Step at which the rule and clipped set were chosen (-1 = never). */
+    PetscBool  clipRule;     /* PETSC_TRUE: clip reversed faces and scale the rest, this step. */
+    PetscInt   maskSize;     /* Owned face elements covered by clipped[]. */
+    PetscBool *clipped;      /* Frozen clipped set, indexed q*n[0] + p over the owned elements. */
+} OutletConservationData;
 
 /**
  * @brief Implementation of \ref Create_OutletConservation().
@@ -1407,9 +1427,12 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
     bc->PostStep   = PostStep_OutletConservation;
     bc->UpdateUbcs = NULL;
     bc->needs_repeat_pass = PETSC_TRUE; // Reads the adjacent Ucat and the inlets' flux
-    bc->Destroy    = NULL; // No private data to destroy
-    
-    bc->data = NULL;
+    bc->Destroy    = Destroy_OutletConservation;
+
+    OutletConservationData *data = NULL;
+    PetscCall(PetscNew(&data));
+    data->decisionStep = -1;
+    bc->data = (void*)data;
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1549,6 +1572,153 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
     PetscFunctionReturn(0);
 }
 
+/** What one OutletClipPass() over the owned outlet elements does. */
+typedef enum { OUTLET_CLIP_DECIDE, OUTLET_CLIP_MEASURE, OUTLET_CLIP_WRITE } OutletClipPassMode;
+
+/**
+ * @brief One pass over this rank's elements of an outlet face for the backflow clip.
+ *
+ * Every fluid element's zero-gradient flux is F = Ucat(cell) . S, the flux the uniform rule
+ * starts from. The pass is local; the caller reduces @p sums.
+ * - DECIDE freezes the clipped set {F < 0} into @p data and returns sums[0] = the number of
+ *   elements with F + correction*A < 0 and sums[1] = the number clipped.
+ * - MEASURE returns sums[0] = sum F, sums[1] = sum A and sums[2] = sum F over unclipped elements.
+ * - WRITE sets the outlet flux: zero on clipped elements, whose Ubcs loses its normal component,
+ *   and psi*F elsewhere, with Ubcs = Ucat as in the uniform rule.
+ */
+static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConservationData *data,
+                                     OutletClipPassMode mode, PetscReal correction, PetscReal psi,
+                                     PetscReal sums[3])
+{
+    const PetscBool      negative = (PetscBool)((PetscInt)face_id % 2 == 0);
+    BoundaryFaceElements e;
+    Cmpnts            ***ucat, ***metric, ***ubcs = NULL, ***ucont = NULL;
+    PetscReal         ***nvert;
+
+    PetscFunctionBeginUser;
+    sums[0] = sums[1] = sums[2] = 0.0;
+    PetscCall(GetBoundaryFaceElements(user, face_id, &e));
+    const PetscInt count = e.n[0] * e.n[1];
+    if (mode == OUTLET_CLIP_DECIDE && count != data->maskSize) {
+        PetscCall(PetscFree(data->clipped));
+        if (count > 0) PetscCall(PetscCalloc1(count, &data->clipped));
+        data->maskSize = count;
+    }
+    if (count == 0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    const Vec      lmetric = (e.normal == 0) ? user->lCsi : (e.normal == 1) ? user->lEta : user->lZet;
+    const PetscInt cell  = negative ? e.layer + 1 : e.layer;
+    const PetscInt dummy = negative ? e.layer : e.layer + 1;
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda, lmetric, (const Cmpnts***)&metric));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert));
+    if (mode == OUTLET_CLIP_WRITE) {
+        PetscCall(DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    }
+    for (PetscInt q = 0; q < e.n[1]; q++)
+    for (PetscInt p = 0; p < e.n[0]; p++) {
+        PetscInt c[3], f[3], d[3];
+
+        c[e.normal] = cell; c[e.a] = e.lo[0] + p; c[e.b] = e.lo[1] + q;
+        if (nvert[c[2]][c[1]][c[0]] >= 0.1) continue;
+        f[0] = d[0] = c[0]; f[1] = d[1] = c[1]; f[2] = d[2] = c[2];
+        f[e.normal] = e.layer;
+        d[e.normal] = dummy;
+
+        const PetscInt  idx  = q * e.n[0] + p;
+        const Cmpnts    S    = metric[f[2]][f[1]][f[0]];
+        const Cmpnts    u    = ucat[c[2]][c[1]][c[0]];
+        const PetscReal flux = u.x * S.x + u.y * S.y + u.z * S.z;
+        const PetscReal area = PetscSqrtReal(S.x * S.x + S.y * S.y + S.z * S.z);
+
+        switch (mode) {
+            case OUTLET_CLIP_DECIDE:
+                data->clipped[idx] = (PetscBool)(flux < 0.0);
+                if (flux + correction * area < 0.0) sums[0] += 1.0;
+                if (data->clipped[idx]) sums[1] += 1.0;
+                break;
+            case OUTLET_CLIP_MEASURE:
+                sums[0] += flux;
+                sums[1] += area;
+                if (!data->clipped[idx]) sums[2] += flux;
+                break;
+            case OUTLET_CLIP_WRITE: {
+                Cmpnts    *face_flux   = &ucont[f[2]][f[1]][f[0]];
+                PetscReal *normal_flux = (e.normal == 0) ? &face_flux->x : (e.normal == 1) ? &face_flux->y : &face_flux->z;
+
+                if (data->clipped[idx]) {
+                    *normal_flux = 0.0;
+                    ubcs[d[2]][d[1]][d[0]] = RemoveFaceNormalComponent(u, S);
+                } else {
+                    *normal_flux = psi * flux;
+                    ubcs[d[2]][d[1]][d[0]] = u;
+                }
+                break;
+            }
+        }
+    }
+    if (mode == OUTLET_CLIP_WRITE) {
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, lmetric, (const Cmpnts***)&metric));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
+ * @brief Run the backflow clip for one Apply call; see the section comment.
+ *
+ * Collective: every rank calls it, whether or not it serves the face. Sets @p applied when the
+ * clip rule wrote this face's fluxes; otherwise the caller applies the uniform rule unchanged.
+ */
+static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, OutletConservationData *data,
+                                             PetscReal correction, PetscBool *applied)
+{
+    SimCtx   *simCtx = user->simCtx;
+    PetscReal local[3], global[3];
+    PetscBool decided_now = PETSC_FALSE;
+    PetscReal reversed = 0.0, clipped = 0.0;
+
+    PetscFunctionBeginUser;
+    *applied = PETSC_FALSE;
+    if (data->decisionStep != simCtx->step) {
+        PetscCall(OutletClipPass(user, face_id, data, OUTLET_CLIP_DECIDE, correction, 0.0, local));
+        PetscCallMPI(MPI_Allreduce(local, global, 2, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        data->clipRule     = (PetscBool)(global[0] > 0.5);
+        data->decisionStep = simCtx->step;
+        decided_now        = PETSC_TRUE;
+        reversed           = global[0];
+        clipped            = global[1];
+    }
+    if (!data->clipRule) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscCall(OutletClipPass(user, face_id, data, OUTLET_CLIP_MEASURE, correction, 0.0, local));
+    PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    /* The total the uniform rule would give this face: the clip only redistributes it. */
+    const PetscReal target = global[0] + correction * global[1];
+    if (!(global[2] > 0.0 && target > 0.0)) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Outlet %s, step %" PetscInt_FMT ": nothing left to scale (unclipped flux %.4e, target %.4e); "
+                  "using the uniform correction for this pass.\n",
+                  BCFaceToString(face_id), simCtx->step, global[2], target);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+    const PetscReal psi = target / global[2];
+    PetscCall(OutletClipPass(user, face_id, data, OUTLET_CLIP_WRITE, correction, psi, local));
+    if (decided_now) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Outlet %s, step %" PetscInt_FMT ": uniform correction would leave %.0f faces reversed; "
+                  "clipped %.0f reversed faces, scaled the rest by psi = %.6f.\n",
+                  BCFaceToString(face_id), simCtx->step, reversed, clipped, psi);
+    }
+    *applied = PETSC_TRUE;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /**
  * @brief (Handler Action) Applies mass conservation correction to the outlet face.
  *
@@ -1558,24 +1728,14 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
 static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContext *ctx)
 {
     PetscErrorCode ierr;
-    (void)self;
     UserCtx*       user = ctx->user;
     BCFace         face_id = ctx->face_id;
     DMDALocalInfo* info = &user->info;
     PetscBool      can_service;
+    PetscBool      clip_applied = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-
-    const PetscInt IM_nodes_global = user->IM;
-    const PetscInt JM_nodes_global = user->JM;
-    const PetscInt KM_nodes_global = user->KM;
-    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global, face_id, &can_service); CHKERRQ(ierr);
-    
-    if (!can_service) {
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
 
     // --- STEP 1: Calculate the correction factor using pre-calculated area ---
     PetscReal total_inflow = *ctx->global_inflow_sum + *ctx->global_farfield_inflow_sum;
@@ -1588,6 +1748,25 @@ static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContex
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Outlet Correction on Face %d: Imbalance=%.4e, Pre-calc Area=%.4e, V_corr=%.4e\n",
               face_id, flux_imbalance, user->simCtx->AreaOutSum, velocity_correction);
+
+    // Backflow clip (collective, so before the can_service exit). When it applies, it has
+    // written this face; otherwise the uniform rule below runs unchanged.
+    ierr = OutletConservationClip(user, face_id, (OutletConservationData*)self->data,
+                                  velocity_correction, &clip_applied); CHKERRQ(ierr);
+    if (clip_applied) {
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    const PetscInt IM_nodes_global = user->IM;
+    const PetscInt JM_nodes_global = user->JM;
+    const PetscInt KM_nodes_global = user->KM;
+    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global, face_id, &can_service); CHKERRQ(ierr);
+    
+    if (!can_service) {
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
 
     // --- STEP 2: Apply the correction to ucont on the outlet face ---
 
@@ -1896,6 +2075,20 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Release the outlet-conservation handler's clip state.
+ */
+static PetscErrorCode Destroy_OutletConservation(BoundaryCondition *self)
+{
+    PetscFunctionBeginUser;
+    if (self && self->data) {
+        OutletConservationData *data = (OutletConservationData*)self->data;
+        PetscCall(PetscFree(data->clipped));
+        PetscCall(PetscFree(self->data));
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 

@@ -56,7 +56,9 @@ wall whose handler exerts it, as `BoundaryFaceHasWallShear()` reports.
 
 **Diagnostics.** The startup banner lists the resolved type and handler per face.
 
-**Evidence.** Unit verified - `make unit-boundaries`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
+**Evidence.** Unit verified - `make unit-boundaries`, including the reversed-element
+clip and its per-step freeze (`outlet-conservation-backflow-clip`,
+`outlet-conservation-clip-frozen-per-step`). Analytically verified - `duct-poiseuille-picard-2026-09-18`.
 
 **Limitations.** `MOVING_WALL` is present in the C enum and accepted by the C
 compatibility check, but no public handler exposes it.
@@ -527,6 +529,26 @@ fractions run from 0 to 1 within each block. A data source is steady; only its
 requires, given everything entering the domain. It is a consequence, not a
 prescription.
 
+Each outlet face element starts from a zero-gradient copy: the velocity of the
+cell beside it, giving flux F through the element's area A. The total of those
+copies rarely matches the inflow, so the handler closes the gap with one uniform
+velocity c, giving F + c A on every element.
+
+A uniform c can leave an element with flux into the domain. That happens when
+the copied flux is already reversed, or when c is negative and the element is
+slow. Once per time step, at the step's first boundary application, the
+handler checks whether any element would have F + c A < 0:
+
+- **No:** the uniform rule above runs, unchanged.
+- **Yes:** elements with F < 0 get zero flux, and their boundary velocity loses
+  its normal component. The other elements are multiplied by one factor, so the
+  face still carries the total the uniform rule would have given it.
+
+The choice of rule and the set of zeroed elements stay fixed for the rest of the
+step. That keeps the momentum residual smooth inside a Newton solve. The factor
+is re-measured on every pass, so the total stays exact. An element that starts
+to reverse mid-step is caught at the next step.
+
 **When to choose it.** The default and currently only outlet. Because it derives
 its flux rather than imposing one, it pairs with any inlet without you having to
 match numbers by hand.
@@ -538,12 +560,20 @@ shared edges. There must be an inlet, or a driven periodic pair, for the outlet 
 conserve against.
 
 **Diagnostics.** The inlet/outlet flux balance is reported at startup and is the
-first thing to check when mass appears not to be conserved.
+first thing to check when mass appears not to be conserved. A step that zeroes
+reversed elements logs a warning with the face, the step, the number of
+elements the uniform rule would have reversed, the number zeroed, and the
+factor. Warnings on most steps mean the flow is reversing at the outlet.
+Lengthen the domain downstream of the region of interest.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
 `examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`: outflow matched inflow to 1e-9 in a laminar square duct.
 
-**Limitations.** `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
+**Limitations.** Zeroing reversed elements stops inflow through the outlet. It does
+not make a zero-gradient outlet non-reflecting: a vortex or a slow wall layer
+reaching the outlet still distorts the last few cells. The handler counts
+u . S as outflow on every face, so it assumes the outlet is a positive (`+X`,
+`+Y` or `+Z`) face. `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
 in the C enum but is not exposed, and no handler implements it; see
 @ref p57_pressure_bc_sec for what adding one involves.
 
