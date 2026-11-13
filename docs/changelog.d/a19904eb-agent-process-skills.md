@@ -1,0 +1,1 @@
+- Agent process (a19904eb): new `picurv-case-design` and `picurv-test-design` skills; design-before-editing, debugging and reuse-primitive additions to the existing skills; AGENTS.md "Plan before acting" and "Documentation trail" (including the Overleaf research log); a SessionStart hook that injects the skill-routing table. No change to the solver or tooling behaviour.
