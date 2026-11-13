@@ -59,17 +59,26 @@ difference smaller than the error bars supports no convergence claim.
 - Check the multigrid rank-layout rule (page 25) and that every rank owns at least three
   nodes normal to a modelled wall.
 
-## 6. Estimate cost from a pilot that reaches the physics
+## 6. Size the job; the first steps are the timing pilot
 
-Pilot at the real grid and layout; take the per-step cost and extrapolate (AGENTS.md: over
-45 minutes goes to the cluster). A pilot must reach the time or state where the physics of
-interest - and its failure modes - appear, or say plainly what it cannot show. Scale between
-Reynolds numbers only with a stated law. Size each job's walltime request at about 1.3-1.5
-times its measured cost; the walltime guard checkpoints a run that overruns. Pack short related
-runs into one allocation (stage each with `picurv run --no-submit`, then run their
-`solver.sbatch` in sequence) only while the summed request stays a few hours; schedulers
-deprioritise long requests, so longer runs go as separate `picurv submit --run-dir` jobs. Large
-campaigns need the owner's approval; approval does not carry across campaigns.
+Estimate cost from measured per-step time at the real grid and layout (AGENTS.md: over 45
+minutes goes to the cluster); scale between Reynolds numbers only with a stated law. On the
+cluster, a separate timing pilot is rarely worth its queue wait: the first ~100 steps of the
+real job are the pilot. Report their s/step and the projected total against the walltime; if
+the run is too slow, stop it with `picurv cancel --run-dir <run> --stage solve --graceful`
+(the solver checkpoints its latest step) and resume with `--continue` at a larger layout or a
+longer walltime. Do not hold back on nodes: size by layout feasibility (page 25, three nodes
+per rank normal to a modelled wall) and useful cells per rank.
+
+A pilot run of its own is for physics, not timing: it must reach the time or state where the
+physics of interest - and its failure modes - appear, or say plainly what it cannot show.
+
+Size each walltime request at about 1.3-1.5 times the measured cost; the walltime guard
+checkpoints a run that overruns. Pack short related runs into one allocation (stage each with
+`picurv run --no-submit`, then run their `solver.sbatch` in sequence) only while the summed
+request stays a few hours; schedulers deprioritise long requests, so longer runs go as separate
+`picurv submit --run-dir` jobs. Large campaigns need the owner's approval; approval does not
+carry across campaigns.
 
 ## 7. Design diagnostic matrices
 
