@@ -1596,6 +1596,7 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
     PetscReal         ***nvert;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     sums[0] = sums[1] = sums[2] = 0.0;
     PetscCall(GetBoundaryFaceElements(user, face_id, &e));
     const PetscInt count = e.n[0] * e.n[1];
@@ -1604,7 +1605,7 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
         if (count > 0) PetscCall(PetscCalloc1(count, &data->clipped));
         data->maskSize = count;
     }
-    if (count == 0) PetscFunctionReturn(PETSC_SUCCESS);
+    if (count == 0) { PROFILE_HELPER_END; PetscFunctionReturn(PETSC_SUCCESS); }
 
     const Vec      lmetric = (e.normal == 0) ? user->lCsi : (e.normal == 1) ? user->lEta : user->lZet;
     const PetscInt cell  = negative ? e.layer + 1 : e.layer;
@@ -1666,6 +1667,7 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, lmetric, (const Cmpnts***)&metric));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1684,6 +1686,7 @@ static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, Outl
     PetscReal reversed = 0.0, clipped = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     *applied = PETSC_FALSE;
     if (data->decisionStep != simCtx->step) {
         PetscCall(OutletClipPass(user, face_id, data, OUTLET_CLIP_DECIDE, correction, 0.0, local));
@@ -1694,7 +1697,7 @@ static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, Outl
         reversed           = global[0];
         clipped            = global[1];
     }
-    if (!data->clipRule) PetscFunctionReturn(PETSC_SUCCESS);
+    if (!data->clipRule) { PROFILE_HELPER_END; PetscFunctionReturn(PETSC_SUCCESS); }
 
     PetscCall(OutletClipPass(user, face_id, data, OUTLET_CLIP_MEASURE, correction, 0.0, local));
     PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
@@ -1705,6 +1708,7 @@ static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, Outl
                   "Outlet %s, step %" PetscInt_FMT ": nothing left to scale (unclipped flux %.4e, target %.4e); "
                   "using the uniform correction for this pass.\n",
                   BCFaceToString(face_id), simCtx->step, global[2], target);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(PETSC_SUCCESS);
     }
     const PetscReal psi = target / global[2];
@@ -1716,6 +1720,7 @@ static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, Outl
                   BCFaceToString(face_id), simCtx->step, reversed, clipped, psi);
     }
     *applied = PETSC_TRUE;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -2083,11 +2088,13 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 static PetscErrorCode Destroy_OutletConservation(BoundaryCondition *self)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (self && self->data) {
         OutletConservationData *data = (OutletConservationData*)self->data;
         PetscCall(PetscFree(data->clipped));
         PetscCall(PetscFree(self->data));
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
