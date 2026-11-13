@@ -535,12 +535,14 @@ copies rarely matches the inflow, so the handler closes the gap with one uniform
 velocity c, giving F + c A on every element.
 
 A uniform c can leave an element with flux into the domain. That happens when
-the copied flux is already reversed, or when c is negative and the element is
-slow. Once per time step, at the step's first boundary application, the
-handler checks whether any element would have F + c A < 0:
+the copied flux is already reversed, or when c opposes the outflow and the
+element is slow. Once per time step, at the step's first boundary application, the
+handler checks whether F + c A would point into the domain on any element
+(fluxes are signed along the increasing grid index, so outward is F > 0 on a
+`+` face and F < 0 on a `-` face):
 
 - **No:** the uniform rule above runs, unchanged.
-- **Yes:** elements with F < 0 get zero flux, and their boundary velocity loses
+- **Yes:** elements whose copied flux points into the domain get zero flux, and their boundary velocity loses
   its normal component. The other elements are multiplied by one factor, so the
   face still carries the total the uniform rule would have given it.
 
@@ -571,9 +573,10 @@ Lengthen the domain downstream of the region of interest.
 
 **Limitations.** Zeroing reversed elements stops inflow through the outlet. It does
 not make a zero-gradient outlet non-reflecting: a vortex or a slow wall layer
-reaching the outlet still distorts the last few cells. The handler counts
-u . S as outflow on every face, so it assumes the outlet is a positive (`+X`,
-`+Y` or `+Z`) face. `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
+reaching the outlet still distorts the last few cells. Inflow and outflow are
+compared as fluxes signed along the increasing grid index, which expresses mass
+conservation when the inlets sit on faces of one side (all negative or all
+positive) and the outlets on the other. `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
 in the C enum but is not exposed, and no handler implements it; see
 @ref p57_pressure_bc_sec for what adding one involves.
 

@@ -1376,10 +1376,12 @@ static PetscErrorCode Destroy_InletPrescribedVelocity(BoundaryCondition *self)
 //
 // Backflow clip. The uniform correction adds the same velocity c to every face,
 // so it can leave a face with flux into the domain. Once per time step, at the
-// step's first Apply, the handler asks whether F + c*A < 0 on any face of this
-// outlet (F the zero-gradient flux, A the face area). If not, the uniform rule
-// runs unchanged. If so, the faces with F < 0 are clipped to zero flux (and zero
-// normal velocity in Ubcs), and the remaining faces are scaled by one factor
+// step's first Apply, the handler asks whether F + c*A points into the domain on
+// any face of this outlet (F the zero-gradient flux, signed along +xi like every
+// face flux, so outward is F > 0 on a positive face and F < 0 on a negative one;
+// A the face area). If not, the uniform rule
+// runs unchanged. If so, the faces whose F points into the domain are clipped to
+// zero flux (and zero normal velocity in Ubcs), and the rest are scaled by one factor
 // psi so that this face carries the same total as the uniform rule would. The
 // rule and the clipped set are frozen for the rest of the step so the residual
 // stays smooth inside a Newton solve; psi is re-measured on every call, as c is,
@@ -1580,8 +1582,10 @@ typedef enum { OUTLET_CLIP_DECIDE, OUTLET_CLIP_MEASURE, OUTLET_CLIP_WRITE } Outl
  *
  * Every fluid element's zero-gradient flux is F = Ucat(cell) . S, the flux the uniform rule
  * starts from. The pass is local; the caller reduces @p sums.
- * - DECIDE freezes the clipped set {F < 0} into @p data and returns sums[0] = the number of
- *   elements with F + correction*A < 0 and sums[1] = the number clipped.
+ * - DECIDE freezes the clipped set {F points into the domain} into @p data and returns
+ *   sums[0] = the number of elements where F + correction*A points into the domain and
+ *   sums[1] = the number clipped. Fluxes are signed along +xi, so outward is +F on a positive
+ *   face and -F on a negative one.
  * - MEASURE returns sums[0] = sum F, sums[1] = sum A and sums[2] = sum F over unclipped elements.
  * - WRITE sets the outlet flux: zero on clipped elements, whose Ubcs loses its normal component,
  *   and psi*F elsewhere, with Ubcs = Ucat as in the uniform rule.
@@ -1591,6 +1595,7 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
                                      PetscReal sums[3])
 {
     const PetscBool      negative = (PetscBool)((PetscInt)face_id % 2 == 0);
+    const PetscReal      outward = negative ? -1.0 : 1.0;
     BoundaryFaceElements e;
     Cmpnts            ***ucat, ***metric, ***ubcs = NULL, ***ucont = NULL;
     PetscReal         ***nvert;
@@ -1636,8 +1641,8 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
 
         switch (mode) {
             case OUTLET_CLIP_DECIDE:
-                data->clipped[idx] = (PetscBool)(flux < 0.0);
-                if (flux + correction * area < 0.0) sums[0] += 1.0;
+                data->clipped[idx] = (PetscBool)(outward * flux < 0.0);
+                if (outward * (flux + correction * area) < 0.0) sums[0] += 1.0;
                 if (data->clipped[idx]) sums[1] += 1.0;
                 break;
             case OUTLET_CLIP_MEASURE:
@@ -1680,8 +1685,9 @@ static PetscErrorCode OutletClipPass(UserCtx *user, BCFace face_id, OutletConser
 static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, OutletConservationData *data,
                                              PetscReal correction, PetscBool *applied)
 {
-    SimCtx   *simCtx = user->simCtx;
-    PetscReal local[3], global[3];
+    SimCtx         *simCtx = user->simCtx;
+    const PetscReal outward = ((PetscInt)face_id % 2 == 0) ? -1.0 : 1.0;
+    PetscReal       local[3], global[3];
     PetscBool decided_now = PETSC_FALSE;
     PetscReal reversed = 0.0, clipped = 0.0;
 
@@ -1703,7 +1709,7 @@ static PetscErrorCode OutletConservationClip(UserCtx *user, BCFace face_id, Outl
     PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
     /* The total the uniform rule would give this face: the clip only redistributes it. */
     const PetscReal target = global[0] + correction * global[1];
-    if (!(global[2] > 0.0 && target > 0.0)) {
+    if (!(outward * global[2] > 0.0 && outward * target > 0.0)) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "Outlet %s, step %" PetscInt_FMT ": nothing left to scale (unclipped flux %.4e, target %.4e); "
                   "using the uniform correction for this pass.\n",

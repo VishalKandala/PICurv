@@ -1580,9 +1580,12 @@ static PetscErrorCode ApplyOutletAndMeasure(BoundaryCondition *bc, BCContext *ct
 }
 
 /**
- * @brief Tests the conservation outlet's backflow clip on the three positive faces.
+ * @brief Tests the conservation outlet's backflow clip on +X, +Y, +Z and on -X, -Z.
  *
- * On a 4 x 4 outlet with Ucat = (1,1,1), one sample cell is set per case:
+ * Fluxes are signed along +xi, so outflow is F > 0 on a positive face and F < 0 on a
+ * negative one (an outlet there pairs with an inlet on the positive side); every value
+ * below is multiplied by that outward sign s. On a 4 x 4 outlet with Ucat = s (1,1,1),
+ * one sample cell is set per case:
  * - reversed (normal -0.5): the clip zeroes that face's flux and the normal Ubcs component,
  *   keeps the tangential ones, and scales the other faces so the total equals the inflow;
  * - slow but outflowing (0.1) with a negative uniform correction that would reverse it: the
@@ -1593,7 +1596,7 @@ static PetscErrorCode ApplyOutletAndMeasure(BoundaryCondition *bc, BCContext *ct
  */
 static PetscErrorCode TestOutletConservationBackflowClip(void)
 {
-    const BCFace faces[] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    const BCFace faces[] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z, BC_FACE_NEG_X, BC_FACE_NEG_Z};
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     BCContext ctx;
@@ -1606,12 +1609,16 @@ static PetscErrorCode TestOutletConservationBackflowClip(void)
 
     for (size_t n = 0; n < sizeof(faces) / sizeof(faces[0]); ++n) {
         const BCFace face = faces[n];
+        const PetscReal s = ((PetscInt)face % 2 == 0) ? -1.0 : 1.0;
         const PetscReal area = GetFaceInteriorPointCount(user, face);
         PetscInt ck, cj, ci, bk, bj, bi;
         PetscReal flux, total;
         Cmpnts ubcs;
 
+        /* The flux slot of a positive face is its cell's index; a negative face's cell is 1. */
         PetscCall(GetRepresentativeFaceSlots(user, face, &ck, &cj, &ci, &bk, &bj, &bi));
+        if (face == BC_FACE_NEG_X) ci = 1;
+        if (face == BC_FACE_NEG_Z) ck = 1;
         ResetBoundaryFaceConfig(&user->boundary_faces[face]);
         user->boundary_faces[face].face_id = face;
         user->boundary_faces[face].mathematical_type = OUTLET;
@@ -1622,34 +1629,34 @@ static PetscErrorCode TestOutletConservationBackflowClip(void)
         /* Reversed face: clipped, the rest scaled by area / (area - 1). */
         {
             BoundaryCondition *bc = NULL;
-            PetscCall(VecSet(user->Ucat, 1.0));
-            PetscCall(SetCellNormalVelocity(user, face, ck, cj, ci, -0.5));
+            PetscCall(VecSet(user->Ucat, s));
+            PetscCall(SetCellNormalVelocity(user, face, ck, cj, ci, -0.5 * s));
             PetscCall(VecSet(user->Ucont, 0.0));
             simCtx->step = 1;
             PetscCall(BoundaryCondition_Create(BC_HANDLER_OUTLET_CONSERVATION, &bc));
-            PetscCall(ApplyOutletAndMeasure(bc, &ctx, face, area, area - 1.5, &flux, &ubcs, &total));
+            PetscCall(ApplyOutletAndMeasure(bc, &ctx, face, s * area, s * (area - 1.5), &flux, &ubcs, &total));
             PetscCall(PicurvAssertRealNear(0.0, flux, 1.0e-14, "a reversed outlet face is clipped to zero flux"));
             PetscCall(PicurvAssertRealNear(0.0, GetFaceNormalComponent(ubcs, face), 1.0e-14,
                                            "a clipped face's Ubcs has no normal component"));
-            PetscCall(PicurvAssertRealNear(2.0, ubcs.x + ubcs.y + ubcs.z, 1.0e-14,
+            PetscCall(PicurvAssertRealNear(2.0 * s, ubcs.x + ubcs.y + ubcs.z, 1.0e-14,
                                            "a clipped face's Ubcs keeps both tangential components"));
-            PetscCall(PicurvAssertRealNear(area, total, 1.0e-12, "the clip conserves the inflow"));
+            PetscCall(PicurvAssertRealNear(s * area, total, 1.0e-12, "the clip conserves the inflow"));
             PetscCall(DestroyBoundaryHandler(&bc));
         }
 
         /* Slow face pushed negative by the correction: ratio rule, nothing clipped. */
         {
             BoundaryCondition *bc = NULL;
-            const PetscReal measured = (area - 1.0) + 0.1;
-            const PetscReal inflow = measured - 0.5 * area; /* c = -0.5 */
-            PetscCall(VecSet(user->Ucat, 1.0));
-            PetscCall(SetCellNormalVelocity(user, face, ck, cj, ci, 0.1));
+            const PetscReal measured = s * ((area - 1.0) + 0.1);
+            const PetscReal inflow = measured - s * 0.5 * area; /* c = -0.5 s, against the outflow */
+            PetscCall(VecSet(user->Ucat, s));
+            PetscCall(SetCellNormalVelocity(user, face, ck, cj, ci, 0.1 * s));
             simCtx->step = 1;
             PetscCall(BoundaryCondition_Create(BC_HANDLER_OUTLET_CONSERVATION, &bc));
             PetscCall(ApplyOutletAndMeasure(bc, &ctx, face, inflow, measured, &flux, &ubcs, &total));
-            PetscCall(PicurvAssertRealNear(0.1 * inflow / measured, flux, 1.0e-12,
+            PetscCall(PicurvAssertRealNear(0.1 * s * inflow / measured, flux, 1.0e-12,
                                            "a slow face is scaled, not reversed, when the correction would reverse it"));
-            PetscCall(PicurvAssertRealNear(0.1, GetFaceNormalComponent(ubcs, face), 1.0e-14,
+            PetscCall(PicurvAssertRealNear(0.1 * s, GetFaceNormalComponent(ubcs, face), 1.0e-14,
                                            "an unclipped face keeps the copied Ubcs"));
             PetscCall(PicurvAssertRealNear(inflow, total, 1.0e-12, "the ratio rule conserves the inflow"));
             PetscCall(DestroyBoundaryHandler(&bc));
@@ -1659,13 +1666,13 @@ static PetscErrorCode TestOutletConservationBackflowClip(void)
         {
             BoundaryCondition *bc = NULL;
             const PetscReal correction = -0.2;
-            PetscCall(VecSet(user->Ucat, 1.0));
+            PetscCall(VecSet(user->Ucat, s));
             PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
             PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
             simCtx->step = 1;
             PetscCall(BoundaryCondition_Create(BC_HANDLER_OUTLET_CONSERVATION, &bc));
-            PetscCall(ApplyOutletAndMeasure(bc, &ctx, face, area + correction * area, area, &flux, &ubcs, &total));
-            PetscCheck(flux == 1.0 + ((area + correction * area) - area) / area * 1.0, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+            PetscCall(ApplyOutletAndMeasure(bc, &ctx, face, s * (area + correction * area), s * area, &flux, &ubcs, &total));
+            PetscCheck(flux == s + ((s * (area + correction * area)) - s * area) / area * 1.0, PETSC_COMM_SELF, PETSC_ERR_PLIB,
                        "an outlet with nothing reversed must keep the uniform correction exactly");
             PetscCall(DestroyBoundaryHandler(&bc));
         }
