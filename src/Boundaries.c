@@ -2597,7 +2597,7 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
            zeros that reads like a converged answer. */
         if (cells <= 0.0) {
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "Wall model is enabled but no WALL face was corrected this step; "
+                      "Wall model is enabled but no WALL face was reached this step; "
                       "no diagnostics written.\n");
             PROFILE_FUNCTION_END;
             PetscFunctionReturn(0);
