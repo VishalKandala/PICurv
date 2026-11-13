@@ -1121,7 +1121,7 @@ spelling: `werner_wengle`.
 
 **What it does.** Imposes the wall stress of the Werner-Wengle power-law profile: linear
 below the sublayer edge, `u+ = 8.3 (y+)^(1/7)` above it, the edge being where the two meet,
-`8.3^(7/6) = 11.8148` (the commonly quoted 11.81 rounded). The stress comes from inverting
+`8.3^(7/6) = 11.8102` (the commonly quoted 11.81 rounded). The stress comes from inverting
 the profile at the reference point, the centre of the second cell from the wall, where the
 resolved speed is a point value; the inverse is closed form in both branches, with no
 root-find.

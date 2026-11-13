@@ -54,9 +54,9 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_CAPABILITY_CHECKPOINT, CS, lCs,
                 FIELD_DIM_DIMENSIONLESS),
     /* Wall-model friction velocity, nonzero only in the first interior cell of a WALL
-       face. It is the quantity a wall model is scored against, so it is checkpointed and
-       exposed to postprocessing rather than being recomputed from the corrected velocity,
-       which no longer carries the law that produced it. */
+       face (the RMS over the cell's wall faces). It is the quantity a wall model is scored
+       against, and it is computed from the reference cell rather than the cell it is stored
+       in, so it is checkpointed and exposed to postprocessing rather than recomputed. */
     FIELD_ENTRY(FIELD_ID_U_TAU, "Utau", "Friction Velocity", NULL, 1, FIELD_DM_DA,
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
                 FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,

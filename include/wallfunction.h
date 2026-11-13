@@ -274,7 +274,7 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
  * exact inverse, @ref find_utau_Werner(), at the reference cell. Explicit relation:
  *   u+ = y+                    below the sublayer edge (viscous sublayer)
  *   u+ = A * (y+)^B            above it (power law)
- * where A = 8.3, B = 1/7, and the edge is where the two meet, A^(7/6) = 11.8148.
+ * where A = 8.3, B = 1/7, and the edge is where the two meet, A^(7/6) = 11.8102.
  *
  * ADVANTAGES:
  *   - Explicit (no iteration required)
@@ -350,7 +350,7 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
  *
  * The closed-form inverse of the pointwise Werner-Wengle profile, branch for branch, and
  * the solver's path. Along that profile U y / nu = (y+)^2 in the sublayer, so the branch
- * is chosen from the data alone - sublayer while U y / nu <= 11.81^2 - and each branch
+ * is chosen from the data alone - sublayer while U y / nu <= (8.3^(7/6))^2, about 11.8102^2 - and each branch
  * inverts explicitly:
  *
  *   sublayer   : u_tau = sqrt(nu |U| / y)

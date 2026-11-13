@@ -714,7 +714,7 @@ typedef struct WallModelDiagnosticsState {
     PetscReal y_plus_max;             ///< Largest first-cell `y+` this rank corrected.
     PetscInt  friction_velocity_max_at[4]; ///< Wall face (`BCFace`) and global cell i, j, k of `friction_velocity_max`.
     PetscInt  y_plus_max_at[4];       ///< Wall face (`BCFace`) and global cell i, j, k of `y_plus_max`.
-    PetscReal wall_viscosity_sum;     ///< Sum of the effective wall eddy viscosity.
+    PetscReal wall_viscosity_sum;     ///< Sum of the equivalent eddy viscosity u_tau^2 y/|U_1| - nu (diagnostic only).
     PetscInt  cells;                  ///< Number of cells this rank corrected.
 } WallModelDiagnosticsState;
 //--------------------------------------------------------------------------------

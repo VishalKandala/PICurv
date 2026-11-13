@@ -729,8 +729,8 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscCall(VecSet(lLM, 0.0));
     PetscCall(VecSet(lMM, 0.0));
     PetscCall(VecSet(lCsq, 0.0));
-    /* A wall model overwrites the first interior cell, so those cells carry an imposed
-       profile rather than a measurement and are kept out of the contraction sums. */
+    /* Beside a modelled wall the first interior cell lies in an unresolved wall layer whose
+       wall flux is the model's stress, so it is kept out of the contraction sums. */
     if (simCtx->wallfunction) {
         PetscCall(VecDuplicate(user->lNvert, &lWallMask));
         PetscCall(BuildWallModelExclusionMask(user, lWallMask));

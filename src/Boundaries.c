@@ -2653,16 +2653,16 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
 
         switch ((WallFunctionModel)simCtx->wallfunction) {
         case WALL_FUNCTION_LOG_LAW:
-            /* Below 30 the first cell is under the logarithmic region; above 300 the
-               law's own implementation reports no valid branch and the correction
-               silently falls back to leaving the velocity alone. */
+            /* Below 30 the first cell is under the logarithmic region; above 300 it is
+               in the wake region, where the inverse still returns a friction velocity
+               from the logarithmic branch but the flow no longer follows it. */
             lower = 30.0;
             upper = 300.0;
             range_reason = "the logarithmic region the law describes";
             break;
         case WALL_FUNCTION_WERNER:
-            /* The two-layer form has a valid branch below y+ = 11.81, so only the upper
-               end is a limit. */
+            /* The two-layer form has a valid branch below its edge, 8.3^(7/6) = 11.81, so
+               only the upper end is a limit. */
             lower = 0.0;
             upper = 300.0;
             range_reason = "the region the power law describes";
@@ -2901,9 +2901,10 @@ static PetscErrorCode ApplyBoundaryPass(UserCtx *user, PetscBool any_periodic)
     //     updates read only global Ucat, and (g) or (i) updates it before any local read.
     ierr = PoisonStaleLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
-    // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
+    // (e) If a wall model is enabled, compute the wall shear stress on every wall face from
+    //     the velocity just reconstructed. It writes the stress and zeroes the wall-face
+    //     flux; the resolved velocity is not changed.
     if(user->simCtx->wallfunction){
-      // Apply wall function adjustments to the boundary velocities.
       ierr = ApplyWallFunction(user); CHKERRQ(ierr);
 
       LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
