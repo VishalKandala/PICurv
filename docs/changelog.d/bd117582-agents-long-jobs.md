@@ -1,0 +1,1 @@
+- Agent guidance: long jobs now go to a cluster executor under the agent protocol (Drive `Research/PICurv/agents/protocol.md`) instead of the 45-minute hand-off to the user; local agents run only what fits 8 ranks and 1 hour (bd117582). `picurv-case-design` §6 follows.
