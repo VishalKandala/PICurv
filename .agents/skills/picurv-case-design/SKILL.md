@@ -61,8 +61,8 @@ difference smaller than the error bars supports no convergence claim.
 
 ## 6. Size the job; the first steps are the timing pilot
 
-Estimate cost from measured per-step time at the real grid and layout (AGENTS.md: over 45
-minutes goes to the cluster); scale between Reynolds numbers only with a stated law. On the
+Estimate cost from measured per-step time at the real grid and layout (AGENTS.md: beyond 8
+ranks and 1 hour it goes to an executor); scale between Reynolds numbers only with a stated law. On the
 cluster, a separate timing pilot is rarely worth its queue wait: the first ~100 steps of the
 real job are the pilot. Report their s/step and the projected total against the walltime; if
 the run is too slow, stop it with `picurv cancel --run-dir <run> --stage solve --graceful`

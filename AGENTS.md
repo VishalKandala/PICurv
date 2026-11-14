@@ -60,7 +60,7 @@ promoted out per the promotion rules in `sandbox/guide.md`, or it is lost.
 Clean up after yourself: delete scratch you created once it has served its
 purpose, rather than leaving it for the next session to inherit.
 
-## Long jobs go to the user's cluster, not to your session
+## Long jobs go to an executor, not to your session
 
 Estimate wall-clock cost before starting any solve, sweep, or post-processing
 run. The cheapest estimate is a pilot: run a handful of timesteps at the real
@@ -69,38 +69,38 @@ step count. This is the same warmup-and-extrapolate estimator the generated
 scheduler jobs already use for their walltime guard. Do not guess from grid size
 alone, and do not start a long run to see how it goes.
 
-**Under 45 minutes estimated:** run it locally and report the result.
+**Local limit: 8 ranks and 1 hour.** A local agent runs locally only what fits 8
+ranks and 1 hour by a measured estimate: builds, unit and smoke tests,
+development checks, and evidence runs for the measurement registry. Run it in the
+background and report. The local PETSc is a debug build, so a local run is
+evidence of behaviour, never of cost or speed.
 
-**Over 45 minutes estimated:** stop and hand the job to the user. Do not start
-it anyway, do not detach it into the background, and do not chop it into shorter
-local pieces to stay under the threshold. Hours of local solving cost the user
-wall-clock time and burn session context that the eventual answer does not need.
-Say what you estimated and how, so the user can overrule you with real numbers.
+This limit is narya's, on the development machine. An executor follows its own
+cluster's handbook for what may run on its login node; everything else there is a
+job.
 
-Stage the handoff with the tooling that already owns it, rather than assembling
-a bundle by hand:
+**Beyond the limit:** do not start it, detach it, or chop it into pieces that fit.
+The work goes to a cluster executor under the agent protocol on Drive
+(`Research/PICurv/agents/protocol.md`): the dispatcher (narya) sends a `RUN` naming
+the specification or its record, the build, the stop conditions and the reports
+wanted. A co-developer (Codex) hands such work to narya and never instructs an
+executor. Within the limit, narya may still send work to an executor when it needs
+an optimized build, a cost measurement, data that lives on a cluster, or narya's
+time for something else.
 
-```bash
-./bin/picurv run   ... --cluster <cluster.yml> --no-submit   # stages runs/<run_id>
-./bin/picurv sweep ... --cluster <cluster.yml> --no-submit   # stages studies/<study_id>
-```
+The executor stages and submits with picurv (`picurv run|sweep ... --cluster
+<cluster.yml> --no-submit`, then `picurv submit --run-dir|--study-dir`), using its
+cluster's handbook (`agents/clusters/<name>.md`) for accounts, partitions and the
+environment. Do not invent site policy.
 
-If the case has no cluster profile, start from
-`examples/master_template/master_cluster.yml` and name the account, partition,
-and walltime values the user has to fill in. Do not invent site policy.
-
-Then put in `sandbox/` the part the tooling does not generate:
-
-- the analysis scripts that turn raw solver output into the answer you need,
-- a short note stating the question being asked, the submit command
-  (`picurv submit --run-dir ...` or `--study-dir ...`), and exactly which files
-  to bring back.
-
-Ask for derived data, not raw state: metrics, summaries, spectra, profiles,
-solver and scheduler text output, post-processing results. Request checkpoint or
-field binaries only when the set is small and nothing derived can answer the
-question. Returned data lands in `sandbox/`, and the analysis continues there
-under the same hygiene and cleanup rules as any other scratch.
+The `RUN`, or the record it points to, carries what the tooling does not
+generate: the analysis scripts that turn raw solver output into the answer, and
+exactly which files to bring back. Ask for derived data, not raw state: metrics,
+summaries, spectra, profiles, solver and scheduler text output, post-processing
+results. Request checkpoint or field binaries only when the set is small and
+nothing derived can answer the question. Returned data lands in `sandbox/`, and
+the analysis continues there under the same hygiene and cleanup rules as any
+other scratch.
 
 ## Re-run what the change touched, not everything
 
