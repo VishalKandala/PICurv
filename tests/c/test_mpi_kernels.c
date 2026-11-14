@@ -1244,6 +1244,139 @@ static PetscErrorCode TestIEMReconstructionAcrossSeams(void)
 }
 
 /**
+ * @brief Runs one IEM update on a seeded box after setting each particle's Psi, rate and place.
+ * @details The particles fill the tiny periodic box. `step_lo`/`step_hi` < 0 keep the linear field
+ *          2 (x + y + z); otherwise Psi is `step_lo` below x = L/2 and `step_hi` above it.
+ *          `vary_rate` gives each particle a diffusivity 0.2 (1 + 0.8 (f - 1/2)), f its position
+ *          across its cell in x, so the relaxation rate differs between particles in one cell;
+ *          `crowd` moves every particle into the low quarter of its cell along each axis. Returns
+ *          the largest change of a cell's Psi total and the Psi extrema before and after.
+ */
+static PetscErrorCode RunIEMOnSeededBox(PetscReal step_lo, PetscReal step_hi, PetscBool vary_rate, PetscBool crowd,
+                                        PetscReal *max_cell_change, PetscReal before[2], PetscReal after[2])
+{
+    const char *options = "-numParticles 20000\n-pinit 1\n"
+                          "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"2*(x + y + z)\"\n";
+    SimCtx     *simCtx = NULL;
+    UserCtx    *user = NULL;
+    char        tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt    nlocal = 0, *cell = NULL, n[3], ncells;
+    PetscReal  *psi = NULL, *dif = NULL, *pos = NULL, *t0 = NULL, *t1 = NULL, L[3] = {0.0, 0.0, 0.0}, h[3];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+    simCtx->dt = 0.5;
+    n[0] = user->info.mx - 2; n[1] = user->info.my - 2; n[2] = user->info.mz - 2;
+    ncells = n[0] * n[1] * n[2];
+    before[0] = after[0] = PETSC_MAX_REAL;
+    before[1] = after[1] = PETSC_MIN_REAL;
+
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    for (PetscInt p = 0; p < nlocal; ++p) for (PetscInt d = 0; d < 3; ++d) L[d] = PetscMax(L[d], pos[3*p+d]);
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, L, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    for (PetscInt d = 0; d < 3; ++d) { L[d] = PetscCeilReal(L[d] * 1.0e6) / 1.0e6; h[d] = L[d] / (PetscReal)n[d]; }
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&dif));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(PetscCalloc2(ncells, &t0, ncells, &t1));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        PetscReal f = 0.0;
+        for (PetscInt d = 0; d < 3; ++d) {
+            const PetscReal lo = cell[3*p+d] * h[d];
+            if (crowd) pos[3*p+d] = lo + 0.25 * (pos[3*p+d] - lo);
+            if (d == 0) f = (pos[3*p] - lo) / h[0];
+        }
+        dif[p] = vary_rate ? 0.2 * (1.0 + 0.8 * (f - 0.5)) : 0.2;
+        psi[p] = (step_lo < 0.0) ? 2.0 * (pos[3*p] + pos[3*p+1] + pos[3*p+2]) : ((pos[3*p] > 0.5 * L[0]) ? step_hi : step_lo);
+        t0[cell[3*p] + n[0] * (cell[3*p+1] + n[1] * cell[3*p+2])] += psi[p];
+        before[0] = PetscMin(before[0], psi[p]); before[1] = PetscMax(before[1], psi[p]);
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&dif));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+
+    PetscCall(UpdateAllParticleFields(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        t1[cell[3*p] + n[0] * (cell[3*p+1] + n[1] * cell[3*p+2])] += psi[p];
+        after[0] = PetscMin(after[0], psi[p]); after[1] = PetscMax(after[1], psi[p]);
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, t0, ncells, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, t1, ncells, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &before[0], 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &after[0], 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &before[1], 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &after[1], 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    *max_cell_change = 0.0;
+    for (PetscInt c = 0; c < ncells; ++c) *max_cell_change = PetscMax(*max_cell_change, PetscAbsReal(t1[c] - t0[c]));
+    PetscCall(PetscFree2(t0, t1));
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief IEM keeps every cell's Psi total when the particles in a cell relax at different rates.
+ * @details Each particle relaxes with its own diffusivity, which varies across every cell here, on
+ *          a linear field. Only a target whose mean and centroid are weighted by the particles'
+ *          relaxation weights keeps the totals; an unweighted mean and centroid change them by up to
+ *          a few percent of a cell's total in one step.
+ */
+static PetscErrorCode TestIEMKeepsCellTotalsWithVaryingRates(void)
+{
+    PetscReal change = 0.0, before[2], after[2];
+
+    PetscFunctionBeginUser;
+    PetscCall(RunIEMOnSeededBox(-1.0, -1.0, PETSC_TRUE, PETSC_FALSE, &change, before, after));
+    PetscCall(PicurvAssertBool((PetscBool)(change < 1.0e-9),
+                               "IEM must keep each cell's Psi total when rates vary within the cell"));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief IEM keeps Psi within the particles' extrema and each cell's total, across a sharp front.
+ * @details A step from `lo` to `hi` across x = L/2: the gradient at the front carries into the
+ *          neighbouring pure cells, so an unlimited linear target overshoots both values. Three
+ *          representatives: 0/1 with uniform rates; 0/1 with rates varying within cells and the
+ *          particles crowded into a corner of each cell; and 2/5, whose bounds are not [0, 1], so
+ *          a bound fixed at [0, 1] fails.
+ */
+static PetscErrorCode TestIEMStaysWithinParticleExtrema(void)
+{
+    const struct { PetscReal lo, hi; PetscBool vary, crowd; const char *what; } cases[] = {
+        {0.0, 1.0, PETSC_FALSE, PETSC_FALSE, "0/1 step, uniform rates"},
+        {0.0, 1.0, PETSC_TRUE,  PETSC_TRUE,  "0/1 step, varying rates, crowded particles"},
+        {2.0, 5.0, PETSC_FALSE, PETSC_FALSE, "2/5 step, uniform rates"},
+    };
+
+    PetscFunctionBeginUser;
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c) {
+        PetscReal change = 0.0, before[2], after[2];
+        char      msg[256];
+        PetscCall(RunIEMOnSeededBox(cases[c].lo, cases[c].hi, cases[c].vary, cases[c].crowd, &change, before, after));
+        PetscCall(PetscSNPrintf(msg, sizeof(msg), "%s: Psi must stay within the particle extrema [%g, %g], got [%g, %g]",
+                                cases[c].what, (double)before[0], (double)before[1], (double)after[0], (double)after[1]));
+        PetscCall(PicurvAssertBool((PetscBool)(after[0] >= before[0] - 1.0e-12 && after[1] <= before[1] + 1.0e-12), msg));
+        PetscCall(PetscSNPrintf(msg, sizeof(msg), "%s: IEM must keep each cell's Psi total", cases[c].what));
+        PetscCall(PicurvAssertBool((PetscBool)(change < 1.0e-9), msg));
+        PetscCall(PetscSNPrintf(msg, sizeof(msg), "%s: the front must still mix (extrema reached inside the box)", cases[c].what));
+        PetscCall(PicurvAssertBool((PetscBool)(before[0] == cases[c].lo && before[1] == cases[c].hi), msg));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Velocity sources draw by global index, whatever the decomposition.
  * @details Every value is compared with a draw this test makes from the cell's or face cell's
  *          global indices alone, so a key that depended on the rank layout would fail at any
@@ -1601,6 +1734,8 @@ int main(int argc, char **argv)
         {"source-draws-are-keyed-on-the-grid", TestSourceDrawsAreKeyedOnTheGrid},
         {"inlet-fluctuation-is-the-filtered-keyed-draw", TestInletFluctuationIsTheFilteredKeyedDraw},
         {"iem-reconstruction-across-seams", TestIEMReconstructionAcrossSeams},
+        {"iem-keeps-cell-totals-with-varying-rates", TestIEMKeepsCellTotalsWithVaryingRates},
+        {"iem-stays-within-particle-extrema", TestIEMStaysWithinParticleExtrema},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

@@ -10,6 +10,26 @@
 static PetscErrorCode ComputeCellScalarGradient(UserCtx *user, Vec lscalar, Vec lcount, Vec gradient);
 
 /**
+ * @brief Squared IEM mixing length of a cell: its volume to the power 2/3, from the reciprocal
+ *        volume Aj, the volume floored at 1e-14 so a degenerate or cut cell cannot divide by zero.
+ */
+static inline PetscReal IEMMixingLength2(PetscReal aj)
+{
+    PetscReal vol = (aj > 1.0e-14) ? (1.0 / aj) : 1.0e-14;
+    if (vol < 1.0e-14) vol = 1.0e-14;
+    return PetscPowReal(vol, 0.6666667);
+}
+
+/**
+ * @brief IEM decay factor exp(-omega dt) over one step, omega = C D / delta2.
+ */
+static inline PetscReal IEMDecayFactor(PetscReal C_model, PetscReal diffusivity, PetscReal delta2, PetscReal dt)
+{
+    PetscReal omega = C_model * diffusivity / delta2;
+    return PetscExpReal(-omega * dt);
+}
+
+/**
  * @brief Implementation of \ref UpdateParticleField().
  * @see UpdateParticleField()
  */
@@ -25,13 +45,201 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         // The IEM model relaxes Psi exponentially toward its target, mean_val, over dt.
-        PetscReal omega = C_model * diffusivity / delta2;
-        PetscReal decay = PetscExpReal(-omega * dt);
+        PetscReal decay = IEMDecayFactor(C_model, diffusivity, delta2, dt);
 
         PetscReal psi_old = *psi_io;
         *psi_io = mean_val + (psi_old - mean_val) * decay;
     }
 
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Per-cell quantities of the bounded, conservative IEM target.
+ * @details The target of particle p in cell c is t_p = m_c + zeta_c g_c . (x_p - x_c), with
+ *          - m_c and x_c the cell's Psi mean and particle centroid, each weighted by the particle's
+ *            relaxation weight c_p = 1 - exp(-omega_p dt). With omega_p the particle's own rate, the
+ *            cell's Psi total changes by sum_p c_p (t_p - psi_p), which these weights make zero for
+ *            any zeta_c (Jenny et al. 2001, Eq. 48; Viswanathan, Wang & Pope 2011, Eqs. 20 and 29);
+ *          - g_c the gradient of the plain cell means (`lslope`); any slope keeps the total;
+ *          - zeta_c in [0, 1] the largest factor that keeps every target of the cell's particles
+ *            within the extrema of all particles' Psi at the start of the step (Viswanathan et al.
+ *            2011, Eqs. 17 and 28), so the update, a convex combination of psi_p and t_p, cannot
+ *            leave them.
+ *          A cell's particles may sit on a neighbouring rank, so the sums and the offset extrema are
+ *          accumulated into ghosted copies and reduced into the owner (ADD, then MAX through the
+ *          DMDA scatter), and the owner's results are read back through ghosted copies. A cell whose
+ *          weights sum to zero (every particle with zero rate) keeps its plain mean; its particles do
+ *          not change. Collective.
+ * @param[in]  user         Context; `lPsi`, `lAj`, `ParticleCount` current.
+ * @param[in]  dt           Step.
+ * @param[in]  C_model      IEM constant.
+ * @param[in]  lslope       Ghosted gradient of the plain cell means, its ghosts current.
+ * @param[out] lmoments_out Ghosted `fda` vector: (m_c, zeta_c, 0) per cell; restore with DMRestoreLocalVector.
+ * @param[out] lcentroid_out Ghosted `fda` vector: x_c per cell; restore with DMRestoreLocalVector.
+ */
+static PetscErrorCode ComputeIEMTargetMoments(UserCtx *user, PetscReal dt, PetscReal C_model, Vec lslope,
+                                              Vec *lmoments_out, Vec *lcentroid_out)
+{
+    DM               swarm = user->swarm, fda = user->fda;
+    DMDALocalInfo    info = user->info;
+    PetscInt         n_local = 0, gxs, gys, gzs, gxm, gym, gzm;
+    const PetscReal *psi = NULL, *diff = NULL, *pos = NULL;
+    const PetscInt  *cell = NULL;
+    PetscReal        bounds[2] = {PETSC_MAX_REAL, PETSC_MAX_REAL}; /* min psi, -max psi */
+    Vec              lw = NULL, lwx = NULL, gw = NULL, gwx = NULL, gmom = NULL, gcen = NULL, lext = NULL, gext = NULL;
+    Vec              lmom = NULL, lcen = NULL;
+    VecScatter       gtol = NULL;
+    const PetscReal ***aj = NULL, ***mean = NULL, ***count = NULL;
+    Cmpnts        ***w = NULL, ***wx = NULL, ***mom = NULL, ***cen = NULL, ***ext = NULL;
+    const Cmpnts  ***slope = NULL, ***lcen_arr = NULL, ***cent = NULL;
+    /* Owned physical cells: indices 1 to M-2; 0 and M-1 hold boundary values. */
+    const PetscInt   lo[3] = {PetscMax(info.xs, 1), PetscMax(info.ys, 1), PetscMax(info.zs, 1)};
+    const PetscInt   hi[3] = {PetscMin(info.xs + info.xm, info.mx - 1), PetscMin(info.ys + info.ym, info.my - 1),
+                              PetscMin(info.zs + info.zm, info.mz - 1)};
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAGetGhostCorners(fda, &gxs, &gys, &gzs, &gxm, &gym, &gzm));
+#define IN_PATCH(i, j, k) ((i) >= gxs && (i) < gxs + gxm && (j) >= gys && (j) < gys + gym && (k) >= gzs && (k) < gzs + gzm)
+    PetscCall(DMSwarmGetLocalSize(swarm, &n_local));
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void **)&diff));
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+
+    /* Pass 1: the Psi extrema, and per cell the weight sums (sum c, sum c psi) and sum c x. */
+    PetscCall(DMGetLocalVector(fda, &lw));
+    PetscCall(DMGetLocalVector(fda, &lwx));
+    PetscCall(VecSet(lw, 0.0));
+    PetscCall(VecSet(lwx, 0.0));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecGetArray(fda, lw, &w));
+    PetscCall(DMDAVecGetArray(fda, lwx, &wx));
+    for (PetscInt p = 0; p < n_local; ++p) {
+        const PetscInt i = cell[3*p] + 1, j = cell[3*p+1] + 1, k = cell[3*p+2] + 1;
+        bounds[0] = PetscMin(bounds[0], psi[p]);
+        bounds[1] = PetscMin(bounds[1], -psi[p]);
+        if (!IN_PATCH(i, j, k)) continue;
+        const PetscReal c = 1.0 - IEMDecayFactor(C_model, diff[p], IEMMixingLength2(aj[k][j][i]), dt);
+        w[k][j][i].x  += c;
+        w[k][j][i].y  += c * psi[p];
+        wx[k][j][i].x += c * pos[3*p];
+        wx[k][j][i].y += c * pos[3*p+1];
+        wx[k][j][i].z += c * pos[3*p+2];
+    }
+    PetscCall(DMDAVecRestoreArray(fda, lwx, &wx));
+    PetscCall(DMDAVecRestoreArray(fda, lw, &w));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, bounds, 2, MPIU_REAL, MPIU_MIN, PETSC_COMM_WORLD));
+    const PetscReal psi_min = bounds[0], psi_max = -bounds[1];
+
+    PetscCall(DMGetGlobalVector(fda, &gw));
+    PetscCall(DMGetGlobalVector(fda, &gwx));
+    PetscCall(VecSet(gw, 0.0));
+    PetscCall(VecSet(gwx, 0.0));
+    PetscCall(DMLocalToGlobal(fda, lw, ADD_VALUES, gw));
+    PetscCall(DMLocalToGlobal(fda, lwx, ADD_VALUES, gwx));
+    PetscCall(DMRestoreLocalVector(fda, &lwx));
+    PetscCall(DMRestoreLocalVector(fda, &lw));
+
+    /* The owner forms the weighted mean and centroid. */
+    PetscCall(DMGetGlobalVector(fda, &gmom));
+    PetscCall(DMGetGlobalVector(fda, &gcen));
+    PetscCall(VecSet(gmom, 0.0));
+    PetscCall(VecSet(gcen, 0.0));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lPsi, (void *)&mean));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->ParticleCount, (void *)&count));
+    PetscCall(DMDAVecGetArrayRead(fda, user->lCent, (void *)&cent));
+    PetscCall(DMDAVecGetArrayRead(fda, gw, (void *)&w));
+    PetscCall(DMDAVecGetArrayRead(fda, gwx, (void *)&wx));
+    PetscCall(DMDAVecGetArray(fda, gmom, &mom));
+    PetscCall(DMDAVecGetArray(fda, gcen, &cen));
+    for (PetscInt k = lo[2]; k < hi[2]; ++k) {
+        for (PetscInt j = lo[1]; j < hi[1]; ++j) {
+            for (PetscInt i = lo[0]; i < hi[0]; ++i) {
+                const PetscReal sw = w[k][j][i].x;
+                if (count[k][j][i] > 0.5 && sw > 0.0) {
+                    mom[k][j][i].x = w[k][j][i].y / sw;
+                    cen[k][j][i].x = wx[k][j][i].x / sw;
+                    cen[k][j][i].y = wx[k][j][i].y / sw;
+                    cen[k][j][i].z = wx[k][j][i].z / sw;
+                } else {
+                    mom[k][j][i].x = mean[k][j][i];
+                    cen[k][j][i]   = cent[k][j][i];
+                }
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(fda, gcen, &cen));
+    PetscCall(DMDAVecRestoreArray(fda, gmom, &mom));
+    PetscCall(DMDAVecRestoreArrayRead(fda, gwx, (void *)&wx));
+    PetscCall(DMDAVecRestoreArrayRead(fda, gw, (void *)&w));
+    PetscCall(DMDAVecRestoreArrayRead(fda, user->lCent, (void *)&cent));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->ParticleCount, (void *)&count));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lPsi, (void *)&mean));
+    PetscCall(DMRestoreGlobalVector(fda, &gwx));
+    PetscCall(DMRestoreGlobalVector(fda, &gw));
+    PetscCall(DMGetLocalVector(fda, &lcen));
+    PetscCall(DMGlobalToLocal(fda, gcen, INSERT_VALUES, lcen));
+    PetscCall(DMGetLocalVector(fda, &lmom));
+    PetscCall(DMGlobalToLocal(fda, gmom, INSERT_VALUES, lmom));
+
+    /* Pass 2: per cell the largest offset g . (x - x_c) above and below zero. Both are >= 0 over a
+       cell's particles, since x_c is their weighted centroid, so an untouched 0 never wins the MAX. */
+    PetscCall(DMGetLocalVector(fda, &lext));
+    PetscCall(VecSet(lext, 0.0));
+    PetscCall(DMDAVecGetArrayRead(fda, lslope, (void *)&slope));
+    PetscCall(DMDAVecGetArrayRead(fda, lcen, (void *)&lcen_arr));
+    PetscCall(DMDAVecGetArray(fda, lext, &ext));
+    for (PetscInt p = 0; p < n_local; ++p) {
+        const PetscInt i = cell[3*p] + 1, j = cell[3*p+1] + 1, k = cell[3*p+2] + 1;
+        if (!IN_PATCH(i, j, k)) continue;
+        const Cmpnts    g = slope[k][j][i], xc = lcen_arr[k][j][i];
+        const PetscReal d = g.x * (pos[3*p] - xc.x) + g.y * (pos[3*p+1] - xc.y) + g.z * (pos[3*p+2] - xc.z);
+        ext[k][j][i].x = PetscMax(ext[k][j][i].x, d);
+        ext[k][j][i].y = PetscMax(ext[k][j][i].y, -d);
+    }
+    PetscCall(DMDAVecRestoreArray(fda, lext, &ext));
+    PetscCall(DMDAVecRestoreArrayRead(fda, lcen, (void *)&lcen_arr));
+    PetscCall(DMDAVecRestoreArrayRead(fda, lslope, (void *)&slope));
+    /* DMLocalToGlobal takes only ADD and INSERT on a DMDA; its own scatter, reversed, takes MAX. */
+    PetscCall(DMGetGlobalVector(fda, &gext));
+    PetscCall(VecSet(gext, 0.0));
+    PetscCall(DMDAGetScatter(fda, &gtol, NULL));
+    PetscCall(VecScatterBegin(gtol, lext, gext, MAX_VALUES, SCATTER_REVERSE));
+    PetscCall(VecScatterEnd(gtol, lext, gext, MAX_VALUES, SCATTER_REVERSE));
+    PetscCall(DMRestoreLocalVector(fda, &lext));
+
+    /* The owner sets zeta: the largest factor in [0, 1] keeping m_c + zeta d within [psi_min, psi_max]. */
+    PetscCall(DMDAVecGetArrayRead(fda, gext, (void *)&ext));
+    PetscCall(DMDAVecGetArray(fda, gmom, &mom));
+    for (PetscInt k = lo[2]; k < hi[2]; ++k) {
+        for (PetscInt j = lo[1]; j < hi[1]; ++j) {
+            for (PetscInt i = lo[0]; i < hi[0]; ++i) {
+                const PetscReal m = mom[k][j][i].x;
+                PetscReal       zeta = 1.0;
+                if (ext[k][j][i].x > 0.0) zeta = PetscMin(zeta, (psi_max - m) / ext[k][j][i].x);
+                if (ext[k][j][i].y > 0.0) zeta = PetscMin(zeta, (m - psi_min) / ext[k][j][i].y);
+                mom[k][j][i].y = PetscMax(zeta, 0.0);
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(fda, gmom, &mom));
+    PetscCall(DMDAVecRestoreArrayRead(fda, gext, (void *)&ext));
+    PetscCall(DMRestoreGlobalVector(fda, &gext));
+    PetscCall(DMGlobalToLocal(fda, gmom, INSERT_VALUES, lmom));
+    PetscCall(DMRestoreGlobalVector(fda, &gcen));
+    PetscCall(DMRestoreGlobalVector(fda, &gmom));
+#undef IN_PATCH
+
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void **)&diff));
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&psi));
+    *lmoments_out  = lmom;
+    *lcentroid_out = lcen;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -54,10 +262,9 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     PetscInt        *cell_arr = NULL;
     PetscInt64      *pid_arr = NULL;
 
-    PetscReal       ***grid_mean = NULL;
     PetscReal       ***grid_aj = NULL;
-    Cmpnts          ***grid_slope = NULL, ***grid_centroid = NULL;
-    Vec             lslope = NULL, lcentroid = NULL;
+    Cmpnts          ***grid_slope = NULL, ***grid_centroid = NULL, ***grid_moments = NULL;
+    Vec             lslope = NULL, lcentroid = NULL, lmoments = NULL;
 
     PetscBool       accessed_eulerian = PETSC_FALSE;
     const ParticleFieldDescriptor *descriptor = NULL;
@@ -78,15 +285,17 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     // scatter recounts the particles per cell itself. Collective, so it comes before the early
     // return of ranks with no particles.
     if (field_id == PARTICLE_FIELD_ID_PSI) {
-        Vec slope = NULL, centroid = NULL;
+        Vec slope = NULL;
 
         // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
         PetscCheck(user->lPsi && user->lAj, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx lPsi or lAj not initialized.");
         ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
-        // The target is the cell's linear reconstruction m + g . (x - xc), with xc the cell's
-        // particle centroid so each cell mean is kept. Relaxing to the stepped mean m alone
-        // adds transport that does not vanish with refinement. A particle's cell is stored one
-        // index past its origin node, so both fields are read through ghosted copies.
+        // The target is the cell's limited linear reconstruction m + zeta g . (x - xc), with m and
+        // xc weighted by each particle's relaxation weight so each cell's total is kept, and zeta
+        // keeping every target within the particles' Psi extrema (ComputeIEMTargetMoments).
+        // Relaxing to the stepped mean alone adds transport that does not vanish with refinement.
+        // A particle's cell is stored one index past its origin node, so the cell fields are read
+        // through ghosted copies.
         // The scatter's count holds only this rank's particles in its ghost cells; the empty-cell
         // test reads neighbours across subdomain seams, so their totals are fetched first.
         ierr = UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT); CHKERRQ(ierr);
@@ -94,20 +303,15 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = ComputeCellScalarGradient(user, user->lPsi, user->lParticleCount, slope); CHKERRQ(ierr);
         ierr = DMGetLocalVector(user->fda, &lslope); CHKERRQ(ierr);
         ierr = DMGlobalToLocal(user->fda, slope, INSERT_VALUES, lslope); CHKERRQ(ierr);
-        // The scatter above has just counted the particles, so the centroid is not recounted.
-        ierr = DMGetGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
-        ierr = ScatterParticleFieldCellMean(user, PARTICLE_FIELD_ID_POSITION, user->fda, user->ParticleCount, PETSC_FALSE,
-                                            centroid); CHKERRQ(ierr);
-        ierr = DMGetLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
-        ierr = DMGlobalToLocal(user->fda, centroid, INSERT_VALUES, lcentroid); CHKERRQ(ierr);
-        ierr = DMRestoreGlobalVector(user->fda, &centroid); CHKERRQ(ierr);
         ierr = DMRestoreGlobalVector(user->fda, &slope); CHKERRQ(ierr);
+        ierr = ComputeIEMTargetMoments(user, dt, C_IEM, lslope, &lmoments, &lcentroid); CHKERRQ(ierr);
     }
 
     ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
     if (n_local == 0) {
         if (lslope) { ierr = DMRestoreLocalVector(user->fda, &lslope); CHKERRQ(ierr); }
         if (lcentroid) { ierr = DMRestoreLocalVector(user->fda, &lcentroid); CHKERRQ(ierr); }
+        if (lmoments) { ierr = DMRestoreLocalVector(user->fda, &lmoments); CHKERRQ(ierr); }
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -120,10 +324,10 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
-        ierr = DMDAVecGetArrayRead(da, user->lPsi, &grid_mean); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(user->fda, lslope, &grid_slope); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(user->fda, lcentroid, &grid_centroid); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, lmoments, &grid_moments); CHKERRQ(ierr);
         accessed_eulerian = PETSC_TRUE;
     }
 
@@ -142,18 +346,14 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
             PetscInt j = cell_arr[3*p + 1] + 1;
             PetscInt k = cell_arr[3*p + 2] + 1;
 
-            const Cmpnts g = grid_slope[k][j][i], c = grid_centroid[k][j][i];
+            const Cmpnts g = grid_slope[k][j][i], c = grid_centroid[k][j][i], mz = grid_moments[k][j][i];
             p_diff = diff_arr[p];
-            p_mean = grid_mean[k][j][i] + g.x * (pos_arr[3*p + 0] - c.x) + g.y * (pos_arr[3*p + 1] - c.y)
-                                         + g.z * (pos_arr[3*p + 2] - c.z);
+            p_mean = mz.x + mz.y * (g.x * (pos_arr[3*p + 0] - c.x) + g.y * (pos_arr[3*p + 1] - c.y)
+                                    + g.z * (pos_arr[3*p + 2] - c.z));
 
             if (i != width_cell[0] || j != width_cell[1] || k != width_cell[2]) {
                 // Aj is the reciprocal cell volume in the curvilinear-grid representation.
-                PetscReal jac   = grid_aj[k][j][i];
-                PetscReal p_vol = (jac > 1.0e-14) ? (1.0 / jac) : 1.0e-14;
-                // Guard the LES mixing time scale against degenerate or cut-cell volumes.
-                if (p_vol < 1.0e-14) p_vol = 1.0e-14;
-                p_delta2 = PetscPowReal(p_vol, 0.6666667);
+                p_delta2 = IEMMixingLength2(grid_aj[k][j][i]);
                 width_cell[0] = i; width_cell[1] = j; width_cell[2] = k;
             }
         }
@@ -176,12 +376,13 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     }
 
     if (accessed_eulerian) {
-        ierr = DMDAVecRestoreArrayRead(da, user->lPsi, &grid_mean); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(user->fda, lslope, &grid_slope); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(user->fda, lcentroid, &grid_centroid); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, lmoments, &grid_moments); CHKERRQ(ierr);
         ierr = DMRestoreLocalVector(user->fda, &lslope); CHKERRQ(ierr);
         ierr = DMRestoreLocalVector(user->fda, &lcentroid); CHKERRQ(ierr);
+        ierr = DMRestoreLocalVector(user->fda, &lmoments); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updated particle physics for field '%s'.\n", fieldName);
