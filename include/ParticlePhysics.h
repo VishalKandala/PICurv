@@ -52,6 +52,13 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
  * local swarm. It gets access to the necessary particle data arrays and calls the
  * `UpdateParticleField` kernel for each particle.
  *
+ * For Psi the IEM target is the host cell's limited linear reconstruction
+ * m + zeta g . (x - x_c): m and x_c are the cell's Psi mean and particle centroid weighted by
+ * each particle's relaxation weight 1 - exp(-omega_p dt), so every cell's Psi total is kept
+ * whatever the particles' rates; g is the gradient of the plain cell means; zeta in [0, 1] keeps
+ * every target within the extrema of all particles' Psi at the start of the step, so Psi stays
+ * within them. Collective for Psi.
+ *
  * @param[in,out] user      Pointer to the UserCtx containing the swarm and simulation context.
  * @param[in]     field_id Typed identity of the field to update.
  *
