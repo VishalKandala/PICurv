@@ -156,11 +156,33 @@ repository documentation as an index and verify behavioral claims according to t
 hierarchy below. Do not let presentation guidance weaken a workflow skill's evidence or
 handoff requirements.
 
+## Code-change workflow
+
+The standard path for a code change (owner, 2026-10-19):
+
+1. Work on a separate branch. A feature branch (any branch but `main`) may be pushed without
+   asking, by narya or Codex, so that an executor can build it.
+2. Test locally as far as the local limit allows.
+3. Merge into `main` with the commit stating that the change is still `EXPERIMENTAL`.
+   A push to `main` needs the owner's go or a grant recorded in the thread (agent protocol §7).
+4. Executor verification: narya names the commit in a `BUILD` (agent protocol §6) and an
+   executor tests it on its cluster. Iterate (branch, test, merge, verify) until done.
+5. Update documentation, guides and registries.
+6. Delete the branch.
+
+Follow the existing commenting and naming conventions, and the reuse rules below.
+
 ## Committing
 
 Do not commit scratch, temp files, run output, or generated artifacts. Before
 committing, check `git status` and confirm every path is one you intend to
-track. Commit or push only when explicitly asked.
+track. Commit only when explicitly asked. A feature branch may be pushed without
+asking; a push to `main` needs the owner's go or a grant recorded in the thread
+(agent protocol §7).
+
+After a push, read the workflow results for that commit (`gh run list --commit
+<sha>`) before reporting the push as done. The local Doxygen is older than CI's,
+so a green local gate does not predict CI.
 
 ## Reuse before writing code
 
@@ -214,6 +236,24 @@ collectives, scatters, synchronization, or hot-loop indirection for architectura
 tidiness. Preserve a specialized fast path when measurement or the numerical contract
 requires it, and document why the shared path is unsuitable.
 
+## Performance changes
+
+Most PICurv cases are coupled: the flow is solved and particles are carried. Judge a
+performance change on a coupled case whenever it touches a shared path, and do not tune
+to particle-only runs or to one multigrid level count or rank layout. A particle-only
+setup is a development harness; a fix judged only on it is not done. Keep a change whose
+results are proven identical even when the gain is small, unless it adds complexity.
+Identical means Eulerian fields bit-identical (flag a change that legitimately alters
+summation order) and particles identical one by one: the storage order of particles in
+the swarm need not be preserved, so compare checkpoints sorted by particle id, not byte
+for byte.
+
+## Runnables and modules
+
+Everything a person runs is extensionless (`bin/picurv`, `generators/*.gen`).
+Importable Python modules live only in `picurv_cli/`; a generator loads one by path and
+lists it in `GENERATOR_SHARED_MODULES`, so the run lock hashes it. Tests stay `.py`.
+
 ## Documentation: what to trust, and what you owe
 
 ### Use documentation as an index
@@ -247,6 +287,22 @@ match a higher one without checking which is actually wrong.
 
 A page being well-written is not evidence that it is current. Verify any enumeration,
 default, or ordering against tier 1 or 2 before repeating it.
+
+### How pages are written
+
+- A page states the current behaviour. Do not frame it against the previous behaviour
+  ("now", "used to", "no longer"); that history belongs in changelog fragments and commit
+  messages. An alias may be listed as an accepted spelling without calling it old.
+- Planned work is described only on page 57 (`57_Future_Architecture_Specifications`) and
+  the pages it indexes (59, 60, 17). Everywhere else (reference and how-to pages, examples,
+  `master_template`, `<repo>/config/`, READMEs) it is absent, including "planned, see page 57"
+  pointers and keys that exist only for a planned feature. Stating that a capability is
+  absent is allowed; source stubs and conductor error messages are fine.
+- The foundational physics pages (19, 22, 23, 26, 28, 34) are updated together with the
+  owner, never authored unsupervised.
+- Before writing that the reason for a design choice is unknown, or asking for it, search
+  `git log` (subject, body, `-S`); commit messages often hold rationale that pages and
+  comments lack. Put this check in the brief of every subagent that writes about the code.
 
 ### Before changing documentation
 
@@ -300,7 +356,10 @@ correct, and it is never a substitute for making the page correct.
 Work on the code or in a campaign is done when its trail is complete, so that both the
 code reasoning and the scientific reasoning can be found later:
 
-- a changelog fragment for every push to `main`;
+- a changelog fragment for every push to `main`, in a shape CI's Doxygen accepts: one
+  top-level bullet with everything nested, plain prose, or several top-level bullets after a
+  leading blank line; never de-dent back to column 0 after nesting
+  (`docs/changelog.d/README.md`);
 - repository documentation, directory `guide.md` files and code comments that describe the
   behaviour as it now is;
 - the research log on Overleaf (local clone `../picurv-research-log`): Part I describes the
