@@ -25,16 +25,32 @@ Closed-form update implemented in code:
 \f[
 \Psi^{n+1}=\tilde\Psi + (\Psi^n-\tilde\Psi)e^{-\Omega\Delta t},
 \qquad
-\tilde\Psi = \langle\Psi\rangle_c + \nabla\langle\Psi\rangle\cdot(\mathbf{x}-\bar{\mathbf{x}}_c).
+\tilde\Psi_p = m_c + \zeta_c\,\nabla\langle\Psi\rangle\cdot(\mathbf{x}_p-\mathbf{x}_c),
+\qquad
+m_c = \frac{\sum_{q\in c} w_q\Psi_q}{\sum_{q\in c} w_q},\quad
+\mathbf{x}_c = \frac{\sum_{q\in c} w_q\mathbf{x}_q}{\sum_{q\in c} w_q},\quad
+w_q = 1-e^{-\Omega_q\Delta t}.
 \f]
 
-The target \f$\tilde\Psi\f$ is the host cell's linear reconstruction: its scattered mean
-\f$\langle\Psi\rangle_c\f$, plus the gradient of the cell means at the cell times the
-particle's offset from \f$\bar{\mathbf{x}}_c\f$, the centroid of the cell's particles. The
-gradient is the central difference of neighbouring cell means, one-sided into the domain at a
-non-periodic boundary, mapped with the cell's metrics; along an axis whose stencil reaches a
-cell with no particles it is zero. The offsets average to zero over the cell, so each cell's
-mean, and its total, are unchanged. Relaxing toward the stepped mean alone would pull every
+The target \f$\tilde\Psi_p\f$ is the host cell's limited linear reconstruction (Jenny et al.
+2001, Eq. 48; Viswanathan, Wang & Pope 2011). Its parts:
+
+- \f$m_c\f$ and \f$\mathbf{x}_c\f$ are the cell's mean `Psi` and particle centroid, each weighted by
+  the particle's relaxation weight \f$w_q\f$, the fraction of the way it moves toward its target
+  in one step. With that weighting the update keeps every cell's `Psi` total exactly for any
+  slope, even when particles in one cell relax at different rates (\f$\Gamma_{eff}\f$ varies
+  between particles under LES).
+- \f$\nabla\langle\Psi\rangle\f$ is the gradient of the plain cell means from the previous
+  scatter: the central difference of neighbouring cell means, one-sided into the domain at a
+  non-periodic boundary, mapped with the cell's metrics, and zero along an axis whose stencil
+  reaches a cell with no particles.
+- \f$\zeta_c\in[0,1]\f$ is the largest factor that keeps every target of the cell's particles
+  within the minimum and maximum `Psi` of all particles at the start of the step (a global
+  reduction). The unlimited slope carries a front's gradient into neighbouring pure cells and
+  pushes their targets outside the scalar's range; in the duct-bend R2 pilot 9-18% of particles
+  left [0, 1], by up to 0.07. With the limiter no particle leaves the range.
+
+Relaxing toward the stepped mean alone would pull every
 particle toward its own cell's value, which transports the resolved mean as extra diffusion:
 by a factor \f$x\coth x\f$, \f$x = \tfrac{1}{2}\sqrt{C_{IEM}}\,h/\Delta\f$ for cell width
 \f$h\f$ across the gradient (+16% at the default constant on cubic cells), which refinement does
@@ -110,9 +126,35 @@ with each cell's sum kept, and `iem-reconstruction-across-seams` in `make unit-m
 at 2 and 4 ranks; and `TestConfiguredParticleInitialValue`
 checks that a configured value reaches every particle and the t=0 cell mean.
 
-**Not validated:** the model. No turbulent flow has been run against a measured
-scalar-variance decay, so `C_IEM = 2` and the mixing time scale
-\f$V^{2/3}/(C_{IEM}\Gamma_{eff})\f$ are conventional choices, not calibrated ones.
+**Verified** (measurement `iem-aprime-update-2026-11-15`): the limited, weighted target above.
+In the zero-flow case of `iem-variance-decay-2026-10-01` (8^3 cells, 64 particles per cell,
+2 ranks) the within-cell variance follows \f$e^{-2\Omega t}\f$ within 0.52% (`C_IEM` = 20) and
+0.37% (`C_IEM` = 200) over its first e-fold, and matches a 64-seed NumPy emulation of this step to
+within 2.66 and 0.91 seed standard deviations at every output step, over 2.1 and 2.5 decades.
+`Psi` stays within [0, 1] to about 1e-18 and the `Psi` budget closes to about 1e-13 per block in
+every duct-bend run. The unit tests `iem-keeps-cell-totals-with-varying-rates` and
+`iem-stays-within-particle-extrema` in `make unit-mpi` fail without the weighting and the
+limiter respectively.
+
+**Cost of the limiter:** in the two-stream plug flow above, effective diffusivity rises by
++0.17% (`C_IEM` = 2) and +0.25% (`C_IEM` = 4) against the unlimited target, the same for every
+seed, and falls only slowly with particles per cell (to +0.12% and +0.21% at 60 per cell). The
+reading is that near a resolved front the scalar is curved within a cell, so the linear target
+overshoots at the front's edges and the limiter flattens the slope there; it should fall with
+front resolution, which is not tested. The fraction of cells with \f$\zeta_c<1\f$ is not
+reported by any output. On a coupled 128^3 case with 105 M particles the step costs 6.8% more,
+nearly all in the mixing update.
+
+**Not validated:** the model. Two reference flows were run with this update
+(records/2026-11-14_duct-bend_iem-model-checks-and-r1-c-sensitivity, ADDENDUM_A_results.md):
+for a line source in grid turbulence (Warhaft 1984), whose scalar starts finer than a cell, the
+centreline intensity is 3.4 times the measured value at `C_IEM` = 2 and still twice it at 3, so the
+model under-mixes; for the temporal mixing layer of Colucci et al. (1998), where resolved scales
+carry the variance, `C_IEM` = 2 leaves about half the DNS subgrid variance, so it over-mixes,
+while 0.75 comes within about 10%. No single `C_IEM` fits both: the frequency
+\f$C_{IEM}\Gamma_{eff}/V^{2/3}\f$ is tied to the cell size, not to the scalar's own sub-filter
+scale. `C_IEM = 2` remains the conventional default, not a calibrated value. In both flows the
+limited target changes the result by under 1% against the unlimited one.
 
 @subsection p28_running_ssec 1.2 Running a Mixing Case
 
@@ -124,7 +166,7 @@ verification runs, on any case with particles:
 models:
   physics:
     particles:
-      count: 32768
+      particles_per_cell: 64
       init_mode: Volume
       fields:
         Psi: {expression: "where(uniform() < 0.5, 0, 1)"}   # double delta inside every cell
