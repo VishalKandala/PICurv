@@ -1,0 +1,1 @@
+- Measurement record `iem-aprime-update-2026-11-15` re-verifies the A′ IEM update (variance decay at the model rate and against an emulation of the A′ step, bounds, budgets, plug-flow diffusion shift, reference flows), so `particles.scalar_mixing` stays supported; pages 11 and 52 describe `--continue` loading the particles its checkpoint holds.
