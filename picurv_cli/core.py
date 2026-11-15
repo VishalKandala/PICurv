@@ -6897,6 +6897,15 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 f"--continue starts at step {start_step}, but this run's last committed "
                 f"checkpoint is step {last_step}. Set run_control.start_step to {last_step}."
             )
+        if last_step is not None and load_particles_on_continuation(case_cfg, source_output, start_step):
+            # Reported on stderr: the dry-run planner shares this path and owns stdout.
+            print(
+                f"[INFO] --continue: the checkpoint at step {start_step} holds particles; setting "
+                "particle restart_mode='load'. Branch with --restart-from to seed a new population.",
+                file=sys.stderr,
+            )
+            particle_needs = True
+            requires_source = needs_restart_source(case_cfg, solver_cfg)
 
         if eulerian_source == "load":
             # Preserve the saved sequence under the run's immutable restart input.
@@ -7003,23 +7012,25 @@ def load_particles_on_continuation(case_cfg: dict, output_dir: str, step: int) -
              state must restore it; `restart_mode: init` would make the solver seed a new
              population over it. Sets models.physics.particles.restart_mode to 'load' in
              `case_cfg` when particles are configured and the committed checkpoint at
-             `step` holds particle state.
+             `step` holds particle state. A seed into a developed flow is a branch
+             (`--restart-from` with 'init'), never a continuation. A flow-only checkpoint
+             keeps the configured mode, so particles can still be introduced in place.
+             Called by both the `run --continue` path (resolve_restart_source) and the
+             sweep/study continuation (prepare_case_for_continuation).
     @param[in,out] case_cfg Parsed case YAML dictionary; updated in place.
     @param[in] output_dir Run output root holding the checkpoint.
     @param[in] step Checkpoint step the continuation starts from.
     @return True when restart_mode was changed to 'load'.
+    @throws ValueError When the bundle at `step` exists but is damaged: reading it as
+            "no particles" would re-seed silently, the failure this guards against.
     """
     particles_cfg = (case_cfg.get("models", {}).get("physics", {}) or {}).get("particles")
-    checkpoint_has_particles = False
-    try:
-        checkpoint_has_particles = validate_committed_checkpoint(
-            output_dir, step, require_particles=True
-        )["has_particles"]
-    except CheckpointIndexWidthError:
-        raise
-    except ValueError:
-        checkpoint_has_particles = False
-    if particles_cfg is not None and checkpoint_has_particles:
+    if particles_cfg is None:
+        return False
+    if not os.path.isfile(os.path.join(_checkpoint_bundle_path(output_dir, step), "COMMITTED")):
+        return False
+    checkpoint_has_particles = validate_committed_checkpoint(output_dir, step)["has_particles"]
+    if checkpoint_has_particles:
         current_mode = str(particles_cfg.get("restart_mode", "init")).strip().lower()
         if current_mode != "load":
             particles_cfg["restart_mode"] = "load"

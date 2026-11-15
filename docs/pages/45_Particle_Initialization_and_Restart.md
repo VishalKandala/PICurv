@@ -386,6 +386,7 @@ Operational note:
 - Choose `restart_mode: load` to continue the existing particle swarm.
 - Choose `restart_mode: init` to reseed a fresh particle population in the restarted flow field.
 - Point `picurv` at the previous run with `--restart-from <previous_run_dir>` on the CLI (or `--continue` to resume the most recent run of the same case).
+- `--continue` resumes one trajectory, so when the committed checkpoint it starts from holds particle state, `picurv` sets `restart_mode: load` and reports it, whatever the case file says (`run`, `sweep` and study continuations alike). A continuation from a flow-only checkpoint keeps the configured mode, so particles can still be introduced in place. To seed a fresh population into a flow whose checkpoint already holds particles, branch a new run with `--restart-from` and `restart_mode: init`.
 
 For loaded particles, fast migration path:
 
@@ -424,7 +425,7 @@ For loaded particles:
 
 **Parameters it owns.** None of its own. It selects which branch consumes `models.physics.particles.init_mode` and its parameters - see @ref p45_entries_sec.
 
-**Interactions.** Independent of `eulerian_field_source`: a run may load fields and still init particles. Combined with a field restart it is the standard 'new swarm, developed flow' configuration.
+**Interactions.** Independent of `eulerian_field_source`: a run may load fields and still init particles. Combined with a field restart it is the standard 'new swarm, developed flow' configuration. On an in-place `--continue` from a checkpoint that holds particles it is replaced by `load` (@ref p45_restart_matrix_sec); use `--restart-from` for a fresh swarm there.
 
 **Diagnostics.** The startup banner reports the resolved particle restart mode and the seeded count. A swarm that seeds at the wrong size shows here, before the first step.
 

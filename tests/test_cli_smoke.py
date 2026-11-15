@@ -6936,6 +6936,143 @@ def test_continue_mode_auto_populates_restart(tmp_path):
     assert (bundle / "eulerian" / "block_0000" / "Ucat.dat").exists()
 
 
+def _continuation_control(picurv, tmp_path, case_cfg, solver_cfg, monitor_cfg, args, run_dir):
+    """!
+    @brief Resolve a restart and generate its solver control file from the same case dictionary.
+    @param[in] picurv Loaded CLI module.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] case_cfg Case dictionary; restart resolution may update it in place.
+    @param[in] solver_cfg Solver dictionary.
+    @param[in] monitor_cfg Monitor dictionary.
+    @param[in] args Restart arguments (restart_from / continue_run / run_dir).
+    @param[in] run_dir Run directory receiving the restart input and control file.
+    @return Text of the generated control file.
+    """
+    valid = FIXTURES / "valid"
+    resolved, is_continue, _lineage = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
+    )
+    case_path = tmp_path / "case_as_given.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+    source_files = {"Case": str(case_path), "Solver": str(valid / "solver.yml"),
+                    "Monitor": str(valid / "monitor.yml")}
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir), "demo",
+        {"case": case_cfg, "case_path": str(case_path), "solver": solver_cfg,
+         "solver_path": str(valid / "solver.yml"), "monitor": monitor_cfg,
+         "monitor_path": str(valid / "monitor.yml")},
+        1, monitor_files, restart_source_dir=resolved, continue_mode=is_continue,
+    )
+    return Path(control_file).read_text(encoding="utf-8")
+
+
+def _particle_restart_case(picurv, restart_mode):
+    """!
+    @brief Load the valid fixture as a particle restart at step 10.
+    @param[in] picurv Loaded CLI module.
+    @param[in] restart_mode Particle restart_mode to set, or None to leave it absent.
+    @return Tuple of (case_cfg, solver_cfg, monitor_cfg).
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    case_cfg["run_control"]["start_step"] = 10
+    particles = case_cfg["models"]["physics"].setdefault("particles", {})
+    particles.pop("restart_mode", None)
+    if restart_mode is not None:
+        particles["restart_mode"] = restart_mode
+    return case_cfg, solver_cfg, monitor_cfg
+
+
+@pytest.mark.parametrize("restart_mode", ["init", None])
+def test_run_continue_loads_the_particles_a_checkpoint_holds(tmp_path, restart_mode, capsys):
+    """!
+    @brief `run --continue` from a particle checkpoint restores the particles, whatever the case file says.
+
+    A case file reused from a branched restart still says restart_mode 'init'; passed through, the
+    solver seeds a new population over the checkpoint's (FINDING 2026-11-15, thread
+    dev_continue-particle-load). Both an explicit 'init' and an absent mode must reach the control
+    file as 'load'. Fails if resolve_restart_source stops calling load_particles_on_continuation.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] restart_mode Particle restart_mode in the case file (None: absent).
+    @param[in] capsys Pytest output-capture fixture.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg = _particle_restart_case(picurv, restart_mode)
+    run_dir = tmp_path / "my_run"
+    (run_dir / "config").mkdir(parents=True)
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), case_cfg)
+    write_eulerian_checkpoint(run_dir / "output", 10, "euler", include_particles=True)
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    control = _continuation_control(picurv, tmp_path, case_cfg, solver_cfg, monitor_cfg, args, run_dir)
+
+    assert '-particle_restart_mode "load"' in control
+    assert "setting particle restart_mode='load'" in capsys.readouterr().err
+    staged = run_dir / picurv.CANONICAL_RUN_PATHS["restart"] / "checkpoints" / "step_000000000010"
+    assert (staged / "particles" / "position.dat").is_file()
+
+
+def test_run_continue_keeps_init_on_a_flow_only_checkpoint(tmp_path):
+    """!
+    @brief Control: continuing a flow-only checkpoint keeps 'init', so particles can still be introduced in place.
+    @details Fails if the continuation rule switched to 'load' without checking that the checkpoint holds particles.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg = _particle_restart_case(picurv, "init")
+    run_dir = tmp_path / "my_run"
+    (run_dir / "config").mkdir(parents=True)
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), case_cfg)
+    write_eulerian_checkpoint(run_dir / "output", 10, "euler")
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    control = _continuation_control(picurv, tmp_path, case_cfg, solver_cfg, monitor_cfg, args, run_dir)
+
+    assert '-particle_restart_mode "init"' in control
+
+
+def test_restart_from_keeps_init_on_a_particle_checkpoint(tmp_path):
+    """!
+    @brief Control: a branched restart with 'init' still seeds a new population into a particle checkpoint's flow.
+    @details Fails if the continuation rule leaked into the --restart-from branch.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg = _particle_restart_case(picurv, "init")
+    source_run = tmp_path / "source_run"
+    (source_run / "config").mkdir(parents=True)
+    picurv.write_yaml_file(str(source_run / "config" / "monitor.yml"), monitor_cfg)
+    write_eulerian_checkpoint(source_run / "output", 10, "euler", include_particles=True)
+    new_run = tmp_path / "new_run"
+    (new_run / "config").mkdir(parents=True)
+    args = SimpleNamespace(restart_from=str(source_run), continue_run=False, run_dir=None,
+                           statistics_state="reset")
+
+    control = _continuation_control(picurv, tmp_path, case_cfg, solver_cfg, monitor_cfg, args, new_run)
+
+    assert '-particle_restart_mode "init"' in control
+
+
+def test_load_particles_on_continuation_refuses_a_damaged_particle_bundle(tmp_path):
+    """!
+    @brief A damaged checkpoint raises instead of reading as "no particles", which would re-seed silently.
+    @details Fails if load_particles_on_continuation swallows the validation error (as the sweep path once did).
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = load_picurv_module()
+    case_cfg, _solver_cfg, _monitor_cfg = _particle_restart_case(picurv, "init")
+    bundle = write_eulerian_checkpoint(tmp_path / "output", 10, "euler", include_particles=True)
+    (bundle / "particles" / "position.dat").write_text("x", encoding="utf-8")   # truncated
+
+    with pytest.raises(ValueError, match="missing or truncated"):
+        picurv.load_particles_on_continuation(case_cfg, str(tmp_path / "output"), 10)
+    assert case_cfg["models"]["physics"]["particles"]["restart_mode"] == "init"
+    assert picurv.load_particles_on_continuation(case_cfg, str(tmp_path / "output"), 20) is False
+
+
 def test_continue_refuses_to_start_before_the_last_committed_checkpoint(tmp_path):
     """!
     @brief Test that an in-place continuation cannot rewind a run.
