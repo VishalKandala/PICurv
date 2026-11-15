@@ -6996,6 +6996,37 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                 source[key] = resolve_path(case_anchor_path, value)
 
 
+def load_particles_on_continuation(case_cfg: dict, output_dir: str, step: int) -> bool:
+    """!
+    @brief Make an in-place continuation load the particles its checkpoint holds.
+    @details A continuation resumes one trajectory, so a checkpoint that carries particle
+             state must restore it; `restart_mode: init` would make the solver seed a new
+             population over it. Sets models.physics.particles.restart_mode to 'load' in
+             `case_cfg` when particles are configured and the committed checkpoint at
+             `step` holds particle state.
+    @param[in,out] case_cfg Parsed case YAML dictionary; updated in place.
+    @param[in] output_dir Run output root holding the checkpoint.
+    @param[in] step Checkpoint step the continuation starts from.
+    @return True when restart_mode was changed to 'load'.
+    """
+    particles_cfg = (case_cfg.get("models", {}).get("physics", {}) or {}).get("particles")
+    checkpoint_has_particles = False
+    try:
+        checkpoint_has_particles = validate_committed_checkpoint(
+            output_dir, step, require_particles=True
+        )["has_particles"]
+    except CheckpointIndexWidthError:
+        raise
+    except ValueError:
+        checkpoint_has_particles = False
+    if particles_cfg is not None and checkpoint_has_particles:
+        current_mode = str(particles_cfg.get("restart_mode", "init")).strip().lower()
+        if current_mode != "load":
+            particles_cfg["restart_mode"] = "load"
+            return True
+    return False
+
+
 def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
                                    target_final_step: int, cluster_cfg: dict):
     """!
@@ -7022,21 +7053,8 @@ def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
     print(f"[INFO] {case_id}: updating start_step={last_step}, total_steps={remaining}")
 
     output_dir = resolve_run_output_dir(run_dir, monitor_cfg)
-    particles_cfg = (case_cfg.get("models", {}).get("physics", {}) or {}).get("particles")
-    checkpoint_has_particles = False
-    try:
-        checkpoint_has_particles = validate_committed_checkpoint(
-            output_dir, last_step, require_particles=True
-        )["has_particles"]
-    except CheckpointIndexWidthError:
-        raise
-    except ValueError:
-        checkpoint_has_particles = False
-    if particles_cfg is not None and checkpoint_has_particles:
-        current_mode = str(particles_cfg.get("restart_mode", "init")).strip().lower()
-        if current_mode != "load":
-            particles_cfg["restart_mode"] = "load"
-            print(f"[INFO] {case_id}: setting particle restart_mode='load' (checkpoint found)")
+    if load_particles_on_continuation(case_cfg, output_dir, last_step):
+        print(f"[INFO] {case_id}: setting particle restart_mode='load' (checkpoint found)")
 
     write_yaml_file(os.path.join(config_dir, "case.yml"), case_cfg)
 
