@@ -276,6 +276,9 @@ How to think about this workflow:
 - the saved field state is loaded from existing restart/output files referenced by the current restart path contract,
 - `--restart-from` on the CLI is the preferred way to point `picurv` at the old run automatically,
 - use `--continue` as a shorthand when resuming from the most recent run of the same case,
+- `--continue` resumes one trajectory: when its checkpoint holds particle state, `picurv` sets `restart_mode: load` and
+  reports it on stderr, whatever the case file says; a fresh swarm in a developed flow is a branch (`--restart-from`
+  with `restart_mode: init`),
 - the old run directory is not mutated in place by `picurv`.
 
 Before launching a restart, verify:
@@ -291,7 +294,7 @@ Common restart mistakes:
 
 - Setting `start_step: 501` after a run that ended at 500. Use `start_step: 500`.
 - Setting `solver.yml -> operation_mode.eulerian_field_source: load` for a continuation. That replays stored fields instead of solving, and fails at the first step with no checkpoint.
-- Forgetting to choose `particles.restart_mode: load` or `init` explicitly.
+- Forgetting to choose `particles.restart_mode: load` or `init` explicitly for a `--restart-from` branch (an in-place `--continue` from a particle checkpoint always loads).
 - Trying to restart from a step that was never written to disk.
 
 Verification:

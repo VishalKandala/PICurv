@@ -563,7 +563,7 @@ identity.
 | Change | Accepted? | Advised? | Basis |
 |---|---|---|---|
 | `run_control` (more timesteps) | yes | yes | enforced — excluded from the identity hash |
-| Particle `restart_mode` | yes | yes | enforced — excluded from the identity hash |
+| Particle `restart_mode` | yes | yes | enforced — excluded from the identity hash; on a checkpoint that holds particles, `--continue` sets it to `load` (`load_particles_on_continuation`) |
 | Monitor cadence / logging | yes | yes | enforced — `monitor.yml` is outside the identity |
 | Post-processing recipe | yes | yes | enforced — `post.yml` is outside the identity |
 | Solver tolerances | yes | discouraged | enforced (accepted); effect not characterized |
