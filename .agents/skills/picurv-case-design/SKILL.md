@@ -78,8 +78,9 @@ checkpoints a run that overruns. The measured cost must include the checkpoint w
 write at the real particle count (a particle checkpoint can take minutes), and add the writes the
 run will make to the per-step estimate. The pilot's first ~100 steps contain none. Then set the
 guard so its own final write fits: the guard stops when the time left falls to
-max(`walltime_guard.min_seconds`, `multiplier` x the step estimate), and between cadence writes
-that is about one step. In the cluster file, set `walltime_guard.min_seconds` to at least 1.5x
+max(`walltime_guard.min_seconds`, `multiplier` x a step estimate that counts a write only on the
+step that made it). Between cadence writes that is about two steps, and the guard's own final
+write is not reserved. In the cluster file, set `walltime_guard.min_seconds` to at least 1.5x
 the measured write. If the job relies on an early signal (`sbatch_passthrough.signal:
 "USR1@<s>"`), set its lead to at least the write plus one step. Prefer one job sized to finish
 over a short job plus continuations: each continuation waits in the queue again. Pack short related runs into one allocation (stage each with
