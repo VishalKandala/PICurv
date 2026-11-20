@@ -74,7 +74,15 @@ A pilot run of its own is for physics, not timing: it must reach the time or sta
 physics of interest - and its failure modes - appear, or say plainly what it cannot show.
 
 Size each walltime request at about 1.3-1.5 times the measured cost; the walltime guard
-checkpoints a run that overruns. Pack short related runs into one allocation (stage each with
+checkpoints a run that overruns. The measured cost must include the checkpoint writes: time one
+write at the real particle count (a particle checkpoint can take minutes), and add the writes the
+run will make to the per-step estimate. The pilot's first ~100 steps contain none. Then set the
+guard so its own final write fits: the guard stops when the time left falls to
+max(`walltime_guard.min_seconds`, `multiplier` x the step estimate), and between cadence writes
+that is about one step. In the cluster file, set `walltime_guard.min_seconds` to at least 1.5x
+the measured write. If the job relies on an early signal (`sbatch_passthrough.signal:
+"USR1@<s>"`), set its lead to at least the write plus one step. Prefer one job sized to finish
+over a short job plus continuations: each continuation waits in the queue again. Pack short related runs into one allocation (stage each with
 `picurv run --no-submit`, then run their `solver.sbatch` in sequence) only while the summed
 request stays a few hours; schedulers deprioritise long requests, so longer runs go as separate
 `picurv submit --run-dir` jobs. Large campaigns need the owner's approval; approval does not
