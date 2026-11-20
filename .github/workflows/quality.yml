@@ -7,7 +7,9 @@ on:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to Doxygen 1.15.0, which hangs on tests/tooling/*.py (#56).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
