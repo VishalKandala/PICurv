@@ -1,0 +1,1 @@
+- CI: the docs and quality workflows run on `ubuntu-24.04` (Doxygen 1.9.8) with a 30-minute job limit; `ubuntu-latest` ships Doxygen 1.15.0, which hangs on the Python tooling sources (#56).
