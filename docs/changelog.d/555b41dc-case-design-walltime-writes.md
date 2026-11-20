@@ -1,0 +1,1 @@
+- Agent skill `picurv-case-design` §6: a walltime estimate includes the checkpoint writes, measured at the real particle count; `walltime_guard.min_seconds` and the `USR1` signal lead are set from that measured write, because the guard reserves about two steps between writes and not its own final write; one job sized to finish is preferred over a short job plus continuations.
